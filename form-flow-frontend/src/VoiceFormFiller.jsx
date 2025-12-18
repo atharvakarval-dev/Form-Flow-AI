@@ -19,8 +19,27 @@ const VoiceFormFiller = ({ formSchema, formContext, onComplete }) => {
   const formDataRef = useRef({}); // Ref to track form data to avoid stale closures
   const audioRef = useRef(null); // Ref for audio playback
   const idleTimeoutRef = useRef(null); // Ref for idle repeat timer
+  const [userProfile, setUserProfile] = useState(null); // User profile for auto-fill
+  const [autoFilledFields, setAutoFilledFields] = useState({}); // Track auto-filled fields
 
   const [lastFilled, setLastFilled] = useState(null); // Track last answer
+
+  // Field name mappings for auto-fill (form field names -> user profile keys)
+  const fieldMappings = {
+    // Name fields
+    'first_name': 'first_name', 'firstname': 'first_name', 'fname': 'first_name', 'given_name': 'first_name',
+    'last_name': 'last_name', 'lastname': 'last_name', 'lname': 'last_name', 'surname': 'last_name', 'family_name': 'last_name',
+    // Email fields
+    'email': 'email', 'mail': 'email', 'e_mail': 'email', 'emailid': 'email', 'email_id': 'email',
+    // Phone fields
+    'mobile': 'mobile', 'phone': 'mobile', 'telephone': 'mobile', 'cell': 'mobile', 'contact': 'mobile',
+    'mobile_number': 'mobile', 'phone_number': 'mobile',
+    // Location fields
+    'country': 'country', 'nation': 'country',
+    'state': 'state', 'province': 'state', 'region': 'state',
+    'city': 'city', 'town': 'city',
+    'pincode': 'pincode', 'zip': 'pincode', 'zipcode': 'pincode', 'postal_code': 'pincode', 'postalcode': 'pincode',
+  };
 
   // Sync ref with state
   useEffect(() => {
@@ -67,10 +86,72 @@ const VoiceFormFiller = ({ formSchema, formContext, onComplete }) => {
     };
   }, []);
 
+  // Fetch user profile for auto-fill
+  useEffect(() => {
+    const fetchUserProfile = async () => {
+      const token = localStorage.getItem('token');
+      if (!token) return;
+
+      try {
+        const response = await axios.get('http://localhost:8000/users/me', {
+          headers: { Authorization: `Bearer ${token}` }
+        });
+        setUserProfile(response.data);
+        console.log('📋 User profile loaded for auto-fill:', response.data);
+      } catch (error) {
+        console.warn('Could not fetch user profile for auto-fill:', error);
+      }
+    };
+
+    fetchUserProfile();
+  }, []);
+
+  // Auto-fill matching fields from user profile
+  useEffect(() => {
+    if (!userProfile || allFields.length === 0) return;
+
+    const autoFilled = {};
+
+    allFields.forEach(field => {
+      const fieldNameLower = field.name.toLowerCase().replace(/[-_\s]/g, '');
+      const labelLower = (field.label || '').toLowerCase().replace(/[-_\s]/g, '');
+
+      // Check if this field matches any user profile field
+      for (const [pattern, profileKey] of Object.entries(fieldMappings)) {
+        const patternClean = pattern.replace(/[-_\s]/g, '');
+
+        if (fieldNameLower.includes(patternClean) || labelLower.includes(patternClean)) {
+          const profileValue = userProfile[profileKey];
+          if (profileValue) {
+            autoFilled[field.name] = profileValue;
+            console.log(`✅ Auto-filled '${field.name}' with '${profileValue}' from '${profileKey}'`);
+            break;
+          }
+        }
+      }
+    });
+
+    if (Object.keys(autoFilled).length > 0) {
+      setAutoFilledFields(autoFilled);
+      setFormData(prev => ({ ...prev, ...autoFilled }));
+      formDataRef.current = { ...formDataRef.current, ...autoFilled };
+    }
+  }, [userProfile, allFields]);
+
   // Effect to handle field changes: Update prompt and Play Audio ONCE
+  // Skip auto-filled fields
   useEffect(() => {
     if (allFields.length > 0 && currentFieldIndex < allFields.length) {
       const field = allFields[currentFieldIndex];
+
+      // Skip this field if it was auto-filled
+      if (autoFilledFields[field.name]) {
+        console.log(`⏭️ Skipping auto-filled field: ${field.name}`);
+        setLastFilled({ label: field.label || field.name, value: autoFilledFields[field.name], auto: true });
+        handleNextField(currentFieldIndex);
+        return;
+      }
+
       const prompt = field.smart_prompt || `Please provide ${field.label || field.name}`;
       setCurrentPrompt(prompt);
 
@@ -80,7 +161,7 @@ const VoiceFormFiller = ({ formSchema, formContext, onComplete }) => {
       // Start idle timer - repeat after 15s if no user action
       startIdleTimer(field.name);
     }
-  }, [currentFieldIndex, allFields]);
+  }, [currentFieldIndex, allFields, autoFilledFields]);
 
   // Idle timer: Repeat prompt after 15 seconds of silence
   const startIdleTimer = (fieldName) => {
@@ -243,7 +324,10 @@ const VoiceFormFiller = ({ formSchema, formContext, onComplete }) => {
                     className="flex items-center gap-2 px-4 py-1.5 rounded-full bg-green-500/10 border border-green-500/20 text-xs font-medium text-green-300"
                   >
                     <CheckCircle size={12} />
-                    <span>Captured: <strong className="text-white">{lastFilled.value}</strong> for {lastFilled.label}</span>
+                    <span>
+                      {lastFilled.auto ? '🤖 Auto-filled: ' : 'Captured: '}
+                      <strong className="text-white">{lastFilled.value}</strong> for {lastFilled.label}
+                    </span>
                   </motion.div>
                 )}
               </AnimatePresence>
