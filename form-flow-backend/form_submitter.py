@@ -223,6 +223,48 @@ class FormSubmitter:
         # Wait a bit after filling all fields
         await asyncio.sleep(1)
         
+        # Auto-check all unchecked checkboxes (Privacy Policy, Terms of Service, etc.)
+        try:
+            await page.evaluate("""
+                () => {
+                    // Find all unchecked checkboxes and check them
+                    const checkboxes = document.querySelectorAll('input[type="checkbox"]:not(:checked)');
+                    checkboxes.forEach(checkbox => {
+                        if (!checkbox.disabled) {
+                            checkbox.checked = true;
+                            checkbox.dispatchEvent(new Event('change', { bubbles: true }));
+                            checkbox.dispatchEvent(new Event('input', { bubbles: true }));
+                            console.log('Auto-checked checkbox:', checkbox.name || checkbox.id || 'unnamed');
+                        }
+                    });
+                    
+                    // Also handle Material/Angular style checkboxes
+                    const matCheckboxes = document.querySelectorAll('mat-checkbox:not(.mat-checkbox-checked)');
+                    matCheckboxes.forEach(matCb => {
+                        const input = matCb.querySelector('input');
+                        const label = matCb.querySelector('label') || matCb;
+                        if (input && !input.disabled) {
+                            label.click();
+                            console.log('Auto-clicked Material checkbox');
+                        }
+                    });
+                    
+                    // Handle custom checkbox divs with role="checkbox"
+                    const roleCheckboxes = document.querySelectorAll('[role="checkbox"][aria-checked="false"]');
+                    roleCheckboxes.forEach(cb => {
+                        cb.click();
+                        console.log('Auto-clicked role checkbox');
+                    });
+                    
+                    return true;
+                }
+            """)
+            print("✅ Auto-checked all unchecked checkboxes (Privacy/Terms)")
+        except Exception as e:
+            print(f"⚠️ Auto-check checkboxes warning: {e}")
+        
+        await asyncio.sleep(0.5)
+        
         # Find and click submit button (with retry)
         submit_success = False
         for attempt in range(3):
