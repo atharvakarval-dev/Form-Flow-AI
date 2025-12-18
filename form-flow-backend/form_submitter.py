@@ -183,7 +183,51 @@ class FormSubmitter:
                 field_mapping[field_name] = field
         
         # Fill each field with the provided data (with retry logic)
+        # Fill each field with the provided data (with retry logic)
+        # First, find any password field value to use for confirmation fields
+        password_value = ""
         for field_name, value in form_data.items():
+            # Exclude known confirmation keywords to find the REAL password
+            if 'password' in field_name.lower() and not any(x in field_name.lower() for x in ['confirm', 'verify', 'retype', 'cpassword', 'cpass']):
+                password_value = value
+                break
+        
+        # Helper to identify confirm fields
+        def is_confirm_field(name, label):
+            n = name.lower()
+            l = (label or '').lower()
+            keywords = ['confirm', 'verify', 'retype', 'cpassword', 'cpass']
+            has_keyword = any(k in n or k in l for k in keywords)
+            is_pass = 'password' in n or 'password' in l
+            return has_keyword and is_pass
+
+        # Smart Fill Loop
+        fields_to_process = []
+        processed_names = set()
+
+        # 1. Process existing data, but OVERWRITE confirm fields
+        for field_name, value in form_data.items():
+            field_info = field_mapping.get(field_name, {})
+            display_label = field_info.get('label') or field_info.get('display_name') or ''
+            
+            if is_confirm_field(field_name, display_label) and password_value:
+                print(f"🔄 Overwriting confirm field '{field_name}' with password value")
+                fields_to_process.append((field_name, password_value))
+            else:
+                fields_to_process.append((field_name, value))
+            processed_names.add(field_name)
+        
+        # 2. Add missing confirm fields from schema
+        for field_name, field_info in field_mapping.items():
+            if field_name not in processed_names:
+                display_label = field_info.get('label') or field_info.get('display_name') or ''
+                
+                if is_confirm_field(field_name, display_label):
+                    if password_value:
+                        print(f"🔄 Auto-filling missing confirm field '{field_name}' with password value")
+                        fields_to_process.append((field_name, password_value))
+
+        for field_name, value in fields_to_process:
             if field_name in field_mapping:
                 field_info = field_mapping[field_name]
                 success = False
@@ -907,6 +951,26 @@ class FormSubmitter:
             success_found = any(indicator in page_text_lower for indicator in success_indicators)
             error_found = any(indicator in page_text_lower for indicator in error_indicators)
             
+            # Smart check: If we see specific red error text or input-error classes, it is definitely an error
+            try:
+                # Common validation error selectors
+                error_selectors = [
+                    ".error", ".invalid-feedback", ".text-danger", ".text-red-500", 
+                    "[color='red']", ".mat-error", "mat-error", 
+                    ".form-error", ".field-error", "div[class*='error']"
+                ]
+                for err_sel in error_selectors:
+                    visible_errors = await page.query_selector_all(f"{err_sel}:visible")
+                    for err in visible_errors:
+                        text = await err.inner_text()
+                        if text and len(text) > 2: # Ignore empty chars
+                            print(f"⚠️ Found visible validation error: {text}")
+                            error_found = True
+                            success_found = False # Invalidate success
+                            break
+            except:
+                pass
+
             # Check URL change (strong indicator)
             current_url = page.url.lower()
             url_changed = False

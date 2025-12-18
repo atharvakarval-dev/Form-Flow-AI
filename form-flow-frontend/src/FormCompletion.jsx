@@ -52,12 +52,15 @@ const FormCompletion = ({ formData, formSchema, originalUrl, onReset }) => {
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 font-sans text-white">
       <style>{`
+        /* Hide scrollbar for Chrome, Safari and Opera */
         .no-scrollbar::-webkit-scrollbar {
-          display: none;
+          display: none !important;
+          width: 0px !important;
+          background: transparent !important;
         }
         .no-scrollbar {
-          -ms-overflow-style: none;
-          scrollbar-width: none;
+          -ms-overflow-style: none !important;  /* IE and Edge */
+          scrollbar-width: none !important;  /* Firefox */
         }
       `}</style>
 
