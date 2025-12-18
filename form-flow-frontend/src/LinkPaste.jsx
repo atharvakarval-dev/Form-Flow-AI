@@ -8,6 +8,7 @@ import TerminalLoader from '@/components/ui/TerminalLoader';
 
 const LinkPaste = () => {
     const [url, setUrl] = useState('');
+    const [scrapedUrl, setScrapedUrl] = useState('');
     const [result, setResult] = useState(null);
     const [loading, setLoading] = useState(false);
     const [showVoiceForm, setShowVoiceForm] = useState(false);
@@ -21,6 +22,7 @@ const LinkPaste = () => {
         try {
             const response = await axios.post("http://localhost:8000/scrape", { url: urlToUse });
             setResult(response.data);
+            setScrapedUrl(urlToUse);
             setUrl('');
         } catch (error) {
             console.log("Error submitting URL:", error);
@@ -52,6 +54,7 @@ const LinkPaste = () => {
         setShowCompletion(false);
         setShowVoiceForm(false);
         setUrl('');
+        setScrapedUrl('');
     }
 
     if (showCompletion && completedData && result) {
@@ -59,7 +62,7 @@ const LinkPaste = () => {
             <FormCompletion
                 formData={completedData}
                 formSchema={result.form_schema}
-                originalUrl={url}
+                originalUrl={scrapedUrl}
                 onReset={handleReset}
             />
         );
