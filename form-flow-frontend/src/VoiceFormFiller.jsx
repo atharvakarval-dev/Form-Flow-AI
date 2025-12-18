@@ -18,6 +18,7 @@ const VoiceFormFiller = ({ formSchema, formContext, onComplete }) => {
   const indexRef = useRef(0); // Ref to track current index to avoid stale closures
   const formDataRef = useRef({}); // Ref to track form data to avoid stale closures
   const audioRef = useRef(null); // Ref for audio playback
+  const idleTimeoutRef = useRef(null); // Ref for idle repeat timer
 
   const [lastFilled, setLastFilled] = useState(null); // Track last answer
 
@@ -26,18 +27,21 @@ const VoiceFormFiller = ({ formSchema, formContext, onComplete }) => {
     indexRef.current = currentFieldIndex;
   }, [currentFieldIndex]);
 
-  const allFields = formSchema.flatMap(form =>
-    form.fields.filter(field =>
-      !field.hidden &&
-      field.type !== 'submit' &&
-      // Skip confirm password fields
-      !(field.type === 'password' && (
-        field.name.toLowerCase().includes('confirm') ||
-        field.name.toLowerCase().includes('cpassword') ||
-        field.name.toLowerCase().includes('verify')
-      ))
-    )
-  );
+  // Memoize fields to prevent re-triggering effects on parent re-renders
+  const allFields = React.useMemo(() => {
+    return formSchema.flatMap(form =>
+      form.fields.filter(field =>
+        !field.hidden &&
+        field.type !== 'submit' &&
+        // Skip confirm password fields
+        !(field.type === 'password' && (
+          field.name.toLowerCase().includes('confirm') ||
+          field.name.toLowerCase().includes('cpassword') ||
+          field.name.toLowerCase().includes('verify')
+        ))
+      )
+    );
+  }, [formSchema]);
 
   useEffect(() => {
     // Initialize browser STT
@@ -59,20 +63,42 @@ const VoiceFormFiller = ({ formSchema, formContext, onComplete }) => {
         audioRef.current.pause();
         audioRef.current = null;
       }
+      clearTimeout(idleTimeoutRef.current);
     };
   }, []);
 
-  // Effect to handle field changes: Update prompt and Play Audio
+  // Effect to handle field changes: Update prompt and Play Audio ONCE
   useEffect(() => {
     if (allFields.length > 0 && currentFieldIndex < allFields.length) {
       const field = allFields[currentFieldIndex];
       const prompt = field.smart_prompt || `Please provide ${field.label || field.name}`;
       setCurrentPrompt(prompt);
 
-      // Auto-play audio for the field
+      // Auto-play audio for the field (once)
       playPrompt(field.name);
+
+      // Start idle timer - repeat after 15s if no user action
+      startIdleTimer(field.name);
     }
   }, [currentFieldIndex, allFields]);
+
+  // Idle timer: Repeat prompt after 15 seconds of silence
+  const startIdleTimer = (fieldName) => {
+    clearTimeout(idleTimeoutRef.current);
+    idleTimeoutRef.current = setTimeout(() => {
+      console.log("User idle, repeating prompt...");
+      playPrompt(fieldName);
+      // Restart timer for next repeat
+      startIdleTimer(fieldName);
+    }, 15000); // 15 seconds
+  };
+
+  // Clear idle timer when user speaks
+  useEffect(() => {
+    if (transcript) {
+      clearTimeout(idleTimeoutRef.current);
+    }
+  }, [transcript]);
 
   const playPrompt = (fieldName) => {
     if (!fieldName) return;
@@ -284,8 +310,8 @@ const VoiceFormFiller = ({ formSchema, formContext, onComplete }) => {
             <button
               onClick={toggleListening}
               className={`w-20 h-20 rounded-full flex items-center justify-center transition-all duration-300 shadow-2xl ${isListening
-                  ? 'bg-red-500/20 text-red-400 border border-red-500/50 hover:bg-red-500/30 shadow-[0_0_30px_rgba(239,68,68,0.3)]'
-                  : 'bg-green-500 text-black hover:scale-105 shadow-[0_0_30px_rgba(34,197,94,0.4)]'
+                ? 'bg-red-500/20 text-red-400 border border-red-500/50 hover:bg-red-500/30 shadow-[0_0_30px_rgba(239,68,68,0.3)]'
+                : 'bg-green-500 text-black hover:scale-105 shadow-[0_0_30px_rgba(34,197,94,0.4)]'
                 }`}
             >
               {isListening ? <MicOff size={32} /> : <Mic size={32} />}
