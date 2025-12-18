@@ -78,14 +78,14 @@ export function LoginForm() {
                                     <div className="space-y-2 group">
                                         <label className="text-xs text-white/50 uppercase font-semibold tracking-wider ml-1">Email</label>
                                         <div className="relative">
-                                            <MailIcon className="absolute left-4 top-4 h-5 w-5 text-white/40" />
+                                            <MailIcon className="absolute left-4 top-4 h-5 w-5 text-white/60 pointer-events-none" />
                                             <input
                                                 type="email"
                                                 required
                                                 value={formData.email}
                                                 onChange={(e) => handleInputChange("email", e.target.value)}
                                                 placeholder="name@example.com"
-                                                className="w-full h-12 bg-white/5 border border-white/10 rounded-xl pl-12 pr-5 text-white placeholder-white/20 focus:outline-none focus:border-green-500/50 focus:bg-white/5 focus:ring-1 focus:ring-green-500/20 transition-all"
+                                                className="w-full h-12 bg-black/20 border border-white/10 rounded-xl pl-12 pr-5 text-white placeholder-white/20 focus:outline-none focus:border-green-500/50 focus:bg-black/40 focus:ring-1 focus:ring-green-500/20 transition-all"
                                             />
                                         </div>
                                     </div>
@@ -93,14 +93,14 @@ export function LoginForm() {
                                     <div className="space-y-2 group">
                                         <label className="text-xs text-white/50 uppercase font-semibold tracking-wider ml-1">Password</label>
                                         <div className="relative">
-                                            <LockIcon className="absolute left-4 top-4 h-5 w-5 text-white/40" />
+                                            <LockIcon className="absolute left-4 top-4 h-5 w-5 text-white/60 pointer-events-none" />
                                             <input
                                                 type="password"
                                                 required
                                                 value={formData.password}
                                                 onChange={(e) => handleInputChange("password", e.target.value)}
                                                 placeholder="••••••••"
-                                                className="w-full h-12 bg-white/5 border border-white/10 rounded-xl pl-12 pr-5 text-white placeholder-white/20 focus:outline-none focus:border-green-500/50 focus:bg-white/5 focus:ring-1 focus:ring-green-500/20 transition-all"
+                                                className="w-full h-12 bg-black/20 border border-white/10 rounded-xl pl-12 pr-5 text-white placeholder-white/20 focus:outline-none focus:border-green-500/50 focus:bg-black/40 focus:ring-1 focus:ring-green-500/20 transition-all"
                                             />
                                         </div>
                                     </div>
