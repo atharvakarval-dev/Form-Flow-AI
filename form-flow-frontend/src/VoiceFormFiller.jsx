@@ -75,7 +75,12 @@ const VoiceFormFiller = ({ formSchema, formContext, onComplete }) => {
           field.name.toLowerCase().includes('confirm') ||
           field.name.toLowerCase().includes('cpassword') ||
           field.name.toLowerCase().includes('verify')
-        ))
+        )) &&
+        // Skip tick-box fields (Terms, Privacy, Subscribe) - handled silently by backend
+        !['terms', 'privacy', 'policy', 'agree', 'subscribe', 'newsletter', 'consent', 'marketing'].some(kw =>
+          (field.name || '').toLowerCase().includes(kw) ||
+          (field.label || '').toLowerCase().includes(kw)
+        )
       )
     );
   }, [formSchema]);
@@ -176,7 +181,10 @@ const VoiceFormFiller = ({ formSchema, formContext, onComplete }) => {
     }
 
     // Auto-fill calculation complete -> Unblock the UI
-    setIsProfileLoading(false);
+    // Add a small delay to ensure state propagation and prevent race conditions
+    setTimeout(() => {
+      setIsProfileLoading(false);
+    }, 500);
   }, [userProfile, allFields]);
 
   // Effect to handle field changes: Update prompt and Play Audio ONCE
@@ -331,7 +339,6 @@ const VoiceFormFiller = ({ formSchema, formContext, onComplete }) => {
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 font-sans text-white">
-
       {/* Window Container */}
       <div className="w-full max-w-2xl bg-black/40 border border-white/20 rounded-2xl backdrop-blur-2xl shadow-2xl relative overflow-hidden flex flex-col min-h-[600px]">
 
@@ -342,12 +349,29 @@ const VoiceFormFiller = ({ formSchema, formContext, onComplete }) => {
             <div className="w-3 h-3 rounded-full bg-yellow-400/80"></div>
             <div className="w-3 h-3 rounded-full bg-green-400/80"></div>
           </div>
-          <div className="text-xs font-semibold text-white/40 flex items-center gap-2 font-mono uppercase tracking-widest">
+          <div className="text-xs font-semibold text-white/40 font-mono uppercase tracking-widest">
             voice_interface.exe
           </div>
-          <div className="w-14"></div>
+          {/* Debug/Status Info */}
+          <div className="text-right">
+            <div className="text-[10px] font-mono uppercase tracking-wider text-white/30">
+              {isProfileLoading ? (
+                <span className="flex items-center gap-1 text-yellow-500/80"><span className="w-1.5 h-1.5 rounded-full bg-yellow-500 animate-pulse" /> Loading Profile...</span>
+              ) : userProfile ? (
+                <span className="flex items-center gap-1 text-green-500/60"><span className="w-1.5 h-1.5 rounded-full bg-green-500" /> User: {userProfile.first_name || 'Guest'}</span>
+              ) : (
+                <span className="text-white/20">Guest Mode (No Auto-fill)</span>
+              )}
+            </div>
+            {Object.keys(autoFilledFields).length > 0 && (
+              <div className="text-[10px] font-mono text-green-400/40 mt-0.5">
+                ⚡ {Object.keys(autoFilledFields).length} fields auto-filled
+              </div>
+            )}
+          </div>
         </div>
 
+        {/* Main Content */}
         <div className="p-10 flex flex-col items-center justify-between flex-1 relative">
           {/* Background Glow */}
           <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[300px] h-[300px] bg-green-500/10 blur-[80px] rounded-full pointer-events-none" />

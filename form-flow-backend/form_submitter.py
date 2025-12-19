@@ -438,22 +438,41 @@ class FormSubmitter:
     # ─────────────────────────────────────────────────────────────────────────
     
     async def _auto_check_terms(self, page) -> int:
-        """Auto-check Terms/Privacy checkboxes."""
+        """
+        Auto-check 'Terms/Privacy' checkboxes (required for submission).
+        Explicitly skip 'Subscribe/Newsletter' checkboxes (optional).
+        """
         return await page.evaluate("""
             () => {
                 let count = 0;
-                const keywords = ['terms', 'privacy', 'agree', 'accept', 'consent', 'policy', 'tos', 'gdpr', 'newsletter', 'subscribe'];
+                // Terms to positive check
+                const consentKeywords = ['terms', 'privacy', 'agree', 'accept', 'consent', 'policy', 'tos', 'gdpr', 'conditions'];
+                // Terms to avoid/skip
+                const marketingKeywords = ['subscribe', 'newsletter', 'marketing', 'update', 'offer', 'promotion'];
+
+                const isMarketing = (text) => marketingKeywords.some(k => text.includes(k));
+                const isConsent = (text) => consentKeywords.some(k => text.includes(k));
+
                 document.querySelectorAll('input[type="checkbox"]:not(:checked):not(:disabled)').forEach(cb => {
                     const text = (cb.name + cb.id + (cb.labels?.[0]?.textContent || '') + (cb.closest('label,div')?.textContent || '')).toLowerCase();
-                    if (keywords.some(k => text.includes(k))) {
+                    
+                    // If it looks like marketing -> SKIP
+                    if (isMarketing(text)) {
+                         return; 
+                    }
+
+                    // If it looks like required consent -> CHECK
+                    if (isConsent(text)) {
                         cb.checked = true;
                         cb.dispatchEvent(new Event('change', {bubbles: true}));
                         count++;
                     }
                 });
+                
+                // Handle Angular/Material checkboxes
                 document.querySelectorAll('mat-checkbox:not(.mat-checkbox-checked)').forEach(m => {
                     const text = (m.textContent || '').toLowerCase();
-                    if (keywords.some(k => text.includes(k))) {
+                    if (!isMarketing(text) && isConsent(text)) {
                         (m.querySelector('label') || m).click();
                         count++;
                     }
