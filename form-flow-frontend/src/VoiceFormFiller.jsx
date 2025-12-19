@@ -124,8 +124,7 @@ const VoiceFormFiller = ({ formSchema, formContext, onComplete }) => {
         if (error.response?.status !== 401) {
           console.warn('Could not fetch user profile for auto-fill:', error);
         }
-      } finally {
-        setIsProfileLoading(false);
+        setIsProfileLoading(false); // Only stop loading here on error
       }
     };
 
@@ -175,6 +174,9 @@ const VoiceFormFiller = ({ formSchema, formContext, onComplete }) => {
       setFormData(prev => ({ ...prev, ...autoFilled }));
       formDataRef.current = { ...formDataRef.current, ...autoFilled };
     }
+
+    // Auto-fill calculation complete -> Unblock the UI
+    setIsProfileLoading(false);
   }, [userProfile, allFields]);
 
   // Effect to handle field changes: Update prompt and Play Audio ONCE
