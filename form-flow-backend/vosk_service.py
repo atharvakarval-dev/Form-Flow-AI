@@ -5,8 +5,6 @@ Uses local Vosk models for privacy-preserving, offline transcription.
 
 import os
 import json
-import wave
-import sys
 from typing import Dict, Any, Optional
 
 try:
