@@ -138,7 +138,8 @@ async def _wait_for_google_form(page):
     """Wait for Google Form content to load."""
     print("⏳ Waiting for Google Form...")
     try:
-        await page.wait_for_selector('[role="list"], .freebirdFormviewerViewItemsItemItem, [jsname]', timeout=20000)
+        # Try multiple selectors - .Qr7Oae is the main question container class
+        await page.wait_for_selector('.Qr7Oae, [role="listitem"], .freebirdFormviewerViewItemsItemItem', timeout=30000)
         await asyncio.sleep(3)
         # Scroll to load lazy content
         await page.evaluate("""
@@ -155,8 +156,10 @@ async def _wait_for_google_form(page):
                 await new Promise(r => setTimeout(r, 2000));
             }
         """)
+        # Scroll back to top and wait for rendering
+        await asyncio.sleep(1)
     except TimeoutError:
-        print("⚠️ Timeout waiting for form elements")
+        print("⚠️ Timeout waiting for form elements - attempting extraction anyway")
 
 
 async def _extract_all_frames(page, url: str) -> List[Dict]:
@@ -293,7 +296,7 @@ def _extract_with_beautifulsoup(html: str) -> List[Dict]:
 
 
 async def _extract_google_forms(page) -> List[Dict]:
-    """Specialized Google Forms extraction."""
+    """Specialized Google Forms extraction with robust selectors."""
     print("🔍 Extracting Google Form...")
     
     return await page.evaluate("""
@@ -310,52 +313,94 @@ async def _extract_google_forms(page) -> List[Dict]:
                 title: formTitle, fields: []
             };
             
-            // Find questions
-            const questions = document.querySelectorAll('[role="listitem"], .freebirdFormviewerViewItemsItemItem');
+            // Find questions using multiple selectors for robustness
+            // .Qr7Oae is the main question container class
+            // [role="listitem"] is a backup selector
+            let questions = document.querySelectorAll('.Qr7Oae');
+            if (questions.length === 0) {
+                questions = document.querySelectorAll('[role="listitem"]');
+            }
+            
+            console.log(`Found ${questions.length} question containers`);
             
             questions.forEach((q, idx) => {
-                // Get label
-                const labelEl = q.querySelector('[role="heading"], .M7eMe, .geS5n, [dir="auto"]');
-                const label = getText(labelEl) || `Question ${idx + 1}`;
+                // Get label - .M7eMe is the label class
+                const labelEl = q.querySelector('.M7eMe, [data-params]');
+                let label = getText(labelEl) || '';
                 
-                // Check required
-                const required = q.innerHTML.includes('Required') || 
-                                q.querySelector('[aria-label*="Required"]') !== null;
+                // Remove asterisks from label for clean display
+                label = label.replace(/\\*$/, '').trim() || `Question ${idx + 1}`;
                 
-                // Detect field type
-                const textInput = q.querySelector('input[type="text"], textarea');
-                const radioInputs = q.querySelectorAll('input[type="radio"], [role="radio"]');
-                const checkboxInputs = q.querySelectorAll('input[type="checkbox"], [role="checkbox"]');
+                // Check required (asterisk presence or aria-label)
+                const required = q.innerHTML.includes('*') || 
+                                q.querySelector('[aria-label*="Required"]') !== null ||
+                                q.innerHTML.includes('required');
+                
+                // Detect field type using robust selectors
+                // Text inputs: input.whsOnd.zHQkBf or generic input[type="text"]
+                const textInput = q.querySelector('input.whsOnd, input[type="text"], input[type="email"]');
+                const textArea = q.querySelector('textarea.KHxj8b, textarea');
+                const radioInputs = q.querySelectorAll('[role="radio"]');
+                const checkboxInputs = q.querySelectorAll('[role="checkbox"]');
                 const selectEl = q.querySelector('select, [role="listbox"]');
                 const dateInput = q.querySelector('input[type="date"]');
                 const fileInput = q.querySelector('input[type="file"]');
                 
                 let field = null;
                 
-                if (textInput) {
+                // Check for email input specifically
+                const isEmail = textInput?.getAttribute('aria-label')?.toLowerCase().includes('email') ||
+                               label.toLowerCase().includes('email');
+                
+                if (textArea) {
+                    field = {
+                        name: textArea.name || `textarea_${idx}`,
+                        type: 'textarea',
+                        tagName: 'textarea'
+                    };
+                } else if (textInput) {
                     field = {
                         name: textInput.name || `text_${idx}`,
-                        type: textInput.tagName === 'TEXTAREA' ? 'textarea' : 'text',
-                        tagName: textInput.tagName.toLowerCase()
+                        type: isEmail ? 'email' : 'text',
+                        tagName: 'input'
                     };
                 } else if (radioInputs.length > 0) {
+                    // Extract radio options
+                    const options = Array.from(radioInputs).map((r, i) => {
+                        // Get the parent container that contains the label text
+                        const optionLabel = getText(r.closest('.Od2TWd, .nWQGrd, .vRMGwf')) || 
+                                           getText(r.parentElement) || 
+                                           `Option ${i + 1}`;
+                        return {
+                            value: optionLabel,
+                            label: optionLabel
+                        };
+                    }).filter(o => o.label.length > 0);
+                    
                     field = {
-                        name: radioInputs[0]?.name || `radio_${idx}`,
-                        type: 'radio', tagName: 'radio-group',
-                        options: Array.from(radioInputs).map((r, i) => ({
-                            value: r.value || getText(r.closest('[role="radio"]') || r.parentElement) || `opt_${i}`,
-                            label: getText(r.closest('[role="radio"]') || r.parentElement) || r.value
-                        }))
+                        name: `radio_${idx}`,
+                        type: 'radio',
+                        tagName: 'radio-group',
+                        options: options
                     };
                 } else if (checkboxInputs.length > 0) {
+                    // Extract checkbox options
+                    const options = Array.from(checkboxInputs).map((c, i) => {
+                        const optionLabel = getText(c.closest('.docssharedWizToggleLabeledPrimaryText')) ||
+                                           getText(c.parentElement) || 
+                                           `Option ${i + 1}`;
+                        return {
+                            value: optionLabel,
+                            label: optionLabel
+                        };
+                    }).filter(o => o.label.length > 0);
+                    
                     field = {
-                        name: checkboxInputs[0]?.name || `checkbox_${idx}`,
-                        type: 'checkbox-group', tagName: 'checkbox-group',
+                        name: `checkbox_${idx}`,
+                        type: 'checkbox-group',
+                        tagName: 'checkbox-group',
                         allows_multiple: true,
-                        options: Array.from(checkboxInputs).map((c, i) => ({
-                            value: c.value || getText(c.closest('[role="checkbox"]') || c.parentElement) || `opt_${i}`,
-                            label: getText(c.closest('[role="checkbox"]') || c.parentElement) || c.value
-                        }))
+                        options: options
                     };
                 } else if (selectEl) {
                     const options = selectEl.tagName === 'SELECT' 
@@ -379,12 +424,15 @@ async def _extract_google_forms(page) -> List[Dict]:
                 
                 if (field) {
                     field.label = label;
+                    field.display_name = label;
                     field.required = required;
                     field.hidden = false;
                     form.fields.push(field);
+                    console.log(`Found field: ${label} (${field.type})`);
                 }
             });
             
+            console.log(`Total fields extracted: ${form.fields.length}`);
             return form.fields.length > 0 ? [form] : [];
         }
     """)
