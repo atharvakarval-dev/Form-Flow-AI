@@ -25,6 +25,7 @@ const VoiceFormFiller = ({ formSchema, formContext, onComplete }) => {
   const idleTimeoutRef = useRef(null); // Ref for idle repeat timer
   const [userProfile, setUserProfile] = useState(null); // User profile for auto-fill
   const [autoFilledFields, setAutoFilledFields] = useState({}); // Track auto-filled fields
+  const [isProfileLoading, setIsProfileLoading] = useState(true); // Wait for profile load
 
   const [lastFilled, setLastFilled] = useState(null); // Track last answer
 
@@ -107,7 +108,10 @@ const VoiceFormFiller = ({ formSchema, formContext, onComplete }) => {
   useEffect(() => {
     const fetchUserProfile = async () => {
       const token = localStorage.getItem('token');
-      if (!token) return;
+      if (!token) {
+        setIsProfileLoading(false);
+        return;
+      }
 
       try {
         const response = await axios.get('http://localhost:8000/users/me', {
@@ -120,6 +124,8 @@ const VoiceFormFiller = ({ formSchema, formContext, onComplete }) => {
         if (error.response?.status !== 401) {
           console.warn('Could not fetch user profile for auto-fill:', error);
         }
+      } finally {
+        setIsProfileLoading(false);
       }
     };
 
@@ -174,6 +180,8 @@ const VoiceFormFiller = ({ formSchema, formContext, onComplete }) => {
   // Effect to handle field changes: Update prompt and Play Audio ONCE
   // Skip auto-filled fields
   useEffect(() => {
+    if (isProfileLoading) return;
+
     if (allFields.length > 0 && currentFieldIndex < allFields.length) {
       const field = allFields[currentFieldIndex];
 
@@ -194,7 +202,7 @@ const VoiceFormFiller = ({ formSchema, formContext, onComplete }) => {
       // Start idle timer - repeat after 15s if no user action
       startIdleTimer(field.name);
     }
-  }, [currentFieldIndex, allFields, autoFilledFields]);
+  }, [currentFieldIndex, allFields, autoFilledFields, isProfileLoading]);
 
   // Idle timer: Repeat prompt after 15 seconds of silence
   const startIdleTimer = (fieldName) => {

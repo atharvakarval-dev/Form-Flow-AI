@@ -5,10 +5,7 @@ from pydantic import BaseModel, HttpUrl
 import uvicorn
 import os
 from dotenv import load_dotenv
-import google.generativeai as genai
-import time
-import asyncio
-import json
+
 from typing import Dict, List, Any
 
 from form_parser import get_form_schema, create_template, get_field_speech

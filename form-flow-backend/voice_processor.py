@@ -1,5 +1,5 @@
 import openai
-import google.generativeai as genai
+from google import genai
 from typing import Dict, List, Any, Optional
 import json
 import re
@@ -15,10 +15,9 @@ class VoiceProcessor:
                 # Fallback if local httpx version is incompatible with the OpenAI SDK
                 self.openai_client = None
         if gemini_key:
-            genai.configure(api_key=gemini_key)
-            self.gemini_model = genai.GenerativeModel("gemini-1.5-pro")
+            self.client = genai.Client(api_key=gemini_key)
         else:
-            self.gemini_model = None
+            self.client = None
 
     def analyze_form_context(self, form_schema: List[Dict]) -> str:
         """Analyze form structure and create context for intelligent prompts"""
@@ -74,7 +73,7 @@ class VoiceProcessor:
 
     def process_voice_input(self, transcript: str, field_info: Dict, form_context: str) -> Dict:
         """Process voice input using LLM to improve clarity and accuracy"""
-        if not self.gemini_model:
+        if not self.client:
             processed_text = self._format_field_input(transcript, field_info)
             return {"processed_text": processed_text, "confidence": 0.5, "suggestions": []}
 
@@ -186,7 +185,10 @@ class VoiceProcessor:
         """
         
         try:
-            response = self.gemini_model.generate_content(prompt)
+            response = self.client.models.generate_content(
+                model='gemini-1.5-pro',
+                contents=prompt
+            )
             result = json.loads(response.text)
             # Apply additional formatting for special field types
             if is_email:
@@ -232,7 +234,7 @@ class VoiceProcessor:
         # For name fields, email addresses, etc.
         is_email = field_info.get('is_email', False) or field_type == 'email'
         if 'name' in field_name.lower() or is_email:
-            if not self.gemini_model:
+            if not self.client:
                 return {"needs_confirmation": True, "suggestion": transcript}
                 
             prompt = f"""
@@ -252,7 +254,10 @@ class VoiceProcessor:
             """
             
             try:
-                response = self.gemini_model.generate_content(prompt)
+                response = self.client.models.generate_content(
+                    model='gemini-1.5-pro',
+                    contents=prompt
+                )
                 result = json.loads(response.text)
                 if is_email:
                     result["suggestion"] = self._format_email_from_voice(result["suggestion"])

@@ -1,5 +1,5 @@
 import os
-import google.generativeai as genai
+from google import genai
 from typing import Dict, List, Any
 import json
 
@@ -7,8 +7,7 @@ class GeminiService:
     def __init__(self, api_key: str = None):
         self.api_key = api_key or os.getenv('GOOGLE_API_KEY')
         if self.api_key:
-            genai.configure(api_key=self.api_key)
-            self.model = genai.GenerativeModel('gemini-pro')
+            self.client = genai.Client(api_key=self.api_key)
         else:
             raise ValueError("Google API key not found")
 
@@ -21,7 +20,10 @@ class GeminiService:
             prompt = self._create_flow_prompt(extracted_fields, form_schema)
             
             # Generate response from Gemini
-            response = self.model.generate_content(prompt)
+            response = self.client.models.generate_content(
+                model='gemini-1.5-pro',
+                contents=prompt
+            )
             
             # Parse the response
             flow_data = self._parse_gemini_response(response.text)

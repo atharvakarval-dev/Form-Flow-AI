@@ -195,6 +195,11 @@ async def _extract_standard_forms(frame) -> List[Dict]:
     return await frame.evaluate("""
         () => {
             const getText = el => el ? (el.innerText || el.textContent || '').trim() : '';
+            const isVisible = el => {
+                if (!el) return false;
+                const style = window.getComputedStyle(el);
+                return style.display !== 'none' && style.visibility !== 'hidden' && style.opacity !== '0' && el.getBoundingClientRect().height > 0;
+            };
             const findLabel = (field, form) => {
                 if (field.id) {
                     const lbl = form.querySelector(`label[for="${field.id}"]`);
@@ -221,7 +226,7 @@ async def _extract_standard_forms(frame) -> List[Dict]:
                         label: findLabel(field, form),
                         placeholder: field.placeholder || null,
                         required: field.required || field.hasAttribute('required'),
-                        hidden: type === 'hidden',
+                        hidden: type === 'hidden' || !isVisible(field),
                         value: field.value || null,
                         disabled: field.disabled,
                         readonly: field.readOnly
@@ -435,6 +440,11 @@ def _process_forms(forms_data: List[Dict]) -> List[Dict]:
             
             # Skip hidden fields entirely
             if field.get("hidden") or field_type == "hidden":
+                continue
+            
+            # Skip honeypot fields (common spam traps)
+            field_name_lower = (field.get("name") or "").lower()
+            if "fax" in field_name_lower or "honeypot" in field_name_lower:
                 continue
                 
             enriched = {
