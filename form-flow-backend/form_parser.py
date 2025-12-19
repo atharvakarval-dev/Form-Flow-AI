@@ -482,15 +482,37 @@ def create_template(forms: List[Dict]) -> Dict[str, Any]:
                 continue
             
             ftype = field.get("type", "text")
-            value = [] if ftype == "checkbox-group" else None if ftype in ["radio", "dropdown", "select", "file"] else ""
             
-            form_tpl["fields"][name] = {
+            field_template = {
                 "display_name": field.get("display_name"),
                 "type": ftype,
-                "required": field.get("required", False),
-                "value": value,
-                "options": field.get("options", []) if ftype in ["radio", "dropdown", "select", "checkbox-group"] else None
+                "required": field.get("required", False)
             }
+            
+            if ftype == "checkbox":
+                field_template["value"] = False
+            elif ftype == "checkbox-group":
+                field_template["value"] = []
+                field_template["options"] = field.get("options", [])
+            elif ftype in ["radio", "mcq", "dropdown", "select"]:
+                field_template["value"] = None
+                field_template["options"] = field.get("options", [])
+            elif ftype == "scale":
+                field_template["value"] = None
+                field_template["scale_min"] = field.get("scale_min")
+                field_template["scale_max"] = field.get("scale_max")
+            elif ftype == "grid":
+                field_template["value"] = {}
+                field_template["rows"] = field.get("rows", [])
+                field_template["columns"] = field.get("columns", [])
+            elif ftype == "file":
+                field_template["value"] = None
+                field_template["accept"] = field.get("accept")
+                field_template["multiple"] = field.get("multiple", False)
+            else:
+                field_template["value"] = ""
+                
+            form_tpl["fields"][name] = field_template
         
         template["forms"].append(form_tpl)
     
@@ -561,6 +583,16 @@ def format_field_value(value: str, purpose: str, field_type: str = None) -> str:
         return re.sub(r'[^\d+]', '', value)
     return value.strip()
 
+def format_email_input(text: str) -> str:
+    """Format text for email fields"""
+    return format_field_value(text, 'email')
+
 # Legacy alias
 async def _extract_standard_forms_from_frame(frame):
     return await _extract_standard_forms(frame)
+
+def get_field_speech(field_name: str, speech_data: dict) -> bytes:
+    """Get speech audio for a specific field"""
+    if not speech_data:
+        return None
+    return speech_data.get(field_name)

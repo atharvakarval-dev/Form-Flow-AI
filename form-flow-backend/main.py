@@ -33,20 +33,19 @@ load_dotenv()
 # --- API Configuration ---
 GOOGLE_API_KEY = os.environ.get("GOOGLE_API_KEY")
 OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY")
-ELEVENLABS_API_KEY = os.environ.get("ELEVENLABS_API_KEY")
+if not GOOGLE_API_KEY:
+    print("WARNING: GOOGLE_API_KEY not found. LLM integration will not work until this is set.")
 
-# Store speech data globally (in production, use proper session management)
+ELEVENLABS_API_KEY = os.environ.get("ELEVENLABS_API_KEY")
 global_speech_data = {}
 
 if not ELEVENLABS_API_KEY:
     print("WARNING: ELEVENLABS_API_KEY not found. Speech generation will not work until this is set.")
 
-if not GOOGLE_API_KEY:
-    print("WARNING: GOOGLE_API_KEY not found. LLM integration will not work until this is set.")
-
 # Initialize Voice Processor, Speech Service, Form Submitter, and Gemini Service
 voice_processor = VoiceProcessor(openai_key=OPENAI_API_KEY, gemini_key=GOOGLE_API_KEY)
 speech_service = SpeechService(api_key=ELEVENLABS_API_KEY)
+
 form_submitter = FormSubmitter()
 gemini_service = GeminiService(api_key=GOOGLE_API_KEY) if GOOGLE_API_KEY else None
 vosk_service = VoskService()
@@ -191,15 +190,24 @@ async def scrape_form(data: ScrapeRequest):
         
         print(f"Normalized URL: {url}")
         
-        # Get form schema with speech generation
-        result = await get_form_schema(url, generate_speech=True)
+        # Get form schema
+        result = await get_form_schema(url, generate_speech=False)
         form_schema = result['forms']
-        speech_data = result.get('speech', {})
+        
+        # Generate speech
+        speech_data = {}
+        print("Generating speech for fields...")
+        for form in form_schema:
+            for field in form.get('fields', []):
+                fname = field.get('name')
+                if fname:
+                    prompt = speech_service._create_field_prompt(field)
+                    audio = speech_service.text_to_speech(prompt)
+                    if audio:
+                        speech_data[fname] = {'audio': audio}
         
         # Store speech data globally
         global_speech_data = speech_data
-        
-        template = create_template(form_schema)
         
         # Generate form context for LLM
         form_context = voice_processor.analyze_form_context(form_schema)
@@ -408,36 +416,33 @@ async def analyze_extracted_fields(data: ConversationalFlowRequest):
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Field analysis failed: {str(e)}")
 
+
+
+
 @app.get("/speech/{field_name}")
 async def get_field_speech_audio(field_name: str):
     """Get speech audio for a specific form field"""
     try:
         print(f"Requesting speech for field: {field_name}")
-        print(f"Available speech data: {list(global_speech_data.keys())}")
         
         # Check if we have pre-generated speech data
         if field_name in global_speech_data:
             audio_data = global_speech_data[field_name].get('audio')
             if audio_data:
-                print(f"Found pre-generated speech for {field_name}")
                 return Response(content=audio_data, media_type="audio/mpeg")
         
         # Generate on demand if not found
         print(f"Generating speech on demand for {field_name}")
-        field_info = {'name': field_name, 'type': 'text', 'label': field_name, 'display_name': field_name, 'required': True}
+        field_info = {'name': field_name, 'type': 'text', 'label': field_name}
         prompt_text = speech_service._create_field_prompt(field_info)
-        print(f"Generated prompt: {prompt_text}")
         audio_data = speech_service.text_to_speech(prompt_text)
         
         if audio_data:
-            print(f"Successfully generated speech audio ({len(audio_data)} bytes)")
             return Response(content=audio_data, media_type="audio/mpeg")
         else:
             raise HTTPException(status_code=500, detail="Failed to generate speech")
             
     except Exception as e:
-        import traceback
-        traceback.print_exc()
         raise HTTPException(status_code=500, detail=f"Speech generation failed: {str(e)}")
 
 @app.post("/fill-form")
@@ -548,78 +553,30 @@ async def submit_form(
         raise HTTPException(status_code=500, detail=f"Form submission failed: {str(e)}")
 
 
-@app.get("/speech-stream/{field_name}")
-async def get_field_speech_stream(field_name: str):
-    """Stream speech audio in real-time for a specific form field"""
-    try:
-        print(f"Requesting streaming speech for field: {field_name}")
-        
-        # Generate field prompt
-        field_info = {'name': field_name, 'type': 'text', 'label': field_name, 'display_name': field_name, 'required': True}
-        prompt_text = speech_service._create_field_prompt(field_info)
-        print(f"Generated prompt for streaming: {prompt_text}")
-        
-        # Get streaming response
-        audio_stream = speech_service.get_streaming_response(prompt_text)
-        
-        return StreamingResponse(
-            audio_stream,
-            media_type="audio/mpeg",
-            headers={"Cache-Control": "no-cache"}
-        )
-            
-    except Exception as e:
-        import traceback
-        traceback.print_exc()
-        raise HTTPException(status_code=500, detail=f"Speech streaming failed: {str(e)}")
 
-@app.get("/test-speech")
-async def test_speech_generation():
-    """Test endpoint to verify speech generation is working"""
-    try:
-        test_text = "Please provide First Name. This field is required."
-        audio_data = speech_service.text_to_speech(test_text)
-        
-        if audio_data:
-            return Response(content=audio_data, media_type="audio/mpeg")
-        else:
-            return {"error": "Failed to generate test speech", "api_key_configured": bool(ELEVENLABS_API_KEY)}
-            
-    except Exception as e:
-        import traceback
-        traceback.print_exc()
-        return {"error": str(e), "api_key_configured": bool(ELEVENLABS_API_KEY)}
-
-@app.get("/test-speech-stream")
-async def test_speech_stream():
-    """Test streaming speech generation"""
-    try:
-        test_text = "Please provide First Name. This field is required."
-        audio_stream = speech_service.get_streaming_response(test_text)
-        
-        return StreamingResponse(
-            audio_stream,
-            media_type="audio/mpeg",
-            headers={"Cache-Control": "no-cache"}
-        )
-            
-    except Exception as e:
-        import traceback
-        traceback.print_exc()
-        return {"error": str(e), "api_key_configured": bool(ELEVENLABS_API_KEY)}
 
 @app.post("/comprehensive-form-setup")
 async def comprehensive_form_setup(data: ComprehensiveFormRequest):
     """Comprehensive endpoint that scrapes form and generates conversational flow in one call."""
     global global_speech_data
     try:
-        # Step 1: Scrape form schema with speech generation
-        result = await get_form_schema(str(data.url), generate_speech=True)
+        # Step 1: Scrape form schema without speech generation
+        result = await get_form_schema(str(data.url), generate_speech=False)
         form_schema = result['forms']
-        speech_data = result.get('speech', {})
         
         if not form_schema:
             raise HTTPException(status_code=404, detail="No forms found on the provided URL")
+            
+        # Generate speech
+        speech_data = {}
+        for form in form_schema:
+            for field in form.get('fields', []):
+                fname = field.get('name')
+                if fname:
+                    prompt = speech_service._create_field_prompt(field)
+                    audio = speech_service.text_to_speech(prompt)
+                    if audio:
+                        speech_data[fname] = {'audio': audio}
         
         # Store speech data globally
         global_speech_data = speech_data

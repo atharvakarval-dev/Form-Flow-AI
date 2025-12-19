@@ -4,6 +4,8 @@ import axios from 'axios';
 import { motion, AnimatePresence } from 'framer-motion';
 import Aurora from '@/components/ui/Aurora';
 
+
+
 const VoiceFormFiller = ({ formSchema, formContext, onComplete }) => {
   const [isListening, setIsListening] = useState(false);
   const [currentFieldIndex, setCurrentFieldIndex] = useState(0);
@@ -11,6 +13,8 @@ const VoiceFormFiller = ({ formSchema, formContext, onComplete }) => {
   const [transcript, setTranscript] = useState('');
   const [processing, setProcessing] = useState(false);
   const [currentPrompt, setCurrentPrompt] = useState('');
+
+
 
   // Browser STT refs
   const recognitionRef = useRef(null);
@@ -40,6 +44,8 @@ const VoiceFormFiller = ({ formSchema, formContext, onComplete }) => {
     'city': 'city', 'town': 'city',
     'pincode': 'pincode', 'zip': 'pincode', 'zipcode': 'pincode', 'postal_code': 'pincode', 'postalcode': 'pincode',
   };
+
+
 
   // Sync ref with state
   useEffect(() => {
@@ -184,30 +190,29 @@ const VoiceFormFiller = ({ formSchema, formContext, onComplete }) => {
     }
   }, [transcript]);
 
-  const playPrompt = (fieldName) => {
+  const playPrompt = async (fieldName) => {
     if (!fieldName) return;
 
     // Stop current audio if any
     if (audioRef.current) {
-      audioRef.current.pause();
+      if (typeof audioRef.current.pause === 'function') {
+        try { audioRef.current.pause(); } catch (e) { }
+      }
       audioRef.current.currentTime = 0;
+      audioRef.current = null;
     }
 
-    // Backend endpoint for speech
-    const audioUrl = `http://127.0.0.1:8000/speech/${encodeURIComponent(fieldName)}`;
+    try {
+      const audioUrl = `http://localhost:8000/speech/${fieldName}?t=${Date.now()}`;
+      console.log(`🔊 Playing prompt from: ${audioUrl}`);
 
-    const audio = new Audio(audioUrl);
-    audioRef.current = audio;
+      const audio = new Audio(audioUrl);
+      audioRef.current = audio;
 
-    // Wait for audio to be ready before playing
-    audio.addEventListener('canplaythrough', () => {
-      audio.play().catch(e => {
-        // Autoplay might be blocked - this is normal in modern browsers
-        if (e.name !== 'AbortError') {
-          console.warn("Audio blocked:", e.name);
-        }
-      });
-    });
+      await audio.play();
+    } catch (e) {
+      console.error("Audio playback failed:", e);
+    }
   };
 
   const handleBrowserSpeechResult = (event) => {

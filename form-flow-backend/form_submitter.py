@@ -1,5 +1,4 @@
 import asyncio
-import aiohttp
 from playwright.async_api import async_playwright
 from typing import Dict, List, Any, Optional
 import json
@@ -12,6 +11,34 @@ class FormSubmitter:
     def __init__(self):
         self.session_timeout = 30000  # 30 seconds
         self.debug_screenshots = []  # Store debug screenshot paths
+    
+    def _build_field_selectors(self, field_info: Dict) -> List[str]:
+        """Build a prioritized list of CSS selectors for a field."""
+        selectors = []
+        field_name = field_info.get('name', '')
+        field_id = field_info.get('id', '')
+        placeholder = field_info.get('placeholder', '')
+        
+        # Priority 1: ID-based selectors
+        if field_id:
+            selectors.extend([f"#{field_id}", f"input#{field_id}", f"textarea#{field_id}", f"select#{field_id}"])
+        
+        # Priority 2: Name-based selectors
+        if field_name:
+            selectors.extend([
+                f"[name='{field_name}']", f"input[name='{field_name}']",
+                f"select[name='{field_name}']", f"textarea[name='{field_name}']",
+                f'[name="{field_name}"]'
+            ])
+        
+        # Priority 3: Placeholder-based
+        if placeholder:
+            selectors.extend([
+                f"input[placeholder*='{placeholder[:20]}']",
+                f"textarea[placeholder*='{placeholder[:20]}']"
+            ])
+        
+        return selectors
     
     async def _human_type(self, element, text: str):
         """Type text character by character with random delays for human-like behavior"""
@@ -183,7 +210,6 @@ class FormSubmitter:
                 field_mapping[field_name] = field
         
         # Fill each field with the provided data (with retry logic)
-        # Fill each field with the provided data (with retry logic)
         # First, find any password field value to use for confirmation fields
         password_value = ""
         for field_name, value in form_data.items():
@@ -268,45 +294,55 @@ class FormSubmitter:
         # Wait a bit after filling all fields
         await asyncio.sleep(1)
         
-        # Auto-check all unchecked checkboxes (Privacy Policy, Terms of Service, etc.)
+        # Auto-check ONLY Terms/Privacy/Agreement checkboxes that weren't explicitly handled
+        # This avoids overriding user's intended checkbox values
         try:
-            await page.evaluate("""
+            auto_checked_count = await page.evaluate("""
                 () => {
-                    // Find all unchecked checkboxes and check them
+                    let count = 0;
+                    const termsKeywords = ['terms', 'privacy', 'agree', 'accept', 'consent', 'policy', 'tos', 'gdpr', 'newsletter', 'subscribe'];
+                    
+                    // Only auto-check checkboxes that match terms/privacy patterns
                     const checkboxes = document.querySelectorAll('input[type="checkbox"]:not(:checked)');
                     checkboxes.forEach(checkbox => {
-                        if (!checkbox.disabled) {
+                        if (checkbox.disabled) return;
+                        
+                        // Get associated text
+                        const name = (checkbox.name || '').toLowerCase();
+                        const id = (checkbox.id || '').toLowerCase();
+                        const label = checkbox.labels?.[0]?.textContent?.toLowerCase() || '';
+                        const parent = checkbox.closest('label, div')?.textContent?.toLowerCase() || '';
+                        const combined = name + id + label + parent;
+                        
+                        // Only check if it looks like a terms/privacy checkbox
+                        const isTermsCheckbox = termsKeywords.some(kw => combined.includes(kw));
+                        if (isTermsCheckbox) {
                             checkbox.checked = true;
                             checkbox.dispatchEvent(new Event('change', { bubbles: true }));
                             checkbox.dispatchEvent(new Event('input', { bubbles: true }));
-                            console.log('Auto-checked checkbox:', checkbox.name || checkbox.id || 'unnamed');
+                            count++;
                         }
                     });
                     
-                    // Also handle Material/Angular style checkboxes
+                    // Handle Material checkboxes for terms only
                     const matCheckboxes = document.querySelectorAll('mat-checkbox:not(.mat-checkbox-checked)');
                     matCheckboxes.forEach(matCb => {
-                        const input = matCb.querySelector('input');
-                        const label = matCb.querySelector('label') || matCb;
-                        if (input && !input.disabled) {
+                        const text = matCb.textContent?.toLowerCase() || '';
+                        const isTerms = termsKeywords.some(kw => text.includes(kw));
+                        if (isTerms) {
+                            const label = matCb.querySelector('label') || matCb;
                             label.click();
-                            console.log('Auto-clicked Material checkbox');
+                            count++;
                         }
                     });
                     
-                    // Handle custom checkbox divs with role="checkbox"
-                    const roleCheckboxes = document.querySelectorAll('[role="checkbox"][aria-checked="false"]');
-                    roleCheckboxes.forEach(cb => {
-                        cb.click();
-                        console.log('Auto-clicked role checkbox');
-                    });
-                    
-                    return true;
+                    return count;
                 }
             """)
-            print("✅ Auto-checked all unchecked checkboxes (Privacy/Terms)")
+            if auto_checked_count > 0:
+                print(f"✅ Auto-checked {auto_checked_count} Terms/Privacy checkbox(es)")
         except Exception as e:
-            print(f"⚠️ Auto-check checkboxes warning: {e}")
+            print(f"⚠️ Auto-check Terms checkboxes warning: {e}")
         
         await asyncio.sleep(0.5)
         
