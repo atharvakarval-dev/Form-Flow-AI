@@ -1,9 +1,10 @@
 "use client"
 
 import { useState, useEffect } from "react"
-import axios from "axios"
 import { motion } from "framer-motion"
-import { Clock, ExternalLink, FileText, CheckCircle2, XCircle, LogOut } from "lucide-react"
+import { Clock, ExternalLink, FileText, CheckCircle2, XCircle } from "lucide-react"
+import api from '@/services/api'
+import { ROUTES } from '@/constants'
 
 export function Dashboard() {
     const [history, setHistory] = useState([])
@@ -17,15 +18,13 @@ export function Dashboard() {
     const fetchHistory = async () => {
         const token = localStorage.getItem('token')
         if (!token) {
-            window.location.href = '/login'
+            window.location.href = ROUTES.LOGIN
             return
         }
 
         try {
             // Fetch User Info (includes submissions now)
-            const userRes = await axios.get("http://localhost:8000/users/me", {
-                headers: { Authorization: `Bearer ${token}` }
-            })
+            const userRes = await api.get("/users/me")
             setUser(userRes.data)
 
             // Use submissions from user profile if available, otherwise default to empty
@@ -39,16 +38,11 @@ export function Dashboard() {
             // Only logout on auth error
             if (err.response && err.response.status === 401) {
                 localStorage.removeItem('token')
-                window.location.href = '/login'
+                window.location.href = ROUTES.LOGIN
             }
         } finally {
             setLoading(false)
         }
-    }
-
-    const handleLogout = () => {
-        localStorage.removeItem('token')
-        window.location.href = '/login'
     }
 
     return (
@@ -104,7 +98,7 @@ export function Dashboard() {
                                     <FileText className="h-8 w-8 text-white/20" />
                                 </div>
                                 <p className="text-white/40">No forms submitted yet.</p>
-                                <a href="/" className="text-green-400 hover:underline">Fill your first form</a>
+                                <a href={ROUTES.HOME} className="text-green-400 hover:underline">Fill your first form</a>
                             </div>
                         ) : (
                             <div className="divide-y divide-white/5">

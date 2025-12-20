@@ -1,12 +1,13 @@
-import React, { useState } from 'react'
-import axios from 'axios';
-import VoiceFormFiller from './VoiceFormFiller';
-import FormCompletion from './FormCompletion';
-import { TransformationTimeline } from './TransformationTimeline';
-import { Hero } from '@/components/ui/animated-hero';
-import TerminalLoader from '@/components/ui/TerminalLoader';
+import React, { useState } from 'react';
+import { VoiceFormFiller, FormCompletion } from '@/features/form-filler';
+import { Hero, TransformationTimeline } from '@/features/landing';
+import { TerminalLoader } from '@/components/ui';
+import { scrapeForm } from '@/services/api';
 
-const LinkPaste = () => {
+/**
+ * HomePage - Main landing page with form URL input and voice form filling flow
+ */
+const HomePage = () => {
     const [url, setUrl] = useState('');
     const [scrapedUrl, setScrapedUrl] = useState('');
     const [result, setResult] = useState(null);
@@ -20,8 +21,8 @@ const LinkPaste = () => {
         setLoading(true);
         const urlToUse = submittedUrl || url;
         try {
-            const response = await axios.post("http://localhost:8000/scrape", { url: urlToUse });
-            setResult(response.data);
+            const response = await scrapeForm(urlToUse);
+            setResult(response);
             setScrapedUrl(urlToUse);
             setUrl('');
         } catch (error) {
@@ -30,11 +31,11 @@ const LinkPaste = () => {
         } finally {
             setLoading(false);
         }
-    }
+    };
 
     const startVoiceFilling = () => {
         setShowVoiceForm(true);
-    }
+    };
 
     React.useEffect(() => {
         if (result && !showVoiceForm && !showCompletion) {
@@ -46,7 +47,7 @@ const LinkPaste = () => {
         setCompletedData(formData);
         setShowVoiceForm(false);
         setShowCompletion(true);
-    }
+    };
 
     const handleReset = () => {
         setResult(null);
@@ -55,7 +56,7 @@ const LinkPaste = () => {
         setShowVoiceForm(false);
         setUrl('');
         setScrapedUrl('');
-    }
+    };
 
     if (showCompletion && completedData && result) {
         return (
@@ -89,7 +90,7 @@ const LinkPaste = () => {
                 </>
             )}
         </div>
-    )
-}
+    );
+};
 
-export default LinkPaste;
+export default HomePage;

@@ -1,9 +1,9 @@
 "use client"
 
 import { useState } from "react"
-import axios from "axios"
 import { motion, AnimatePresence } from "framer-motion"
 import { CheckIcon, ArrowRightIcon, Loader2 } from "lucide-react"
+import { register } from '@/services/api'
 
 const steps = [
     { id: 1, label: "Identity", fields: ["first_name", "last_name"], placeholders: ["First Name", "Last Name"] },
@@ -26,7 +26,7 @@ export function RegistrationForm() {
             setIsLoading(true)
             setError(null)
             try {
-                await axios.post("http://localhost:8000/register", formData)
+                await register(formData)
                 setIsComplete(true)
             } catch (err) {
                 setError(err.response?.data?.detail || "Registration failed. Please try again.")

@@ -1,9 +1,10 @@
 "use client"
 
 import { useState } from "react"
-import axios from "axios"
 import { motion } from "framer-motion"
 import { ArrowRightIcon, Loader2, LockIcon, MailIcon } from "lucide-react"
+import { login } from '@/services/api'
+import { ROUTES } from '@/constants'
 
 export function LoginForm() {
     const [formData, setFormData] = useState({ email: "", password: "" })
@@ -16,18 +17,14 @@ export function LoginForm() {
         setError(null)
 
         try {
-            const form = new FormData()
-            form.append('username', formData.email)
-            form.append('password', formData.password)
-
-            const response = await axios.post("http://localhost:8000/login", form)
+            const response = await login(formData.email, formData.password)
 
             // Store token
-            localStorage.setItem('token', response.data.access_token)
+            localStorage.setItem('token', response.access_token)
             localStorage.setItem('user_email', formData.email)
 
             // Redirect to Dashboard
-            window.location.href = '/dashboard'
+            window.location.href = ROUTES.DASHBOARD
 
         } catch (err) {
             setError("Invalid email or password.")
@@ -130,7 +127,7 @@ export function LoginForm() {
                             </form>
 
                             <div className="text-center pt-2">
-                                <a href="/register" className="text-sm text-white/40 hover:text-white transition-colors">
+                                <a href={ROUTES.REGISTER} className="text-sm text-white/40 hover:text-white transition-colors">
                                     Don't have an account? <span className="text-green-400 underline decoration-green-400/30 underline-offset-4">Sign up</span>
                                 </a>
                             </div>
