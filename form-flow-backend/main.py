@@ -1,41 +1,187 @@
-from fastapi import FastAPI
+"""
+Form Flow AI - Backend Application
+
+FastAPI application for voice-powered form automation.
+Provides endpoints for form scraping, voice processing, and form submission.
+
+Features:
+    - Form URL scraping with Playwright
+    - Voice-to-text with Vosk
+    - Text-to-speech with ElevenLabs
+    - AI-powered form field understanding with Gemini
+    - Automated form submission
+
+Run:
+    python main.py
+    # or
+    uvicorn main:app --reload
+"""
+
+from contextlib import asynccontextmanager
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
+from slowapi.errors import RateLimitExceeded
 import uvicorn
-from core import models
-from core import database
+
+from config.settings import settings
+from core import models, database
+from utils.logging import setup_logging, get_logger
+from utils.exceptions import FormFlowError
+from utils.rate_limit import limiter, rate_limit_exceeded_handler
 
 # Import Routers
 from routers import auth, forms, speech
 
-app = FastAPI()
+# Initialize logging
+setup_logging()
+logger = get_logger(__name__)
 
-# Configure CORS
-origins = [
-    "http://localhost:5173", # Default port for Vite/React development server
-]
 
+# =============================================================================
+# Application Lifespan
+# =============================================================================
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """
+    Application lifespan context manager.
+    
+    Handles startup and shutdown events:
+        - Startup: Initialize database tables
+        - Shutdown: Cleanup resources
+    """
+    # Startup
+    logger.info(f"Starting {settings.APP_NAME} v{settings.APP_VERSION}")
+    logger.info(f"Debug mode: {settings.DEBUG}")
+    
+    # Create database tables
+    async with database.engine.begin() as conn:
+        await conn.run_sync(models.Base.metadata.create_all)
+        logger.info("Database tables initialized")
+    
+    yield
+    
+    # Shutdown
+    logger.info("Shutting down application")
+    await database.engine.dispose()
+
+
+# =============================================================================
+# FastAPI Application
+# =============================================================================
+
+app = FastAPI(
+    title=settings.APP_NAME,
+    description="Voice-powered form automation API",
+    version=settings.APP_VERSION,
+    lifespan=lifespan,
+    docs_url="/docs",
+    redoc_url="/redoc",
+)
+
+# Attach rate limiter to app state
+app.state.limiter = limiter
+
+
+# =============================================================================
+# Middleware
+# =============================================================================
+
+# CORS Configuration
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=origins,
+    allow_origins=settings.cors_origins_list,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-# Include Routers
+
+# =============================================================================
+# Exception Handlers
+# =============================================================================
+
+@app.exception_handler(FormFlowError)
+async def formflow_exception_handler(request: Request, exc: FormFlowError):
+    """
+    Handle custom FormFlow exceptions.
+    
+    Returns standardized error response with appropriate status code.
+    """
+    logger.error(f"FormFlowError: {exc.message}", extra={"details": exc.details})
+    return JSONResponse(
+        status_code=exc.status_code,
+        content=exc.to_dict()
+    )
+
+
+# Rate limit exceeded handler
+app.add_exception_handler(RateLimitExceeded, rate_limit_exceeded_handler)
+
+
+# =============================================================================
+# Routers
+# =============================================================================
+
 app.include_router(auth.router)
 app.include_router(forms.router)
 app.include_router(speech.router)
 
-# --- Database Initialization ---
-@app.on_event("startup")
-async def startup_event():
-    async with database.engine.begin() as conn:
-        await conn.run_sync(models.Base.metadata.create_all)
 
-@app.get("/")
-def read_root():
-    return {"Hello": "Form Wizard Pro Backend is running (Refactored)"}
+# =============================================================================
+# Health Check Endpoints
+# =============================================================================
+
+@app.get("/", tags=["Health"])
+async def root():
+    """
+    Root endpoint - basic health check.
+    
+    Returns:
+        dict: Simple status message
+    """
+    return {
+        "status": "healthy",
+        "app": settings.APP_NAME,
+        "version": settings.APP_VERSION
+    }
+
+
+@app.get("/health", tags=["Health"])
+async def health_check():
+    """
+    Detailed health check endpoint.
+    
+    Checks:
+        - Database connectivity
+        - API key configuration
+    
+    Returns:
+        dict: Health status with component details
+    """
+    db_healthy = await database.check_database_health()
+    
+    return {
+        "status": "healthy" if db_healthy else "degraded",
+        "components": {
+            "database": db_healthy,
+            "gemini_configured": settings.GOOGLE_API_KEY is not None,
+            "elevenlabs_configured": settings.ELEVENLABS_API_KEY is not None,
+        },
+        "version": settings.APP_VERSION
+    }
+
+
+# =============================================================================
+# Entry Point
+# =============================================================================
 
 if __name__ == "__main__":
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    uvicorn.run(
+        "main:app",
+        host="0.0.0.0",
+        port=8000,
+        reload=settings.DEBUG,
+        log_level="debug" if settings.DEBUG else "info"
+    )
