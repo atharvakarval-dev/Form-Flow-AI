@@ -114,10 +114,10 @@ class FormSubmission(Base):
     
     # Submission Data
     form_url = Column(String(2048), nullable=False)
-    status = Column(String(50), default="Success")
+    status = Column(String(50), default="Success", index=True)
     
-    # Timestamps
-    timestamp = Column(DateTime(timezone=True), server_default=func.now())
+    # Timestamps (indexed for history queries)
+    timestamp = Column(DateTime(timezone=True), server_default=func.now(), index=True)
     
     # Relationships
     user = relationship("User", back_populates="submissions")

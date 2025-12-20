@@ -66,6 +66,14 @@ class Settings(BaseSettings):
     )
     
     # ==========================================================================
+    # Redis Configuration (for caching and rate limiting)
+    # ==========================================================================
+    REDIS_URL: Optional[str] = Field(
+        default=None,
+        description="Redis connection URL for caching and rate limiting"
+    )
+    
+    # ==========================================================================
     # CORS Configuration
     # ==========================================================================
     CORS_ORIGINS: str = Field(

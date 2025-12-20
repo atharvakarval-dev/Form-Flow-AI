@@ -64,8 +64,8 @@ engine = create_async_engine(
     echo=settings.DEBUG,  # Log SQL queries in debug mode
     pool_pre_ping=True,   # Verify connections before use
     pool_recycle=300,     # Recycle connections after 5 minutes
-    pool_size=5,          # Default pool size
-    max_overflow=10,      # Allow 10 additional connections
+    pool_size=3,          # Reduced for small servers (was 5)
+    max_overflow=5,       # Reduced for small servers (was 10)
 )
 
 SessionLocal = sessionmaker(

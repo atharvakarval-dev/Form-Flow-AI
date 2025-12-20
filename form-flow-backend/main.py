@@ -97,6 +97,10 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# GZip Compression (reduces response size by ~70%)
+from fastapi.middleware.gzip import GZipMiddleware
+app.add_middleware(GZipMiddleware, minimum_size=500)
+
 
 # =============================================================================
 # Exception Handlers
@@ -155,20 +159,31 @@ async def health_check():
     
     Checks:
         - Database connectivity
+        - Redis connectivity
         - API key configuration
+        - Lazy-loaded services status
+        - Background task queue stats
     
     Returns:
         dict: Health status with component details
     """
+    from utils.cache import check_redis_health
+    from core.dependencies import get_initialized_services
+    from utils.tasks import get_queue_stats
+    
     db_healthy = await database.check_database_health()
+    redis_healthy = await check_redis_health()
     
     return {
         "status": "healthy" if db_healthy else "degraded",
         "components": {
             "database": db_healthy,
+            "redis": redis_healthy,
             "gemini_configured": settings.GOOGLE_API_KEY is not None,
             "elevenlabs_configured": settings.ELEVENLABS_API_KEY is not None,
         },
+        "services_loaded": get_initialized_services(),
+        "task_queue": get_queue_stats(),
         "version": settings.APP_VERSION
     }
 
