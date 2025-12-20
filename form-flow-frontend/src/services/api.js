@@ -4,8 +4,8 @@
  */
 import axios from 'axios';
 
-// Base API configuration
-export const API_BASE_URL = 'http://localhost:8000';
+// Base API configuration - uses environment variable with fallback
+export const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
 
 // Create axios instance with default config
 const api = axios.create({
@@ -13,7 +13,40 @@ const api = axios.create({
     headers: {
         'Content-Type': 'application/json',
     },
+    timeout: 30000, // 30 second timeout
 });
+
+// Request interceptor to add auth token
+api.interceptors.request.use(
+    (config) => {
+        const token = localStorage.getItem('token');
+        if (token) {
+            config.headers.Authorization = `Bearer ${token}`;
+        }
+        return config;
+    },
+    (error) => Promise.reject(error)
+);
+
+// Response interceptor for error handling
+api.interceptors.response.use(
+    (response) => response,
+    (error) => {
+        // Handle common errors
+        if (error.response?.status === 401) {
+            // Token expired - clear and redirect
+            localStorage.removeItem('token');
+            window.location.href = '/login';
+        }
+
+        // Log errors in development
+        if (import.meta.env.DEV) {
+            console.error('API Error:', error.response?.data || error.message);
+        }
+
+        return Promise.reject(error);
+    }
+);
 
 // Request interceptor to add auth token
 api.interceptors.request.use(
