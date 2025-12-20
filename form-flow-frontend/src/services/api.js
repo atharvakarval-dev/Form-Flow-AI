@@ -7,13 +7,13 @@ import axios from 'axios';
 // Base API configuration - uses environment variable with fallback
 export const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
 
-// Create axios instance with default config
+// Create axios instance with default config (no global timeout)
 const api = axios.create({
     baseURL: API_BASE_URL,
     headers: {
         'Content-Type': 'application/json',
     },
-    timeout: 30000, // 30 second timeout
+    // No global timeout - form operations can take minutes
 });
 
 // Request interceptor to add auth token
@@ -48,22 +48,10 @@ api.interceptors.response.use(
     }
 );
 
-// Request interceptor to add auth token
-api.interceptors.request.use(
-    (config) => {
-        const token = localStorage.getItem('token');
-        if (token) {
-            config.headers.Authorization = `Bearer ${token}`;
-        }
-        return config;
-    },
-    (error) => Promise.reject(error)
-);
-
 // ============ Form APIs ============
 
 /**
- * Scrape and parse a form URL
+ * Scrape and parse a form URL (no timeout - can take time)
  */
 export const scrapeForm = async (url) => {
     const response = await api.post('/scrape', { url });
@@ -71,7 +59,7 @@ export const scrapeForm = async (url) => {
 };
 
 /**
- * Submit form data to the original website
+ * Submit form data to the original website (no timeout - can take minutes)
  */
 export const submitForm = async (url, formData, formSchema) => {
     const response = await api.post('/submit-form', {

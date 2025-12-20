@@ -525,6 +525,21 @@ const VoiceFormFiller = ({ formSchema, formContext, onComplete }) => {
                                                 </button>
                                             )}
                                         </>
+                                    ) : currentField?.type === 'dropdown' || currentField?.isCustomComponent ? (
+                                        /* Custom dropdown without pre-loaded options - treat as searchable text */
+                                        <>
+                                            <h3 className="text-2xl font-medium text-white mb-3 tracking-tight">
+                                                Please choose from the available options for {currentField?.label || currentField?.name}
+                                                {currentField?.required && ' (This field is required)'}
+                                            </h3>
+                                            <p className="text-white/40 text-sm uppercase tracking-wider font-semibold flex items-center justify-center gap-2">
+                                                {currentField?.label || currentField?.name}
+                                                {currentField?.required && <span className="text-red-400 text-xs tracking-normal px-2 py-0.5 rounded bg-red-400/10 border border-red-400/20">* Required</span>}
+                                            </p>
+                                            <p className="text-white/50 text-xs mt-3">
+                                                💡 Speak the option you want to select (e.g., "New Policy" or "Feedback")
+                                            </p>
+                                        </>
                                     ) : (
                                         <>
                                             <h3 className="text-3xl font-medium text-white mb-3 tracking-tight">

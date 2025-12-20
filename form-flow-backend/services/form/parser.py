@@ -100,6 +100,10 @@ async def get_form_schema(url: str, generate_speech: bool = True, wait_for_dynam
             
             print(f"✓ Found {len(forms_data)} form(s)")
             
+            # Extract options from custom dropdowns by clicking them
+            if not is_google_form:
+                forms_data = await _extract_custom_dropdown_options(page, forms_data)
+            
             try:
                 await page.unroute_all(behavior='ignoreErrors')
             except:
@@ -160,6 +164,131 @@ async def _wait_for_google_form(page):
         await asyncio.sleep(1)
     except TimeoutError:
         print("⚠️ Timeout waiting for form elements - attempting extraction anyway")
+
+
+async def _extract_custom_dropdown_options(page, forms_data: List[Dict]) -> List[Dict]:
+    """
+    Click on custom dropdowns to reveal and extract their options.
+    Supports: Ant Design, Material-UI, Vuetify, React-Select, Select2, 
+    Choices.js, Element Plus, Blueprint, PrimeReact, Semantic UI, etc.
+    """
+    for form in forms_data:
+        for field in form.get('fields', []):
+            # Only process custom dropdowns without options
+            if field.get('isCustomComponent') and field.get('type') == 'dropdown' and len(field.get('options', [])) == 0:
+                field_name = field.get('name', '')
+                print(f"  🔽 Extracting options for custom dropdown: {field_name}")
+                
+                try:
+                    # Universal selectors to find the dropdown trigger
+                    dropdown_selectors = [
+                        f'#{field_name}',
+                        f'[id="{field_name}"]',
+                        f'.ant-select:has(input#{field_name})',
+                        f'.ant-select:has([id*="{field_name.split("_")[-1]}"])',
+                        f'[class*="select"]:has([id*="{field_name.split("_")[-1]}"])',
+                        f'.MuiSelect-root:has([id*="{field_name}"])',
+                        f'.v-select:has([id*="{field_name}"])',
+                        f'.el-select:has([id*="{field_name}"])',
+                    ]
+                    
+                    dropdown = None
+                    for selector in dropdown_selectors:
+                        try:
+                            dropdown = await page.query_selector(selector)
+                            if dropdown:
+                                break
+                        except:
+                            continue
+                    
+                    if dropdown:
+                        # Click to open the dropdown
+                        await dropdown.click()
+                        await asyncio.sleep(0.5)  # Wait for options to render
+                        
+                        # Universal option selectors for all major libraries
+                        options = await page.evaluate("""
+                            () => {
+                                // Comprehensive selectors for dropdown options from all major UI libraries
+                                const optionSelectors = [
+                                    // Ant Design
+                                    '.ant-select-dropdown:not(.ant-select-dropdown-hidden) .ant-select-item-option-content',
+                                    '.ant-select-dropdown:not(.ant-select-dropdown-hidden) .ant-select-item',
+                                    // Material-UI / MUI
+                                    '.MuiMenu-paper .MuiMenuItem-root',
+                                    '.MuiAutocomplete-popper .MuiAutocomplete-option',
+                                    '[class*="MuiMenu"] [class*="MuiMenuItem"]',
+                                    // Vuetify
+                                    '.v-menu__content .v-list-item',
+                                    '.v-select-list .v-list-item__title',
+                                    // Element Plus
+                                    '.el-select-dropdown .el-select-dropdown__item',
+                                    '.el-autocomplete-suggestion li',
+                                    // React-Select
+                                    '[class*="menu"] [class*="option"]',
+                                    '[class*="-menu"] [class*="-option"]',
+                                    // Select2
+                                    '.select2-results__option',
+                                    '.select2-dropdown .select2-results li',
+                                    // Choices.js
+                                    '.choices__list--dropdown .choices__item',
+                                    // Blueprint.js
+                                    '.bp4-menu-item', '.bp5-menu-item',
+                                    // PrimeReact / PrimeFaces
+                                    '.p-dropdown-panel .p-dropdown-item',
+                                    '.p-autocomplete-panel .p-autocomplete-item',
+                                    // Semantic UI
+                                    '.ui.active.visible.dropdown .menu .item',
+                                    '.visible.menu.transition .item',
+                                    // Headless UI
+                                    '[data-headlessui-state*="open"] [role="option"]',
+                                    // Generic ARIA-compliant dropdowns
+                                    '[role="listbox"] [role="option"]',
+                                    '[role="menu"] [role="menuitem"]',
+                                    // Generic patterns
+                                    '.dropdown-menu .dropdown-item',
+                                    '[class*="dropdown"][class*="menu"] [class*="item"]',
+                                    '[class*="options"] [class*="option"]',
+                                ];
+                                
+                                const options = [];
+                                const seen = new Set();
+                                
+                                optionSelectors.forEach(selector => {
+                                    try {
+                                        document.querySelectorAll(selector).forEach(opt => {
+                                            const text = (opt.innerText || opt.textContent || '').trim();
+                                            // Filter out empty, very short, or duplicate options
+                                            if (text && text.length > 0 && text.length < 200 && !seen.has(text)) {
+                                                seen.add(text);
+                                                options.push({ 
+                                                    value: opt.getAttribute('data-value') || text, 
+                                                    label: text 
+                                                });
+                                            }
+                                        });
+                                    } catch(e) {}
+                                });
+                                
+                                return options;
+                            }
+                        """)
+                        
+                        if options and len(options) > 0:
+                            field['options'] = options
+                            print(f"    ✓ Found {len(options)} options: {[o['label'] for o in options[:5]]}...")
+                        else:
+                            print(f"    ⚠️ No options found in dropdown portal")
+                        
+                        # Close the dropdown
+                        await page.keyboard.press('Escape')
+                        await asyncio.sleep(0.2)
+                        
+                except Exception as e:
+                    print(f"    ⚠️ Could not extract options for {field_name}: {e}")
+                    continue
+    
+    return forms_data
 
 
 async def _extract_all_frames(page, url: str) -> List[Dict]:
@@ -284,13 +413,126 @@ async def _extract_standard_forms(frame) -> List[Dict]:
                 const fields = [];
                 const processedRadioGroups = new Set();
                 const processedCheckboxGroups = new Set();
+                const skippedCustomDropdownInputs = new Set();
                 
-                // First pass: Process all inputs
+                // ============================================================
+                // FIRST: Pre-scan for custom dropdowns (Ant Design, etc.)
+                // Mark their internal inputs to be skipped in the main pass
+                // Supports: Ant Design, Material-UI, Vuetify, React-Select, 
+                // Select2, Choices.js, Element Plus, Blueprint, PrimeReact, etc.
+                // ============================================================
+                const customDropdownSelectors = [
+                    // Ant Design
+                    '.ant-select',
+                    // Material-UI / MUI
+                    '.MuiSelect-root', '.MuiAutocomplete-root', '[class*="MuiSelect"]',
+                    // Vuetify (Vue)
+                    '.v-select', '.v-autocomplete',
+                    // Element Plus (Vue)
+                    '.el-select', '.el-autocomplete',
+                    // React-Select
+                    '[class*="select__control"]', '[class*="-control"][class*="css-"]',
+                    // Select2
+                    '.select2-container', '.select2',
+                    // Choices.js
+                    '.choices',
+                    // Headless UI (React/Vue) - uses data attributes
+                    '[data-headlessui-state]',
+                    // Blueprint.js
+                    '.bp4-select', '.bp5-select',
+                    // PrimeReact / PrimeFaces
+                    '.p-dropdown', '.p-autocomplete',
+                    // Semantic UI
+                    '.ui.dropdown', '.ui.selection.dropdown',
+                    // Bootstrap select variants
+                    '.bootstrap-select', '.dropdown-toggle[data-toggle="dropdown"]',
+                    // Tailwind / DaisyUI
+                    '.select', '[class*="dropdown"]',
+                    // Generic patterns with ARIA roles
+                    '[role="combobox"]:not(input)', '[role="listbox"]',
+                    // Generic class patterns
+                    '[class*="select-wrapper"]', '[class*="dropdown-wrapper"]',
+                    '[class*="custom-select"]', '[class*="SelectContainer"]',
+                ];
+                
+                form.querySelectorAll(customDropdownSelectors.join(', ')).forEach(dropdown => {
+                    // Find any input inside this dropdown and mark it to skip
+                    const innerInput = dropdown.querySelector('input');
+                    if (innerInput && (innerInput.id || innerInput.name)) {
+                        skippedCustomDropdownInputs.add(innerInput.id || innerInput.name);
+                    }
+                    // Also check for role="combobox" elements
+                    const combobox = dropdown.querySelector('[role="combobox"]');
+                    if (combobox && (combobox.id || combobox.getAttribute('aria-controls'))) {
+                        skippedCustomDropdownInputs.add(combobox.id || combobox.getAttribute('aria-controls'));
+                    }
+                    
+                    // Now extract this as a dropdown field
+                    let label = '';
+                    
+                    // Method 1: Look for associated label by 'for' attribute
+                    const inputId = innerInput?.id || combobox?.id;
+                    if (inputId) {
+                        const lbl = form.querySelector(`label[for="${inputId}"]`);
+                        if (lbl) label = getText(lbl);
+                    }
+                    
+                    // Method 2: Look for label in parent container (Ant Design structure)
+                    if (!label) {
+                        const container = dropdown.closest('.ant-form-item, .form-group, .form-field, [class*="form-item"]');
+                        if (container) {
+                            const labelEl = container.querySelector('label, .ant-form-item-label, .form-label');
+                            if (labelEl) label = getText(labelEl);
+                        }
+                    }
+                    
+                    // Method 3: aria-label
+                    if (!label) {
+                        label = dropdown.getAttribute('aria-label') || 
+                               innerInput?.getAttribute('aria-label') || 
+                               combobox?.getAttribute('aria-label') || '';
+                    }
+                    
+                    // Method 4: placeholder text
+                    if (!label) {
+                        const placeholder = dropdown.querySelector('.ant-select-selection-placeholder, [class*="placeholder"]');
+                        if (placeholder) {
+                            label = getText(placeholder).replace(/^Select\s*/i, '').trim();
+                        }
+                    }
+                    
+                    if (!label) return; // Skip if we can't find a label
+                    
+                    // Check required status
+                    const required = dropdown.querySelector('[aria-required="true"]') !== null ||
+                                    dropdown.closest('.ant-form-item-required') !== null ||
+                                    dropdown.closest('[class*="required"]') !== null ||
+                                    label.includes('*');
+                    
+                    fields.push({
+                        name: inputId || `custom_dropdown_${fields.length}`,
+                        type: 'dropdown',
+                        tagName: 'custom-select',
+                        label: label.replace(/\*$/, '').trim(),
+                        required: required,
+                        hidden: !isVisible(dropdown),
+                        options: [], // Options are loaded dynamically when clicked
+                        isCustomComponent: true
+                    });
+                });
+                
+                // ============================================================
+                // SECOND: Process standard inputs (skip custom dropdown inputs)
+                // ============================================================
                 Array.from(form.querySelectorAll('input, select, textarea')).forEach(field => {
                     const type = field.type || field.tagName.toLowerCase();
                     const name = field.name || field.id;
                     
                     if (!name || type === 'submit' || type === 'button' || type === 'hidden') return;
+                    
+                    // SKIP if this input is inside a custom dropdown (already processed above)
+                    if (skippedCustomDropdownInputs.has(name)) return;
+                    if (field.closest('.ant-select, .select2-container, .choices, [class*="select-"][class*="container"]')) return;
                     
                     // RADIO BUTTONS: Group by name
                     if (type === 'radio') {
