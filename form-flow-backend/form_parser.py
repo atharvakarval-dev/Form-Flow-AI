@@ -194,7 +194,7 @@ async def _extract_all_frames(page, url: str) -> List[Dict]:
 
 
 async def _extract_standard_forms(frame) -> List[Dict]:
-    """Extract forms using JavaScript evaluation."""
+    """Extract forms using JavaScript evaluation - handles radio/checkbox groups properly."""
     return await frame.evaluate("""
         () => {
             const getText = el => el ? (el.innerText || el.textContent || '').trim() : '';
@@ -203,69 +203,352 @@ async def _extract_standard_forms(frame) -> List[Dict]:
                 const style = window.getComputedStyle(el);
                 return style.display !== 'none' && style.visibility !== 'hidden' && style.opacity !== '0' && el.getBoundingClientRect().height > 0;
             };
+            
             const findLabel = (field, form) => {
+                // Try explicit label
                 if (field.id) {
                     const lbl = form.querySelector(`label[for="${field.id}"]`);
                     if (lbl) return getText(lbl);
                 }
+                // Try parent label
                 if (field.closest('label')) return getText(field.closest('label'));
+                // Try previous sibling
                 const prev = field.previousElementSibling;
                 if (prev?.tagName === 'LABEL') return getText(prev);
+                // Try aria-label or placeholder
                 return field.getAttribute('aria-label') || field.placeholder || '';
             };
             
-            return Array.from(document.querySelectorAll('form')).map((form, idx) => ({
-                formIndex: idx,
-                action: form.action || null,
-                method: (form.method || 'GET').toUpperCase(),
-                id: form.id || null,
-                name: form.name || null,
-                fields: Array.from(form.querySelectorAll('input, select, textarea')).map(field => {
+            // Find common label for a group of radio/checkbox inputs (the question text)
+            const findGroupLabel = (inputs, form) => {
+                if (inputs.length === 0) return '';
+                
+                // Look for a common parent container with a question/label
+                const firstInput = inputs[0];
+                
+                // Method 1: Find fieldset > legend (standard HTML)
+                const fieldset = firstInput.closest('fieldset');
+                if (fieldset) {
+                    const legend = fieldset.querySelector('legend');
+                    if (legend) return getText(legend);
+                }
+                
+                // Method 2: Look for a label/heading before the group
+                // Universal selectors for popular form libraries:
+                // - Bootstrap: .form-group, .mb-3, .form-check
+                // - Materialize: .input-field
+                // - Foundation: .callout, .fieldset
+                // - Tailwind: common patterns like .space-y-*, .flex, [class*="mb-"]
+                // - Semantic UI: .field, .grouped.fields
+                // - Custom: .question, .field-wrapper, .form-field, .field-container
+                const container = firstInput.closest(
+                    'fieldset, .form-group, .question, .field-wrapper, [role="group"], [role="radiogroup"], ' +
+                    '.radio-group, .checkbox-group, .input-field, .field, .grouped, .form-field, ' +
+                    '.field-container, .form-item, .form-row, [class*="mb-"], .callout'
+                ) || firstInput.parentElement?.parentElement;
+                
+                if (container) {
+                    // Look for heading, label, or first text element (expanded selectors)
+                    const labelEl = container.querySelector(
+                        'h1, h2, h3, h4, h5, h6, legend, label:not(:has(input)), .question-text, ' +
+                        '.form-label, .control-label, .col-form-label, [class*="label"], ' +
+                        '.field-label, .input-label, span.label, p.label, .title'
+                    );
+                    if (labelEl && !labelEl.querySelector('input, [role="radio"], [role="checkbox"]')) {
+                        return getText(labelEl);
+                    }
+                }
+                
+                // Method 3: aria-label on container or aria-labelledby
+                const ariaLabel = firstInput.closest('[aria-label]')?.getAttribute('aria-label');
+                if (ariaLabel) return ariaLabel;
+                
+                const labelledBy = firstInput.getAttribute('aria-labelledby');
+                if (labelledBy) {
+                    const labelEl = document.getElementById(labelledBy);
+                    if (labelEl) return getText(labelEl);
+                }
+                
+                // Method 4: data-label attribute (common in modern frameworks)
+                const dataLabel = firstInput.closest('[data-label]')?.getAttribute('data-label') ||
+                                 firstInput.getAttribute('data-label');
+                if (dataLabel) return dataLabel;
+                
+                // Fallback: use the name attribute cleaned up
+                const name = firstInput.name || '';
+                return name.replace(/[_-]/g, ' ').replace(/([a-z])([A-Z])/g, '$1 $2').replace(/\[\]/g, '').trim();
+            };
+
+            
+            return Array.from(document.querySelectorAll('form')).map((form, idx) => {
+                const fields = [];
+                const processedRadioGroups = new Set();
+                const processedCheckboxGroups = new Set();
+                
+                // First pass: Process all inputs
+                Array.from(form.querySelectorAll('input, select, textarea')).forEach(field => {
                     const type = field.type || field.tagName.toLowerCase();
-                    const info = {
-                        name: field.name || field.id || null,
+                    const name = field.name || field.id;
+                    
+                    if (!name || type === 'submit' || type === 'button' || type === 'hidden') return;
+                    
+                    // RADIO BUTTONS: Group by name
+                    if (type === 'radio') {
+                        if (processedRadioGroups.has(name)) return; // Already processed this group
+                        processedRadioGroups.add(name);
+                        
+                        // Find all radios with this name
+                        const radios = Array.from(form.querySelectorAll(`input[type="radio"][name="${name}"]`));
+                        const options = radios.map(r => {
+                            // Get option label
+                            let optLabel = '';
+                            
+                            // Try aria-label first
+                            optLabel = r.getAttribute('aria-label') || '';
+                            
+                            // Try associated label
+                            if (!optLabel && r.id) {
+                                const lbl = form.querySelector(`label[for="${r.id}"]`);
+                                if (lbl) optLabel = getText(lbl);
+                            }
+                            
+                            // Try parent label
+                            if (!optLabel) {
+                                const parentLabel = r.closest('label');
+                                if (parentLabel) {
+                                    // Get text excluding the input itself
+                                    optLabel = getText(parentLabel).replace(r.value, '').trim();
+                                }
+                            }
+                            
+                            // Try next sibling text
+                            if (!optLabel && r.nextSibling) {
+                                optLabel = (r.nextSibling.textContent || '').trim();
+                            }
+                            
+                            // Fallback to value
+                            if (!optLabel) optLabel = r.value || '';
+                            
+                            return {
+                                value: r.value || optLabel,
+                                label: optLabel || r.value
+                            };
+                        }).filter(o => o.label);
+                        
+                        const groupLabel = findGroupLabel(radios, form);
+                        const isRequired = radios.some(r => r.required || r.hasAttribute('required'));
+                        
+                        fields.push({
+                            name: name,
+                            type: 'radio',
+                            tagName: 'radio-group',
+                            label: groupLabel,
+                            required: isRequired,
+                            hidden: !radios.some(r => isVisible(r)),
+                            options: options
+                        });
+                        return;
+                    }
+                    
+                    // CHECKBOXES: Group by name if multiple with same name
+                    if (type === 'checkbox') {
+                        const checkboxes = Array.from(form.querySelectorAll(`input[type="checkbox"][name="${name}"]`));
+                        
+                        if (checkboxes.length > 1) {
+                            // Multiple checkboxes with same name = checkbox group
+                            if (processedCheckboxGroups.has(name)) return;
+                            processedCheckboxGroups.add(name);
+                            
+                            const options = checkboxes.map(c => {
+                                let optLabel = c.getAttribute('aria-label') || '';
+                                if (!optLabel && c.id) {
+                                    const lbl = form.querySelector(`label[for="${c.id}"]`);
+                                    if (lbl) optLabel = getText(lbl);
+                                }
+                                if (!optLabel) {
+                                    const parentLabel = c.closest('label');
+                                    if (parentLabel) optLabel = getText(parentLabel).replace(c.value, '').trim();
+                                }
+                                if (!optLabel) optLabel = c.value || '';
+                                
+                                return {
+                                    value: c.value || optLabel,
+                                    label: optLabel || c.value,
+                                    checked: c.checked
+                                };
+                            }).filter(o => o.label);
+                            
+                            fields.push({
+                                name: name,
+                                type: 'checkbox-group',
+                                tagName: 'checkbox-group',
+                                label: findGroupLabel(checkboxes, form),
+                                required: checkboxes.some(c => c.required),
+                                hidden: !checkboxes.some(c => isVisible(c)),
+                                allows_multiple: true,
+                                options: options
+                            });
+                        } else {
+                            // Single checkbox
+                            fields.push({
+                                name: name,
+                                type: 'checkbox',
+                                tagName: 'input',
+                                label: findLabel(field, form),
+                                required: field.required,
+                                hidden: !isVisible(field),
+                                checked: field.checked
+                            });
+                        }
+                        return;
+                    }
+                    
+                    // SELECT dropdowns
+                    if (field.tagName === 'SELECT') {
+                        fields.push({
+                            name: name,
+                            type: 'dropdown',
+                            tagName: 'select',
+                            label: findLabel(field, form),
+                            required: field.required,
+                            hidden: !isVisible(field),
+                            options: Array.from(field.options).filter(o => o.value).map(o => ({
+                                value: o.value,
+                                label: o.text.trim(),
+                                selected: o.selected
+                            }))
+                        });
+                        return;
+                    }
+                    
+                    // Standard text/email/etc inputs
+                    fields.push({
+                        name: name,
                         type: type,
                         tagName: field.tagName.toLowerCase(),
                         label: findLabel(field, form),
                         placeholder: field.placeholder || null,
                         required: field.required || field.hasAttribute('required'),
-                        hidden: type === 'hidden' || !isVisible(field),
+                        hidden: !isVisible(field),
                         value: field.value || null,
                         disabled: field.disabled,
                         readonly: field.readOnly
-                    };
-                    
-                    // Handle select options
-                    if (field.tagName === 'SELECT') {
-                        info.options = Array.from(field.options).filter(o => o.value).map(o => ({
-                            value: o.value, label: o.text.trim(), selected: o.selected
-                        }));
-                    }
-                    
-                    // Handle radio/checkbox groups
-                    if (type === 'radio' || type === 'checkbox') {
-                        info.checked = field.checked;
-                    }
-                    
-                    return info;
-                }).filter(f => f.name && f.type !== 'submit' && f.type !== 'button')
-            })).filter(f => f.fields.length > 0);
+                    });
+                });
+                
+                return {
+                    formIndex: idx,
+                    action: form.action || null,
+                    method: (form.method || 'GET').toUpperCase(),
+                    id: form.id || null,
+                    name: form.name || null,
+                    fields: fields
+                };
+            }).filter(f => f.fields.length > 0);
         }
     """)
 
 
 def _extract_with_beautifulsoup(html: str) -> List[Dict]:
-    """BeautifulSoup fallback extraction."""
+    """BeautifulSoup fallback extraction with radio/checkbox grouping."""
     soup = BeautifulSoup(html, "html.parser")
     forms = []
     
     for idx, form in enumerate(soup.find_all("form")):
         fields = []
+        processed_radio_groups = set()
+        processed_checkbox_groups = set()
+        
         for tag in form.find_all(["input", "select", "textarea"]):
             name = tag.get("name") or tag.get("id")
-            if not name or tag.get("type") in ["submit", "button", "hidden"]:
+            field_type = tag.get("type", tag.name)
+            
+            if not name or field_type in ["submit", "button", "hidden"]:
                 continue
             
+            # Handle radio groups
+            if field_type == "radio":
+                if name in processed_radio_groups:
+                    continue
+                processed_radio_groups.add(name)
+                
+                # Find all radios with this name
+                radios = form.find_all("input", {"type": "radio", "name": name})
+                options = []
+                for r in radios:
+                    opt_label = None
+                    # Try aria-label
+                    opt_label = r.get("aria-label")
+                    # Try associated label
+                    if not opt_label and r.get("id"):
+                        lbl = soup.find("label", {"for": r["id"]})
+                        if lbl:
+                            opt_label = lbl.get_text(strip=True)
+                    # Try parent label
+                    if not opt_label:
+                        parent_label = r.find_parent("label")
+                        if parent_label:
+                            opt_label = parent_label.get_text(strip=True)
+                    # Fallback to value
+                    if not opt_label:
+                        opt_label = r.get("value", "")
+                    
+                    if opt_label:
+                        options.append({"value": r.get("value", opt_label), "label": opt_label})
+                
+                # Find group label (legend, heading, etc.)
+                group_label = None
+                fieldset = tag.find_parent("fieldset")
+                if fieldset:
+                    legend = fieldset.find("legend")
+                    if legend:
+                        group_label = legend.get_text(strip=True)
+                
+                fields.append({
+                    "name": name,
+                    "type": "radio",
+                    "tagName": "radio-group",
+                    "label": group_label or name.replace("_", " ").title(),
+                    "required": any(r.has_attr("required") for r in radios),
+                    "hidden": False,
+                    "options": options
+                })
+                continue
+            
+            # Handle checkbox groups
+            if field_type == "checkbox":
+                checkboxes = form.find_all("input", {"type": "checkbox", "name": name})
+                
+                if len(checkboxes) > 1:
+                    if name in processed_checkbox_groups:
+                        continue
+                    processed_checkbox_groups.add(name)
+                    
+                    options = []
+                    for c in checkboxes:
+                        opt_label = c.get("aria-label")
+                        if not opt_label and c.get("id"):
+                            lbl = soup.find("label", {"for": c["id"]})
+                            if lbl:
+                                opt_label = lbl.get_text(strip=True)
+                        if not opt_label:
+                            opt_label = c.get("value", "")
+                        if opt_label:
+                            options.append({"value": c.get("value", opt_label), "label": opt_label})
+                    
+                    fields.append({
+                        "name": name,
+                        "type": "checkbox-group",
+                        "tagName": "checkbox-group",
+                        "label": name.replace("_", " ").title(),
+                        "required": any(c.has_attr("required") for c in checkboxes),
+                        "hidden": False,
+                        "allows_multiple": True,
+                        "options": options
+                    })
+                    continue
+            
+            # Standard fields (text, email, select, textarea, single checkbox)
             label = None
             if tag.get("id"):
                 lbl = soup.find("label", {"for": tag["id"]})
@@ -274,7 +557,7 @@ def _extract_with_beautifulsoup(html: str) -> List[Dict]:
             
             field = {
                 "name": name,
-                "type": tag.get("type", tag.name),
+                "type": field_type,
                 "tagName": tag.name,
                 "label": label,
                 "placeholder": tag.get("placeholder"),
@@ -324,12 +607,62 @@ async def _extract_google_forms(page) -> List[Dict]:
             console.log(`Found ${questions.length} question containers`);
             
             questions.forEach((q, idx) => {
-                // Get label - .M7eMe is the label class
-                const labelEl = q.querySelector('.M7eMe, [data-params]');
-                let label = getText(labelEl) || '';
+                // Get label - try multiple selectors for just the QUESTION TEXT (not options)
+                // Google Forms structure:
+                // - .M7eMe contains the question title
+                // - .gubaDc contains the description/helper text
+                // - Radio options are inside [role="radiogroup"] or similar
                 
-                // Remove asterisks from label for clean display
-                label = label.replace(/\\*$/, '').trim() || `Question ${idx + 1}`;
+                let label = '';
+                
+                // Method 1: Try the specific title span first (most reliable)
+                const titleSpan = q.querySelector('.M7eMe > span, .M7eMe');
+                if (titleSpan) {
+                    // Get only the DIRECT text, not child elements
+                    // Clone the element and remove child elements to get just the text
+                    const clone = titleSpan.cloneNode(true);
+                    // Remove any child elements that might contain options
+                    clone.querySelectorAll('[role="radio"], [role="checkbox"], .docssharedWizToggleLabeledContainer, input').forEach(el => el.remove());
+                    label = getText(clone);
+                }
+                
+                // Method 2: Try data-params attribute which often has the question text
+                if (!label) {
+                    const paramEl = q.querySelector('[data-params]');
+                    if (paramEl) {
+                        try {
+                            const params = paramEl.getAttribute('data-params');
+                            // Google Forms encodes the question text in data-params
+                            const match = params.match(/\[null,"([^"]+)"/);
+                            if (match) label = match[1];
+                        } catch(e) {}
+                    }
+                }
+                
+                // Method 3: Find the first text block before any form controls
+                if (!label) {
+                    const children = q.children;
+                    for (let i = 0; i < children.length; i++) {
+                        const child = children[i];
+                        if (!child.querySelector('[role="radio"], [role="checkbox"], input, select, textarea')) {
+                            const childText = getText(child);
+                            if (childText && childText.length > 0 && childText.length < 500) {
+                                label = childText;
+                                break;
+                            }
+                        }
+                    }
+                }
+                
+                // Clean up the label
+                // Remove asterisks and "Required" text
+                label = label.replace(/\*$/, '').replace(/\s*\(Required\)\s*/gi, '').trim();
+                
+                // IMPORTANT: Remove any option labels that might have leaked into the label
+                // If options are extracted later, we'll strip them from the label
+                
+                // Fallback
+                if (!label) label = `Question ${idx + 1}`;
                 
                 // Check required (asterisk presence or aria-label)
                 const required = q.innerHTML.includes('*') || 
@@ -337,13 +670,21 @@ async def _extract_google_forms(page) -> List[Dict]:
                                 q.innerHTML.includes('required');
                 
                 // Detect field type using robust selectors
-                // Text inputs: input.whsOnd.zHQkBf or generic input[type="text"]
-                const textInput = q.querySelector('input.whsOnd, input[type="text"], input[type="email"]');
-                const textArea = q.querySelector('textarea.KHxj8b, textarea');
+                // IMPORTANT: Check radio/checkbox FIRST as they may coexist with text inputs
                 const radioInputs = q.querySelectorAll('[role="radio"]');
                 const checkboxInputs = q.querySelectorAll('[role="checkbox"]');
                 const selectEl = q.querySelector('select, [role="listbox"]');
-                const dateInput = q.querySelector('input[type="date"]');
+                
+                // Google Forms date pickers - they do NOT use input[type="date"]
+                // They use text inputs with specific patterns or dedicated date widgets
+                const isDateQuestion = label.toLowerCase().includes('date') ||
+                                      q.querySelector('[data-date]') !== null ||
+                                      q.querySelector('[aria-label*="Day"], [aria-label*="Month"], [aria-label*="Year"]') !== null ||
+                                      q.querySelector('.qLWDgb') !== null; // Google Forms date class
+                
+                // Text inputs - check AFTER determining if it's a date
+                const textInput = q.querySelector('input.whsOnd, input[type="text"], input[type="email"]');
+                const textArea = q.querySelector('textarea.KHxj8b, textarea');
                 const fileInput = q.querySelector('input[type="file"]');
                 
                 let field = null;
@@ -352,30 +693,48 @@ async def _extract_google_forms(page) -> List[Dict]:
                 const isEmail = textInput?.getAttribute('aria-label')?.toLowerCase().includes('email') ||
                                label.toLowerCase().includes('email');
                 
-                if (textArea) {
-                    field = {
-                        name: textArea.name || `textarea_${idx}`,
-                        type: 'textarea',
-                        tagName: 'textarea'
-                    };
-                } else if (textInput) {
-                    field = {
-                        name: textInput.name || `text_${idx}`,
-                        type: isEmail ? 'email' : 'text',
-                        tagName: 'input'
-                    };
-                } else if (radioInputs.length > 0) {
-                    // Extract radio options
+                // PRIORITY ORDER: Radio > Checkbox > Dropdown > Date > File > Textarea > Text
+                
+                if (radioInputs.length > 0) {
+                    // Extract radio options - Google Forms stores option text in aria-label or data-value
                     const options = Array.from(radioInputs).map((r, i) => {
-                        // Get the parent container that contains the label text
-                        const optionLabel = getText(r.closest('.Od2TWd, .nWQGrd, .vRMGwf')) || 
-                                           getText(r.parentElement) || 
-                                           `Option ${i + 1}`;
+                        // Primary: aria-label contains the option text
+                        let optionLabel = r.getAttribute('aria-label') || '';
+                        
+                        // Fallback 1: data-value attribute
+                        if (!optionLabel) {
+                            optionLabel = r.getAttribute('data-value') || '';
+                        }
+                        
+                        // Fallback 2: Look for span with option text inside the radio container
+                        if (!optionLabel) {
+                            const labelSpan = r.querySelector('span') || 
+                                             r.closest('[role="presentation"]')?.querySelector('span');
+                            optionLabel = labelSpan ? getText(labelSpan) : '';
+                        }
+                        
+                        // Fallback 3: Adjacent sibling text
+                        if (!optionLabel && r.nextElementSibling) {
+                            optionLabel = getText(r.nextElementSibling);
+                        }
+                        
+                        // Fallback 4: Parent's direct text
+                        if (!optionLabel) {
+                            // Get just this option's container, not the whole question
+                            const optContainer = r.closest('.docssharedWizToggleLabeledContainer, .SG0AAe, [data-answer-value]');
+                            if (optContainer) {
+                                optionLabel = getText(optContainer);
+                            }
+                        }
+                        
                         return {
-                            value: optionLabel,
-                            label: optionLabel
+                            value: optionLabel || `Option ${i + 1}`,
+                            label: optionLabel || `Option ${i + 1}`
                         };
-                    }).filter(o => o.label.length > 0);
+                    }).filter(o => o.label && o.label.length > 0 && o.label !== o.value.slice(0, 6) + '...');
+                    
+                    // Log for debugging
+                    console.log(`Radio options found: ${options.map(o => o.label).join(', ')}`);
                     
                     field = {
                         name: `radio_${idx}`,
@@ -384,16 +743,36 @@ async def _extract_google_forms(page) -> List[Dict]:
                         options: options
                     };
                 } else if (checkboxInputs.length > 0) {
-                    // Extract checkbox options
+                    // Extract checkbox options - same approach as radio buttons
                     const options = Array.from(checkboxInputs).map((c, i) => {
-                        const optionLabel = getText(c.closest('.docssharedWizToggleLabeledPrimaryText')) ||
-                                           getText(c.parentElement) || 
-                                           `Option ${i + 1}`;
+                        // Primary: aria-label contains the option text
+                        let optionLabel = c.getAttribute('aria-label') || '';
+                        
+                        // Fallback 1: data-value attribute
+                        if (!optionLabel) {
+                            optionLabel = c.getAttribute('data-value') || '';
+                        }
+                        
+                        // Fallback 2: Look for text in the container
+                        if (!optionLabel) {
+                            const optContainer = c.closest('.docssharedWizToggleLabeledContainer, .SG0AAe, [data-answer-value]');
+                            if (optContainer) {
+                                optionLabel = getText(optContainer);
+                            }
+                        }
+                        
+                        // Fallback 3: Parent element text
+                        if (!optionLabel) {
+                            optionLabel = getText(c.parentElement);
+                        }
+                        
                         return {
-                            value: optionLabel,
-                            label: optionLabel
+                            value: optionLabel || `Option ${i + 1}`,
+                            label: optionLabel || `Option ${i + 1}`
                         };
-                    }).filter(o => o.label.length > 0);
+                    }).filter(o => o.label && o.label.length > 0);
+                    
+                    console.log(`Checkbox options found: ${options.map(o => o.label).join(', ')}`);
                     
                     field = {
                         name: `checkbox_${idx}`,
@@ -413,22 +792,67 @@ async def _extract_google_forms(page) -> List[Dict]:
                         name: selectEl.name || `dropdown_${idx}`,
                         type: 'dropdown', tagName: 'select', options
                     };
-                } else if (dateInput) {
-                    field = { name: dateInput.name || `date_${idx}`, type: 'date', tagName: 'input' };
+                } else if (isDateQuestion) {
+                    // Google Forms date picker
+                    field = { 
+                        name: `date_${idx}`, 
+                        type: 'date', 
+                        tagName: 'input',
+                        is_google_date: true
+                    };
+                    console.log(`Date field detected: ${label}`);
                 } else if (fileInput) {
                     field = { 
                         name: fileInput.name || `file_${idx}`, type: 'file', tagName: 'input',
                         accept: fileInput.accept, multiple: fileInput.multiple 
                     };
+                } else if (textArea) {
+                    field = {
+                        name: textArea.name || `textarea_${idx}`,
+                        type: 'textarea',
+                        tagName: 'textarea'
+                    };
+                } else if (textInput) {
+                    field = {
+                        name: textInput.name || `text_${idx}`,
+                        type: isEmail ? 'email' : 'text',
+                        tagName: 'input'
+                    };
                 }
                 
                 if (field) {
+                    // CRITICAL: Clean up label by removing option labels that may have leaked
+                    // This happens when the question container's innerText includes the options
+                    if (field.options && field.options.length > 0) {
+                        let cleanLabel = label;
+                        for (const opt of field.options) {
+                            // Remove option labels from the main label
+                            if (opt.label) {
+                                // Remove the option text (handles cases like "Freshman Sophomore...")
+                                cleanLabel = cleanLabel.replace(new RegExp('\\\\b' + opt.label.replace(/[.*+?^${}()|[\\]\\\\]/g, '\\\\$&') + '\\\\b', 'gi'), '');
+                            }
+                        }
+                        // Also remove common trailing patterns
+                        cleanLabel = cleanLabel
+                            .replace(/Other:\s*$/i, '')
+                            .replace(/\s*\(This field is required\)\s*/gi, '')
+                            .replace(/\s{2,}/g, ' ')
+                            .trim();
+                        
+                        // If we cleaned up the label, use it
+                        if (cleanLabel && cleanLabel.length > 5) {
+                            label = cleanLabel;
+                        }
+                        
+                        console.log(`Cleaned label: "${label}"`);
+                    }
+                    
                     field.label = label;
                     field.display_name = label;
                     field.required = required;
                     field.hidden = false;
                     form.fields.push(field);
-                    console.log(`Found field: ${label} (${field.type})`);
+                    console.log(`Found field: ${label} (${field.type}) with ${field.options ? field.options.length : 0} options`);
                 }
             });
             

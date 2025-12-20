@@ -283,20 +283,73 @@ const VoiceFormFiller = ({ formSchema, formContext, onComplete }) => {
     // Simulate processing for UI demo
     setTimeout(() => {
       const field = allFields[activeIndex];
+      const isCheckboxGroup = field.type === 'checkbox-group' || field.allows_multiple;
 
       // Normalize text: trim and collapse multiple spaces
-      const normalizedText = text.trim().replace(/\s+/g, ' ');
+      let normalizedText = text.trim().replace(/\s+/g, ' ');
+      let matchedValue = null;
 
-      // Update State (for UI)
-      setFormData(prev => ({ ...prev, [field.name]: normalizedText }));
+      // Handle MCQ/Radio/Dropdown fields - map "Option X" to actual value
+      if (field.options && field.options.length > 0) {
+        const textLower = normalizedText.toLowerCase();
 
-      // Update Ref (for logic/submission safety)
-      formDataRef.current = { ...formDataRef.current, [field.name]: normalizedText };
+        // Check for "option X" or "number X" patterns
+        const optionMatch = textLower.match(/(?:option|number|choice)\s*(\d+)/i);
+        if (optionMatch) {
+          const optionIndex = parseInt(optionMatch[1]) - 1; // Convert to 0-indexed
+          if (optionIndex >= 0 && optionIndex < field.options.length) {
+            const selectedOption = field.options[optionIndex];
+            matchedValue = selectedOption.value || selectedOption.label;
+            console.log(`📋 Mapped "Option ${optionIndex + 1}" to value: ${matchedValue}`);
+          }
+        } else {
+          // Try fuzzy match against option labels
+          for (const opt of field.options) {
+            const optLabel = (opt.label || opt.value || '').toLowerCase();
+            if (textLower.includes(optLabel) || optLabel.includes(textLower)) {
+              matchedValue = opt.value || opt.label;
+              console.log(`📋 Fuzzy matched "${text}" to option: ${matchedValue}`);
+              break;
+            }
+          }
+        }
+      }
 
-      setLastFilled({ label: field.label || field.name, value: normalizedText }); // Store last answer
-      setTranscript('');
-      setProcessing(false);
-      handleNextField(activeIndex);
+      // Use matched value if found, otherwise use normalized text
+      const valueToUse = matchedValue || normalizedText;
+
+      if (isCheckboxGroup && matchedValue) {
+        // CHECKBOX-GROUP: Add to selections array (toggle)
+        const currentSelections = Array.isArray(formData[field.name])
+          ? formData[field.name]
+          : (formData[field.name] ? [formData[field.name]] : []);
+
+        let newSelections;
+        if (currentSelections.includes(matchedValue)) {
+          // Already selected - remove it
+          newSelections = currentSelections.filter(v => v !== matchedValue);
+          console.log(`📋 Removed "${matchedValue}" from checkbox selections`);
+        } else {
+          // Add to selections
+          newSelections = [...currentSelections, matchedValue];
+          console.log(`📋 Added "${matchedValue}" to checkbox selections`);
+        }
+
+        setFormData(prev => ({ ...prev, [field.name]: newSelections }));
+        formDataRef.current = { ...formDataRef.current, [field.name]: newSelections };
+        setLastFilled({ label: field.label || field.name, value: `Selected: ${newSelections.join(', ')}` });
+        setTranscript('');
+        setProcessing(false);
+        // DON'T advance - user needs to click "Done" for checkbox-group
+      } else {
+        // RADIO/TEXT: Single value, advance immediately
+        setFormData(prev => ({ ...prev, [field.name]: valueToUse }));
+        formDataRef.current = { ...formDataRef.current, [field.name]: valueToUse };
+        setLastFilled({ label: field.label || field.name, value: valueToUse });
+        setTranscript('');
+        setProcessing(false);
+        handleNextField(activeIndex);
+      }
     }, 1500);
   };
 
@@ -305,9 +358,20 @@ const VoiceFormFiller = ({ formSchema, formContext, onComplete }) => {
       const nextIndex = currentIndex + 1;
       setCurrentFieldIndex(nextIndex); // Update State
     } else {
-      // Use Ref here to ensure we send the accumulated data, not the stale state closure
-      console.log("Form Complete. Submitting:", formDataRef.current);
-      onComplete(formDataRef.current);
+      // Normalize form data before submission
+      // Convert arrays (from checkbox-group) to comma-separated strings
+      const normalizedData = {};
+      for (const [key, value] of Object.entries(formDataRef.current)) {
+        if (Array.isArray(value)) {
+          // Join array into comma-separated string for backend compatibility
+          normalizedData[key] = value.join(', ');
+        } else {
+          normalizedData[key] = value;
+        }
+      }
+
+      console.log("Form Complete. Submitting:", normalizedData);
+      onComplete(normalizedData);
     }
   };
 
@@ -437,12 +501,121 @@ const VoiceFormFiller = ({ formSchema, formContext, onComplete }) => {
                     <Volume2 size={16} />
                   </button>
 
-                  <h3 className="text-3xl font-medium text-white mb-3 tracking-tight">
-                    {currentPrompt}
-                  </h3>
-                  <p className="text-white/40 text-sm uppercase tracking-wider font-semibold flex items-center justify-center gap-2">
-                    {currentField?.label || currentField?.name} {currentField?.required && <span className="text-red-400 text-xs tracking-normal px-2 py-0.5 rounded bg-red-400/10 border border-red-400/20">* Required</span>}
-                  </p>
+                  {/* Show simplified prompt for MCQ fields */}
+                  {currentField?.options && currentField.options.length > 0 ? (
+                    <>
+                      <h3 className="text-2xl font-medium text-white mb-4 tracking-tight">
+                        {currentField?.label || currentField?.name}
+                      </h3>
+
+                      {/* Different instructions for checkbox vs radio */}
+                      {currentField?.type === 'checkbox-group' || currentField?.allows_multiple ? (
+                        <p className="text-white/50 text-sm mb-4">
+                          Select <strong>multiple</strong> options, then click "Done" to continue
+                        </p>
+                      ) : (
+                        <p className="text-white/50 text-sm mb-4">
+                          Click an option or say "Option 1", "Option 2", etc.
+                        </p>
+                      )}
+
+                      {/* Clickable Options Grid */}
+                      <div className="flex flex-wrap gap-2 justify-center max-w-lg">
+                        {currentField.options.slice(0, 10).map((opt, idx) => {
+                          const optLabel = opt.label || opt.value || `Option ${idx + 1}`;
+                          const optValue = opt.value || opt.label || optLabel;
+
+                          // For checkbox-group, check if this option is already selected
+                          const isCheckboxGroup = currentField?.type === 'checkbox-group' || currentField?.allows_multiple;
+                          const currentSelections = Array.isArray(formData[currentField.name])
+                            ? formData[currentField.name]
+                            : (formData[currentField.name] ? [formData[currentField.name]] : []);
+                          const isSelected = currentSelections.includes(optValue);
+
+                          return (
+                            <button
+                              key={idx}
+                              onClick={() => {
+                                if (isCheckboxGroup) {
+                                  // CHECKBOX: Toggle selection (multi-select)
+                                  let newSelections;
+                                  if (isSelected) {
+                                    // Remove from selections
+                                    newSelections = currentSelections.filter(v => v !== optValue);
+                                  } else {
+                                    // Add to selections
+                                    newSelections = [...currentSelections, optValue];
+                                  }
+                                  setFormData(prev => ({ ...prev, [currentField.name]: newSelections }));
+                                  formDataRef.current = { ...formDataRef.current, [currentField.name]: newSelections };
+                                  // Don't advance - user needs to click "Done"
+                                } else {
+                                  // RADIO: Single select, advance immediately
+                                  setFormData(prev => ({ ...prev, [currentField.name]: optValue }));
+                                  formDataRef.current = { ...formDataRef.current, [currentField.name]: optValue };
+                                  setLastFilled({ label: currentField.label || currentField.name, value: optLabel });
+                                  setTranscript('');
+                                  handleNextField(currentFieldIndex);
+                                }
+                              }}
+                              className={`px-4 py-2 rounded-xl border text-sm font-medium transition-all flex items-center gap-2
+                                ${isCheckboxGroup && isSelected
+                                  ? 'bg-green-500/30 border-green-400 text-white'
+                                  : 'bg-white/5 border-white/20 hover:bg-green-500/20 hover:border-green-400/50 text-white/80 hover:text-white'
+                                }`}
+                            >
+                              {/* Show checkbox or radio indicator */}
+                              {isCheckboxGroup ? (
+                                <span className={`w-4 h-4 rounded border ${isSelected ? 'bg-green-500 border-green-500' : 'border-white/40'} flex items-center justify-center text-xs`}>
+                                  {isSelected && '✓'}
+                                </span>
+                              ) : (
+                                <span className="text-green-400/70 text-xs font-mono">{idx + 1}</span>
+                              )}
+                              <span>{optLabel}</span>
+                            </button>
+                          );
+                        })}
+                        {currentField.options.length > 10 && (
+                          <span className="text-white/30 text-xs self-center">+{currentField.options.length - 10} more</span>
+                        )}
+                      </div>
+
+                      {/* Done button for checkbox-group (multi-select) */}
+                      {(currentField?.type === 'checkbox-group' || currentField?.allows_multiple) && (
+                        <button
+                          onClick={() => {
+                            const selections = Array.isArray(formData[currentField.name])
+                              ? formData[currentField.name]
+                              : (formData[currentField.name] ? [formData[currentField.name]] : []);
+                            setLastFilled({
+                              label: currentField.label || currentField.name,
+                              value: selections.length > 0 ? selections.join(', ') : '(none selected)'
+                            });
+                            setTranscript('');
+                            handleNextField(currentFieldIndex);
+                          }}
+                          className="mt-4 px-6 py-2 rounded-full bg-green-500 text-black font-semibold hover:bg-green-400 transition-all"
+                        >
+                          Done ({(Array.isArray(formData[currentField.name]) ? formData[currentField.name].length : (formData[currentField.name] ? 1 : 0))} selected)
+                        </button>
+                      )}
+                    </>
+                  ) : (
+                    <>
+                      <h3 className="text-3xl font-medium text-white mb-3 tracking-tight">
+                        {currentPrompt}
+                      </h3>
+                      <p className="text-white/40 text-sm uppercase tracking-wider font-semibold flex items-center justify-center gap-2">
+                        {currentField?.label || currentField?.name} {currentField?.required && <span className="text-red-400 text-xs tracking-normal px-2 py-0.5 rounded bg-red-400/10 border border-red-400/20">* Required</span>}
+                      </p>
+                    </>
+                  )}
+
+                  {/* Show required badge for MCQ fields too */}
+                  {currentField?.options && currentField.options.length > 0 && currentField?.required && (
+                    <span className="mt-3 text-red-400 text-xs tracking-normal px-2 py-0.5 rounded bg-red-400/10 border border-red-400/20">* Required</span>
+                  )}
                 </div>
               </motion.div>
             </AnimatePresence>

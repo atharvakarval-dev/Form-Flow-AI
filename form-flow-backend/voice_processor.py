@@ -57,14 +57,16 @@ class VoiceProcessor:
         
         base_prompt = prompt_templates.get(field_type, f"Please provide {field_name}")
         
-        # Add options listing for dropdown/select/radio fields
+        # Add options listing for dropdown/select/radio fields with numbered format
         if field_type in ['select', 'dropdown', 'radio'] and options:
             option_labels = [opt.get('label', opt.get('value', '')) for opt in options if opt.get('label') or opt.get('value')]
             if option_labels:
-                options_text = ", ".join(f'"{label}"' for label in option_labels[:10])  # Limit to 10 for readability
-                if len(option_labels) > 10:
-                    options_text += f" (and {len(option_labels) - 10} more)"
-                base_prompt = f"For {field_name}, please choose one of: {options_text}"
+                # Format as numbered list: "Option 1: Freshman, Option 2: Sophomore..."
+                numbered_options = [f"Option {i+1}: {label}" for i, label in enumerate(option_labels[:8])]  # Limit to 8 for voice
+                options_text = ". ".join(numbered_options)
+                if len(option_labels) > 8:
+                    options_text += f". And {len(option_labels) - 8} more options"
+                base_prompt = f"For {field_name}, say the option name or number. {options_text}"
         
         if required:
             base_prompt += " (This field is required)"
