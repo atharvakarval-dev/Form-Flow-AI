@@ -5,18 +5,17 @@ from pydantic import BaseModel
 import asyncio
 import json
 
-from form_parser import get_form_schema, create_template
-from dependencies import (
+from services.form.parser import get_form_schema, create_template
+from core.dependencies import (
     get_voice_processor, get_speech_service, get_form_submitter, 
     get_gemini_service, update_speech_data
 )
-from voice_processor import VoiceProcessor
-from speech_service import SpeechService
-from form_submitter import FormSubmitter
-from gemini_service import GeminiService
-from form_conventions import get_form_schema as get_schema
-import database
-import models
+from services.voice.processor import VoiceProcessor
+from services.voice.speech import SpeechService
+from services.form.submitter import FormSubmitter
+from services.ai.gemini import GeminiService
+from services.form.conventions import get_form_schema as get_schema
+from core import database, models
 import auth
 from sqlalchemy.future import select
 

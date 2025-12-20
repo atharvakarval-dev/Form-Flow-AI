@@ -1,9 +1,9 @@
 from fastapi import APIRouter, HTTPException, Depends, Response, UploadFile, File
 from typing import Dict, Any
 
-from speech_service import SpeechService
-from vosk_service import VoskService
-from dependencies import get_speech_service, get_vosk_service, get_speech_data
+from services.voice.speech import SpeechService
+from services.voice.vosk import VoskService
+from core.dependencies import get_speech_service, get_vosk_service, get_speech_data
 
 router = APIRouter(tags=["Speech & Audio"])
 

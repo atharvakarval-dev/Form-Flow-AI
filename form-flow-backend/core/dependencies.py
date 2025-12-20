@@ -2,11 +2,11 @@ import os
 from dotenv import load_dotenv
 from typing import Optional
 
-from gemini_service import GeminiService
-from voice_processor import VoiceProcessor
-from speech_service import SpeechService
-from vosk_service import VoskService
-from form_submitter import FormSubmitter
+from services.ai.gemini import GeminiService
+from services.voice.processor import VoiceProcessor
+from services.voice.speech import SpeechService
+from services.voice.vosk import VoskService
+from services.form.submitter import FormSubmitter
 
 load_dotenv()
 

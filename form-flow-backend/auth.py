@@ -5,7 +5,7 @@ import bcrypt
 from fastapi import Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer
 from sqlalchemy.ext.asyncio import AsyncSession
-import schemas, models, database
+from core import schemas, models, database
 import os
 from dotenv import load_dotenv
 

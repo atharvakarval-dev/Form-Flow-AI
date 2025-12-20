@@ -970,7 +970,7 @@ def _generate_display_name(field: Dict) -> str:
 def _generate_speech(fields: List[Dict]) -> Dict:
     """Generate speech data for fields."""
     try:
-        from speech_service import SpeechService
+        from services.voice.speech import SpeechService
         service = SpeechService(api_key=os.getenv('ELEVENLABS_API_KEY'))
         return service.generate_form_speech(fields)
     except Exception as e:

@@ -5,10 +5,8 @@ from sqlalchemy.orm import selectinload
 from sqlalchemy.ext.asyncio import AsyncSession
 from typing import List
 
-import models
-import schemas
+from core import models, schemas, database
 import auth
-import database
 
 router = APIRouter(tags=["Authentication & Users"])
 

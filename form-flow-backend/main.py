@@ -1,8 +1,8 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 import uvicorn
-import models
-import database
+from core import models
+from core import database
 
 # Import Routers
 from routers import auth, forms, speech
