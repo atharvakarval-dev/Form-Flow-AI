@@ -188,3 +188,155 @@ async def transcribe_audio(
             "transcript": "",
             "use_browser_fallback": True
         }
+
+
+# =============================================================================
+# AI Auto Edits - Text Refinement
+# =============================================================================
+
+from pydantic import BaseModel, Field
+from typing import Optional, List
+from enum import Enum
+
+
+class RefineStyleEnum(str, Enum):
+    """Output formatting styles for refined text"""
+    default = "default"
+    concise = "concise"
+    formal = "formal"
+    casual = "casual"
+    bullet = "bullet"
+    paragraph = "paragraph"
+
+
+class RefineRequest(BaseModel):
+    """Request body for text refinement"""
+    text: str = Field(..., min_length=1, max_length=10000, description="Raw spoken answer to refine")
+    question: str = Field(default="", max_length=500, description="The question that was asked (provides context)")
+    field_type: str = Field(default="", max_length=50, description="Type hint: email, phone, name, date, number, etc.")
+    style: RefineStyleEnum = Field(default=RefineStyleEnum.default, description="Output style")
+    
+    class Config:
+        json_schema_extra = {
+            "example": {
+                "text": "um yeah so my email is like john dot smith at gmail dot com",
+                "question": "What is your email address?",
+                "field_type": "email",
+                "style": "default"
+            }
+        }
+
+
+class RefineResponse(BaseModel):
+    """Response from text refinement"""
+    success: bool
+    original: str
+    refined: str
+    question: str = ""
+    field_type: str = ""
+    style: str
+    changes_made: List[str] = []
+    confidence: float = 1.0
+    word_count_original: int = 0
+    word_count_refined: int = 0
+    reduction_percent: float = 0.0
+
+
+@router.post(
+    "/refine",
+    summary="AI Auto Edit - Refine raw text",
+    response_model=RefineResponse,
+    responses={
+        200: {
+            "description": "Refined text",
+            "content": {
+                "application/json": {
+                    "example": {
+                        "success": True,
+                        "original": "So like um I wanted to say...",
+                        "refined": "I wanted to say the project is done and we should launch it soon.",
+                        "style": "default",
+                        "changes_made": ["Removed filler: 'um'", "Reduced from 20 to 14 words"],
+                        "confidence": 0.95,
+                        "word_count_original": 20,
+                        "word_count_refined": 14,
+                        "reduction_percent": 30.0
+                    }
+                }
+            }
+        }
+    }
+)
+async def refine_text(request: RefineRequest):
+    """
+    AI Auto Edit: Transform raw, rambling voice transcripts into clean, polished text.
+    
+    Features:
+    - Removes filler words (um, uh, like, you know)
+    - Fixes grammar and punctuation
+    - Restructures rambled sentences into clear prose
+    - Maintains original meaning and intent
+    
+    Styles:
+    - **default**: Clean, natural prose
+    - **concise**: Shortest possible while keeping key information
+    - **formal**: Professional, business-appropriate language
+    - **casual**: Friendly, conversational tone
+    - **bullet**: Format as bullet point list
+    - **paragraph**: Well-structured paragraphs
+    
+    Args:
+        request: RefineRequest with text and optional style
+        
+    Returns:
+        RefineResponse with original, refined text, and metadata
+    """
+    try:
+        from services.ai.text_refiner import get_text_refiner, RefineStyle
+        
+        refiner = get_text_refiner()
+        
+        # Map request style to enum
+        style = RefineStyle(request.style.value)
+        
+        # Perform refinement with question context
+        result = await refiner.refine(
+            raw_text=request.text,
+            question=request.question,
+            style=style,
+            field_type=request.field_type
+        )
+        
+        logger.info(f"Text refined: {result.word_count_original} -> {result.word_count_refined} words")
+        
+        return RefineResponse(
+            success=True,
+            original=result.original,
+            refined=result.refined,
+            question=request.question,
+            field_type=request.field_type,
+            style=result.style.value,
+            changes_made=result.changes_made,
+            confidence=result.confidence,
+            word_count_original=result.word_count_original,
+            word_count_refined=result.word_count_refined,
+            reduction_percent=result.reduction_percent
+        )
+        
+    except Exception as e:
+        logger.error(f"Text refinement failed: {e}", exc_info=True)
+        # Return original text on error
+        return RefineResponse(
+            success=False,
+            original=request.text,
+            refined=request.text,  # Fallback to original
+            question=request.question,
+            field_type=request.field_type,
+            style=request.style.value,
+            changes_made=[f"Error: {str(e)}"],
+            confidence=0.0,
+            word_count_original=len(request.text.split()),
+            word_count_refined=len(request.text.split()),
+            reduction_percent=0.0
+        )
+

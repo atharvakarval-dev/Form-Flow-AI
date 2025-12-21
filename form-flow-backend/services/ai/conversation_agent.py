@@ -30,6 +30,13 @@ import uuid
 from utils.logging import get_logger, log_api_call
 from utils.exceptions import AIServiceError
 
+# Import TextRefiner for cleaning extracted values
+try:
+    from services.ai.text_refiner import get_text_refiner
+    TEXT_REFINER_AVAILABLE = True
+except ImportError:
+    TEXT_REFINER_AVAILABLE = False
+
 logger = get_logger(__name__)
 
 # Try to import LangChain - graceful fallback if not available
@@ -450,11 +457,15 @@ OUTPUT FORMAT (JSON):
         else:
             result = self._process_with_fallback(session, user_input, current_batch, remaining_fields)
         
-        # Update session with extracted values
-        for field_name, value in result.extracted_values.items():
+        # Update session with extracted values (REFINED)
+        refined_values = self._refine_extracted_values(result.extracted_values, current_batch)
+        for field_name, value in refined_values.items():
             if field_name not in result.needs_confirmation:
                 session.extracted_fields[field_name] = value
                 session.confidence_scores[field_name] = result.confidence_scores.get(field_name, 1.0)
+        
+        # Update result with refined values
+        result.extracted_values = refined_values
         
         session.conversation_history.append({
             'role': 'assistant', 
@@ -627,6 +638,82 @@ CONVERSATION HISTORY (last 4 turns):
             is_complete=len(remaining_fields) == len(extracted),
             next_questions=[]
         )
+    
+    def _refine_extracted_values(
+        self, 
+        extracted_values: Dict[str, str], 
+        current_batch: List[Dict[str, Any]]
+    ) -> Dict[str, str]:
+        """
+        Refine extracted values using TextRefiner for cleaner form data.
+        
+        Applies type-specific formatting (email normalization, phone digits, etc.)
+        """
+        if not TEXT_REFINER_AVAILABLE or not extracted_values:
+            return extracted_values
+        
+        try:
+            import asyncio
+            refiner = get_text_refiner()
+            
+            # Build field type lookup
+            field_types = {}
+            for field in current_batch:
+                name = field.get('name', '')
+                label = field.get('label', '').lower()
+                ftype = field.get('type', 'text').lower()
+                
+                # Infer field type from label/name if type is generic
+                if 'email' in label or 'email' in name.lower():
+                    field_types[name] = 'email'
+                elif 'phone' in label or 'tel' in ftype or 'mobile' in label:
+                    field_types[name] = 'phone'
+                elif 'name' in label:
+                    field_types[name] = 'name'
+                elif 'experience' in label or 'years' in label:
+                    field_types[name] = 'number'
+                elif 'date' in ftype:
+                    field_types[name] = 'date'
+                else:
+                    field_types[name] = ftype
+            
+            # Refine each extracted value
+            refined = {}
+            for field_name, raw_value in extracted_values.items():
+                if not raw_value or not raw_value.strip():
+                    refined[field_name] = raw_value
+                    continue
+                
+                field_type = field_types.get(field_name, 'text')
+                
+                # Use quick synchronous clean for simple refinement
+                cleaned = refiner.quick_clean(raw_value)
+                
+                # Apply type-specific rules
+                if field_type == 'email':
+                    # Convert "john at gmail dot com" to "john@gmail.com"
+                    cleaned = re.sub(r'\s*at\s*', '@', cleaned, flags=re.IGNORECASE)
+                    cleaned = re.sub(r'\s*dot\s*', '.', cleaned, flags=re.IGNORECASE)
+                    cleaned = cleaned.replace(' ', '').lower()
+                elif field_type == 'phone':
+                    # Extract only digits
+                    digits = re.sub(r'[^\d+]', '', cleaned)
+                    if len(digits) >= 10:
+                        cleaned = digits
+                elif field_type == 'name':
+                    # Title case for names
+                    cleaned = cleaned.title()
+                
+                refined[field_name] = cleaned.strip()
+                
+                if cleaned != raw_value:
+                    logger.debug(f"Refined {field_name}: '{raw_value}' -> '{cleaned}'")
+            
+            return refined
+            
+        except Exception as e:
+            logger.warning(f"Value refinement failed, using raw values: {e}")
+            return extracted_values
     
     def confirm_value(
         self, 
