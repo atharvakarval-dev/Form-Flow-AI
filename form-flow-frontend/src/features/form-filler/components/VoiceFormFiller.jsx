@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { Mic, MicOff, ChevronLeft, ChevronRight, SkipForward, Send, Volume2, Keyboard, Terminal, Activity, CheckCircle, Sparkles, X } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { SiriWave } from '@/components/ui';
-import api, { API_BASE_URL } from '@/services/api';
+import api, { API_BASE_URL, refineText } from '@/services/api';
 
 const VoiceFormFiller = ({ formSchema, formContext, onComplete, onClose }) => {
     const [isListening, setIsListening] = useState(false);
@@ -23,6 +23,10 @@ const VoiceFormFiller = ({ formSchema, formContext, onComplete, onClose }) => {
     const [userProfile, setUserProfile] = useState(null);
     const [autoFilledFields, setAutoFilledFields] = useState({});
     const [lastFilled, setLastFilled] = useState(null);
+
+    // Q&A history for AI context - tracks previous answers for better refinement
+    const [qaHistory, setQaHistory] = useState([]);
+    const qaHistoryRef = useRef([]);  // Ref to avoid stale closure in async callbacks
 
     // Audio visualization
     const [volumeLevel, setVolumeLevel] = useState(0);
@@ -139,12 +143,13 @@ const VoiceFormFiller = ({ formSchema, formContext, onComplete, onClose }) => {
         }
     };
 
-    const processVoiceInput = (text, idx) => {
+    const processVoiceInput = async (text, idx) => {
         if (!text || idx >= allFields.length) return;
         setProcessing(true);
         const field = allFields[idx];
         let val = text;
 
+        // For option-based fields (dropdown/radio), match to options
         if (field.options?.length) {
             const match = field.options.find(o =>
                 (o.label || o.value || '').toLowerCase().includes(text.toLowerCase()) ||
@@ -155,11 +160,50 @@ const VoiceFormFiller = ({ formSchema, formContext, onComplete, onClose }) => {
 
             if (match) val = match.value || match.label;
             else if (numIdx >= 0 && field.options[numIdx]) val = field.options[numIdx].value || field.options[numIdx].label;
+        } else {
+            // For free-text fields, use AI refinement with full context
+            try {
+                const fieldLabel = field.label || field.display_name || field.name;
+                const fieldType = inferFieldType(field);
+
+                const result = await refineText(
+                    text,
+                    fieldLabel,           // Question context
+                    fieldType,            // Field type for formatting
+                    qaHistoryRef.current  // Previous Q&A for context (use ref for latest)
+                );
+
+                if (result.success && result.refined) {
+                    val = result.refined;
+                    console.log(`[AI Refine] "${text}" → "${val}"`);
+                }
+            } catch (e) {
+                console.warn('[AI Refine] Failed, using raw input:', e.message);
+            }
         }
+
+        // Update Q&A history for future context
+        const newEntry = { question: field.label || field.name, answer: val };
+        qaHistoryRef.current = [...qaHistoryRef.current, newEntry];
+        setQaHistory(prev => [...prev, newEntry]);
 
         updateField(field, val);
         setProcessing(false);
         setTimeout(() => handleNext(idx), 600);
+    };
+
+    // Infer field type from field metadata for better AI formatting
+    const inferFieldType = (field) => {
+        const name = (field.name || '').toLowerCase();
+        const label = (field.label || '').toLowerCase();
+        const type = (field.type || 'text').toLowerCase();
+
+        if (type === 'email' || name.includes('email') || label.includes('email')) return 'email';
+        if (type === 'tel' || name.includes('phone') || name.includes('mobile') || label.includes('phone')) return 'phone';
+        if (name.includes('name') || label.includes('name')) return 'name';
+        if (type === 'number' || name.includes('age') || name.includes('experience')) return 'number';
+        if (type === 'date' || name.includes('date')) return 'date';
+        return 'text';
     };
 
     const updateField = (field, val) => {

@@ -120,4 +120,54 @@ export const getUserProfile = async () => {
     return response.data;
 };
 
+
+// ============ AI Text Refinement ============
+
+/**
+ * Refine raw STT text using AI with context awareness
+ * 
+ * This calls the LangChain-powered refinement endpoint that:
+ * - Removes filler words (um, uh, like, you know)
+ * - Corrects speech-to-text errors based on context
+ * - Formats values appropriately (emails, phones, names)
+ * - Uses question context for accurate interpretation
+ * 
+ * @param {string} text - Raw transcript from speech recognition
+ * @param {string} question - The question/field label being answered (provides context)
+ * @param {string} fieldType - Type hint: email, phone, name, text, etc.
+ * @param {Array<{question: string, answer: string}>} previousQA - Previous Q&A pairs for context
+ * @returns {Promise<{success: boolean, refined: string, original: string, confidence: number}>}
+ */
+export const refineText = async (text, question = '', fieldType = '', previousQA = []) => {
+    // Build context from previous Q&A for better understanding
+    let contextualQuestion = question;
+
+    if (previousQA && previousQA.length > 0) {
+        // Add recent context to help AI understand better
+        const recentContext = previousQA.slice(-3).map(qa =>
+            `Q: ${qa.question} → A: ${qa.answer}`
+        ).join('; ');
+        contextualQuestion = `[Previous: ${recentContext}] Current question: ${question}`;
+    }
+
+    try {
+        const response = await api.post('/refine', {
+            text,
+            question: contextualQuestion,
+            field_type: fieldType,
+            style: 'default'
+        });
+        return response.data;
+    } catch (error) {
+        console.warn('[refineText] AI refinement failed, returning original:', error.message);
+        // Graceful fallback - return original text
+        return {
+            success: false,
+            refined: text,
+            original: text,
+            confidence: 0
+        };
+    }
+};
+
 export default api;
