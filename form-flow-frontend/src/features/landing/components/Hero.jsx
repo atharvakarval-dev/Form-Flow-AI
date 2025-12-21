@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { motion } from "framer-motion";
 import { PromptInputBox } from "@/components/ui/ai-prompt-box";
 import { Aurora } from "@/components/ui";

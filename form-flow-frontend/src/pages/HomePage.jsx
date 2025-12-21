@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { VoiceFormFiller, FormCompletion } from '@/features/form-filler';
-import { Hero, TransformationTimeline, EditorialTeam } from '@/features/landing';
+import { Hero, TransformationTimeline, EditorialTeam, FeaturesGrid } from '@/features/landing';
 import { TerminalLoader } from '@/components/ui';
 import { scrapeForm } from '@/services/api';
 
@@ -86,6 +86,7 @@ const HomePage = () => {
             {!result && !loading && (
                 <>
                     <Hero url={url} setUrl={setUrl} handleSubmit={handleSubmit} loading={loading} />
+                    <FeaturesGrid />
                     <TransformationTimeline />
                     <EditorialTeam />
                 </>
