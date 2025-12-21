@@ -2,10 +2,27 @@ import React, { useState } from 'react';
 import { CheckCircle, Send, AlertTriangle, Download, FileText, Copy, RotateCcw } from 'lucide-react';
 import { motion } from 'framer-motion';
 import { submitForm } from '@/services/api';
+import { RatingInteraction } from '@/components/ui/RatingInteraction';
 
 const FormCompletion = ({ formData, formSchema, originalUrl, onReset }) => {
     const [isSubmitting, setIsSubmitting] = useState(false);
     const [submissionResult, setSubmissionResult] = useState(null);
+
+    // Save rating to localStorage
+    const handleRatingChange = (rating) => {
+        try {
+            const feedbackHistory = JSON.parse(localStorage.getItem('form_feedback_history') || '{}');
+            // Use originalUrl as key to link rating to submission
+            feedbackHistory[originalUrl] = {
+                rating,
+                timestamp: new Date().toISOString(),
+                url: originalUrl
+            };
+            localStorage.setItem('form_feedback_history', JSON.stringify(feedbackHistory));
+        } catch (err) {
+            console.error("Failed to save rating:", err);
+        }
+    };
 
     const handleSubmitToWebsite = async () => {
         setIsSubmitting(true);
@@ -83,9 +100,14 @@ const FormCompletion = ({ formData, formSchema, originalUrl, onReset }) => {
                             <CheckCircle className="text-green-400" size={40} />
                         </div>
                         <h2 className="text-3xl font-bold text-white mb-2">Form Completed!</h2>
-                        <p className="text-white/60">
+                        <p className="text-white/60 mb-8">
                             All required information has been collected successfully.
                         </p>
+
+                        {/* Feedback Rating */}
+                        <div className="bg-white/5 rounded-2xl p-6 border border-white/10 inline-block w-full max-w-md">
+                            <RatingInteraction onChange={handleRatingChange} />
+                        </div>
                     </div>
 
                     {/* Form Data Summary */}

@@ -102,43 +102,56 @@ export function Dashboard() {
                             </div>
                         ) : (
                             <div className="divide-y divide-white/5">
-                                {history.map((item) => (
-                                    <motion.div
-                                        key={item.id}
-                                        initial={{ opacity: 0, y: 10 }}
-                                        animate={{ opacity: 1, y: 0 }}
-                                        className="p-5 flex items-center justify-between hover:bg-white/5 transition-colors group"
-                                    >
-                                        <div className="flex items-center gap-4">
-                                            <div className={`w-10 h-10 rounded-full flex items-center justify-center ${item.status === 'Success' ? 'bg-green-500/10 text-green-400' : 'bg-red-500/10 text-red-400'
-                                                }`}>
-                                                {item.status === 'Success' ? <CheckCircle2 className="h-5 w-5" /> : <XCircle className="h-5 w-5" />}
-                                            </div>
-                                            <div>
-                                                <div className="font-medium text-white group-hover:text-green-200 transition-colors truncate max-w-[300px] md:max-w-[500px]">
-                                                    {item.form_url}
-                                                </div>
-                                                <div className="text-xs text-white/40 flex items-center gap-2 mt-1">
-                                                    <Clock className="h-3 w-3" />
-                                                    {new Date(item.timestamp).toLocaleString(undefined, {
-                                                        dateStyle: 'medium',
-                                                        timeStyle: 'short'
-                                                    })}
-                                                </div>
-                                            </div>
-                                        </div>
+                                {history.map((item) => {
+                                    // Feedback Emoji Logic
+                                    const ratingEmojis = ["😔", "😕", "😐", "🙂", "😍"];
+                                    const localFeedback = JSON.parse(localStorage.getItem('form_feedback_history') || '{}');
+                                    const feedback = localFeedback[item.form_url];
+                                    const emoji = feedback ? ratingEmojis[feedback.rating - 1] : null;
 
-                                        <a
-                                            href={item.form_url}
-                                            target="_blank"
-                                            rel="noreferrer"
-                                            className="p-2 rounded-lg hover:bg-white/10 text-white/40 hover:text-white transition-colors"
-                                            title="Open Form URL"
+                                    return (
+                                        <motion.div
+                                            key={item.id}
+                                            initial={{ opacity: 0, y: 10 }}
+                                            animate={{ opacity: 1, y: 0 }}
+                                            className="p-5 flex items-center justify-between hover:bg-white/5 transition-colors group"
                                         >
-                                            <ExternalLink className="h-5 w-5" />
-                                        </a>
-                                    </motion.div>
-                                ))}
+                                            <div className="flex items-center gap-4">
+                                                <div className={`w-10 h-10 rounded-full flex items-center justify-center ${item.status === 'Success' ? 'bg-green-500/10 text-green-400' : 'bg-red-500/10 text-red-400'
+                                                    }`}>
+                                                    {item.status === 'Success' ? <CheckCircle2 className="h-5 w-5" /> : <XCircle className="h-5 w-5" />}
+                                                </div>
+                                                <div>
+                                                    <div className="font-medium text-white group-hover:text-green-200 transition-colors truncate max-w-[300px] md:max-w-[500px] flex items-center gap-2">
+                                                        {item.form_url}
+                                                        {emoji && (
+                                                            <span title={`You rated this: ${feedback.rating}/5`} className="text-lg bg-white/10 w-7 h-7 rounded-full flex items-center justify-center -ml-1 shadow-sm border border-white/5">
+                                                                {emoji}
+                                                            </span>
+                                                        )}
+                                                    </div>
+                                                    <div className="text-xs text-white/40 flex items-center gap-2 mt-1">
+                                                        <Clock className="h-3 w-3" />
+                                                        {new Date(item.timestamp).toLocaleString(undefined, {
+                                                            dateStyle: 'medium',
+                                                            timeStyle: 'short'
+                                                        })}
+                                                    </div>
+                                                </div>
+                                            </div>
+
+                                            <a
+                                                href={item.form_url}
+                                                target="_blank"
+                                                rel="noreferrer"
+                                                className="p-2 rounded-lg hover:bg-white/10 text-white/40 hover:text-white transition-colors"
+                                                title="Open Form URL"
+                                            >
+                                                <ExternalLink className="h-5 w-5" />
+                                            </a>
+                                        </motion.div>
+                                    );
+                                })}
                             </div>
                         )}
                     </div>

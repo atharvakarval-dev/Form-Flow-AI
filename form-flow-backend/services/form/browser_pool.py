@@ -84,11 +84,28 @@ async def _get_browser(headless: bool = True):
     Get or create the shared browser instance.
     
     Uses a lock to prevent multiple simultaneous browser launches.
+    Has retry logic for cases where browser becomes disconnected.
     """
     global _browser, _playwright
     
     async with _browser_lock:
-        if _browser is None or not _browser.is_connected():
+        # Force reconnection if browser is disconnected
+        if _browser is not None:
+            try:
+                if not _browser.is_connected():
+                    logger.warning("Browser disconnected, relaunching...")
+                    _browser = None
+                    if _playwright:
+                        try:
+                            await _playwright.stop()
+                        except:
+                            pass
+                        _playwright = None
+            except Exception:
+                _browser = None
+                _playwright = None
+        
+        if _browser is None:
             logger.info("🌐 Launching shared browser instance...")
             
             from playwright.async_api import async_playwright

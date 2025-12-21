@@ -4,6 +4,7 @@ Handles DOM stability, scrolling, section expansion, etc.
 """
 
 import asyncio
+import json
 from typing import Dict, Any
 
 from .constants import EXPANDABLE_SECTION_SELECTORS
@@ -63,7 +64,7 @@ async def expand_hidden_sections(page) -> int:
     Returns: number of sections expanded
     """
     try:
-        selectors_js = str(EXPANDABLE_SECTION_SELECTORS).replace("'", '"')
+        selectors_js = json.dumps(EXPANDABLE_SECTION_SELECTORS)
         expanded = await page.evaluate(f"""
             () => {{
                 const expandSelectors = {selectors_js};

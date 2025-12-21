@@ -161,8 +161,6 @@ async def get_form_schema(url: str, generate_speech_audio: bool = True, wait_for
                     await asyncio.sleep(1) 
                 except:
                     pass
-                except:
-                    pass
                 
                 print("⏳ Waiting for dynamic content...")
                 await wait_for_dom_stability(page)

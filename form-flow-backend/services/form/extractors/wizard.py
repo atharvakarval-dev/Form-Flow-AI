@@ -4,6 +4,7 @@ Handles navigation through multi-step forms to collect all fields.
 """
 
 import asyncio
+import json
 from typing import List, Dict, Any
 from ..utils.constants import WIZARD_INDICATORS, WIZARD_NEXT_BUTTON_SELECTORS
 from ..utils.page_helpers import wait_for_dom_stability
@@ -13,7 +14,7 @@ async def detect_wizard_form(page) -> bool:
     """
     Check if the page contains a wizard/multi-step form.
     """
-    indicators_js = str(WIZARD_INDICATORS).replace("'", '"')
+    indicators_js = json.dumps(WIZARD_INDICATORS)
     
     return await page.evaluate(f"""
         () => {{
@@ -95,7 +96,7 @@ async def click_next_button(page) -> bool:
             continue
     
     # Try generic next button selectors
-    selectors_js = str(WIZARD_NEXT_BUTTON_SELECTORS).replace("'", '"')
+    selectors_js = json.dumps(WIZARD_NEXT_BUTTON_SELECTORS)
     
     clicked = await page.evaluate(f"""
         () => {{

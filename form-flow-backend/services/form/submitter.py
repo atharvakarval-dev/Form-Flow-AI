@@ -648,51 +648,66 @@ class FormSubmitter:
     # ─────────────────────────────────────────────────────────────────────────
     
     async def submit_form_data(self, url: str, form_data: Dict[str, str], form_schema: List[Dict]) -> Dict[str, Any]:
-        """Submit form data to target website using shared browser pool.
+        """Submit form data to target website with visible browser.
         
-        Uses browser pool to reduce memory usage from ~300MB to ~50MB per submission.
-        Supports up to 5 concurrent form submissions on low-memory servers.
+        Uses a dedicated browser instance (not the shared pool) so the user 
+        can see the form being filled in real-time.
         """
         is_google = 'docs.google.com/forms' in url
         
         try:
-            # Use shared browser pool instead of spawning new browser
-            async with get_browser_context(
-                headless=True,  # Use headless for production efficiency
-            ) as context:
-                page = await context.new_page()
-                
-                print(f"🌐 Navigating to form: {url}")
-                await page.goto(url, wait_until='domcontentloaded', timeout=60000)
-                
-                # Wait for form load
-                if is_google:
-                    try:
-                        await page.wait_for_selector('[role="listitem"], .freebirdFormviewerViewItemsItemItem', timeout=20000)
-                        await asyncio.sleep(2)
-                    except:
-                        pass
-                else:
-                    try:
-                        await page.wait_for_load_state("networkidle", timeout=15000)
-                    except:
-                        pass
-                    await asyncio.sleep(1)
-                
-                initial_url = page.url
-                result = await self._fill_and_submit_form(page, form_data, form_schema, is_google)
-                validation = await self.validate_form_submission(page, initial_url)
-                
+            from playwright.async_api import async_playwright
+            
+            # Create a dedicated browser for form submission (visible mode)
+            playwright = await async_playwright().start()
+            browser = await playwright.chromium.launch(
+                headless=False,  # Visible browser so user can see form filling
+                args=['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage']
+            )
+            context = await browser.new_context(
+                viewport={'width': 1280, 'height': 800},
+                user_agent='Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36'
+            )
+            page = await context.new_page()
+            
+            print(f"🌐 Navigating to form: {url}")
+            await page.goto(url, wait_until='domcontentloaded', timeout=60000)
+            
+            # Wait for form load
+            if is_google:
+                try:
+                    await page.wait_for_selector('[role="listitem"], .freebirdFormviewerViewItemsItemItem', timeout=20000)
+                    await asyncio.sleep(2)
+                except:
+                    pass
+            else:
+                try:
+                    await page.wait_for_load_state("networkidle", timeout=15000)
+                except:
+                    pass
+                await asyncio.sleep(1)
+            
+            initial_url = page.url
+            result = await self._fill_and_submit_form(page, form_data, form_schema, is_google)
+            validation = await self.validate_form_submission(page, initial_url)
+            
+            try:
                 await page.screenshot()
-                # Note: browser.close() removed - browser pool manages browser lifecycle
-                
-                success = result.get("submit_success", False) and not result.get("errors") and validation.get("likely_success", False)
-                
-                return {
-                    "success": success,
-                    "message": "Form submitted successfully" if success else "Form submission completed with issues",
-                    "submission_result": result, "validation_result": validation, "screenshot_taken": True
-                }
+            except:
+                pass
+            
+            # Clean up browser
+            await context.close()
+            await browser.close()
+            await playwright.stop()
+            
+            success = result.get("submit_success", False) and not result.get("errors") and validation.get("likely_success", False)
+            
+            return {
+                "success": success,
+                "message": "Form submitted successfully" if success else "Form submission completed with issues",
+                "submission_result": result, "validation_result": validation, "screenshot_taken": True
+            }
         except Exception as e:
             import traceback
             traceback.print_exc()

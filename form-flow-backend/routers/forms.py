@@ -17,6 +17,7 @@ from services.ai.gemini import GeminiService
 from services.form.conventions import get_form_schema as get_schema
 from core import database, models
 import auth
+from config.settings import settings
 from sqlalchemy.future import select
 
 # --- Pydantic Models ---
@@ -57,7 +58,7 @@ async def _process_scraped_form(
     """Shared helper to scrape and prepare form data"""
     
     # Get form schema
-    result = await get_form_schema(url, generate_speech=False)
+    result = await get_form_schema(url, generate_speech_audio=False)
     form_schema = result['forms']
     
     # Generate speech
@@ -363,7 +364,9 @@ async def submit_form(
             if auth_header and auth_header.startswith('Bearer '):
                 token = auth_header.split(' ')[1]
                 try:
-                    payload = auth.jwt.decode(token, auth.SECRET_KEY, algorithms=[auth.ALGORITHM])
+                    payload = auth.decode_access_token(token)
+                    if payload is None:
+                        raise Exception("Invalid token")
                     email: str = payload.get("sub")
                     
                     if email:

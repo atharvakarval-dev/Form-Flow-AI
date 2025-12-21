@@ -3,6 +3,7 @@ Special fields extractor module.
 Handles: Rich text editors, dropzones, sliders, autocomplete, date pickers.
 """
 
+import json
 from typing import List, Dict, Any
 from ..utils.constants import (
     DROPZONE_SELECTORS,
@@ -159,7 +160,7 @@ async def extract_dropzones(page) -> List[Dict]:
     Extract drag-and-drop upload zones that don't use input[type=file].
     Supports: Dropzone.js, react-dropzone, vue-dropzone, uppy, filepond
     """
-    selectors_js = str(DROPZONE_SELECTORS).replace("'", '"')
+    selectors_js = json.dumps(DROPZONE_SELECTORS)
     
     return await page.evaluate(f"""
         () => {{
@@ -217,7 +218,7 @@ async def extract_range_sliders(page) -> List[Dict]:
     Extract range sliders including custom implementations.
     Supports: Native, noUiSlider, rc-slider, MUI Slider, Vuetify, Element Plus
     """
-    sliders_js = str(RANGE_SLIDER_SELECTORS).replace("'", '"')
+    sliders_js = json.dumps(RANGE_SLIDER_SELECTORS)
     
     return await page.evaluate(f"""
         () => {{
@@ -294,7 +295,7 @@ async def extract_autocomplete_fields(page) -> List[Dict]:
     """
     Detect autocomplete/typeahead fields (Google Places, custom autocomplete).
     """
-    selectors_js = str(AUTOCOMPLETE_SELECTORS).replace("'", '"')
+    selectors_js = json.dumps(AUTOCOMPLETE_SELECTORS)
     
     return await page.evaluate(f"""
         () => {{
@@ -368,7 +369,7 @@ async def extract_custom_date_pickers(page) -> List[Dict]:
     Detect custom date/time pickers beyond native HTML5 date inputs.
     Supports: flatpickr, react-datepicker, vuejs-datepicker, Ant Design, MUI, etc.
     """
-    selectors_js = str(DATE_PICKER_SELECTORS).replace("'", '"')
+    selectors_js = json.dumps(DATE_PICKER_SELECTORS)
     
     return await page.evaluate(f"""
         () => {{

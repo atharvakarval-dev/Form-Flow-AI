@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { VoiceFormFiller, FormCompletion } from '@/features/form-filler';
-import { Hero, TransformationTimeline } from '@/features/landing';
+import { Hero, TransformationTimeline, EditorialTeam } from '@/features/landing';
 import { TerminalLoader } from '@/components/ui';
 import { scrapeForm } from '@/services/api';
 
@@ -87,6 +87,7 @@ const HomePage = () => {
                 <>
                     <Hero url={url} setUrl={setUrl} handleSubmit={handleSubmit} loading={loading} />
                     <TransformationTimeline />
+                    <EditorialTeam />
                 </>
             )}
         </div>

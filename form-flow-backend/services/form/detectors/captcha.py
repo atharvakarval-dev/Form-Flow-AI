@@ -3,6 +3,7 @@ CAPTCHA detection module.
 Detects various types of CAPTCHAs to allow early exit.
 """
 
+import json
 from typing import Dict, Any
 from ..utils.constants import CAPTCHA_SELECTORS
 
@@ -14,7 +15,7 @@ async def detect_captcha(page) -> Dict[str, Any]:
     Returns:
         Dict with keys: hasCaptcha, type, message
     """
-    selectors_js = str(CAPTCHA_SELECTORS).replace("'", '"')
+    selectors_js = json.dumps(CAPTCHA_SELECTORS)
     
     return await page.evaluate(f"""
         () => {{
