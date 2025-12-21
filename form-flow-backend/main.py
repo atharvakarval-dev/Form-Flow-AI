@@ -64,6 +64,11 @@ async def lifespan(app: FastAPI):
     
     # Shutdown
     logger.info("Shutting down application")
+    
+    # Close browser pool to prevent zombie processes
+    from services.form.browser_pool import close_browser_pool
+    await close_browser_pool()
+    
     await database.engine.dispose()
 
 

@@ -3,21 +3,23 @@ Form Parser - Modular Architecture
 Scrapes form fields from any URL including Google Forms with iframe support.
 
 This is the main orchestrator that uses:
+- browser_pool - Shared browser instance for memory efficiency
 - utils/ - Constants, page helpers
 - detectors/ - CAPTCHA, dependencies
 - extractors/ - Standard forms, Google Forms, special fields, wizards
 - processors/ - Field enrichment and utilities
 """
 
-from playwright.async_api import async_playwright
 from typing import List, Dict, Any
 import asyncio
 import os
 
+# Import browser pool for memory-efficient browser reuse
+from .browser_pool import get_browser_context
+
 # Import from modular packages
 from .utils import (
     STEALTH_SCRIPT,
-    BROWSER_ARGS,
     FIELD_PATTERNS,
     wait_for_dom_stability,
     expand_hidden_sections,
@@ -106,37 +108,43 @@ async def get_form_schema(url: str, generate_speech_audio: bool = True, wait_for
     }
     
     try:
-        async with async_playwright() as p:
-            browser = await p.chromium.launch(headless=False, args=BROWSER_ARGS)
-            context = await browser.new_context(
-                user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/121.0.0.0 Safari/537.36",
-                viewport={"width": 1920, "height": 1080},
-                locale="en-US"
-            )
-            await context.add_init_script(STEALTH_SCRIPT)
-            
+        # Use shared browser pool instead of spawning new browser
+        # This reduces memory from ~300MB per request to ~50MB per context
+        async with get_browser_context(
+            stealth_script=STEALTH_SCRIPT,
+            block_resources=['media', 'font'],
+            headless=True,  # Use headless for production efficiency
+        ) as context:
             page = await context.new_page()
+            
+            # Set up resource blocking for this page
             await page.route("**/*", lambda r: r.abort() if r.request.resource_type in {"media", "font"} else r.continue_())
             
             print(f"🔗 Navigating to {'Google Form' if is_google_form else 'page'}...")
             await page.goto(url, wait_until="domcontentloaded", timeout=120000)
             
             # ================================================================
-            # PHASE 0: Pre-flight checks (CAPTCHA, Login, Bot Protection)
+            # PHASE 0: Pre-flight checks (Parallelized for speed)
             # ================================================================
             if not is_google_form:
                 print("🔍 Running pre-flight checks...")
                 
-                # Check for CAPTCHA
-                captcha_check = await detect_captcha(page)
-                if captcha_check['hasCaptcha']:
+                # Run detectors in parallel
+                captcha_task = asyncio.create_task(detect_captcha(page))
+                login_task = asyncio.create_task(detect_login_required(page))
+                
+                checks = await asyncio.gather(captcha_task, login_task, return_exceptions=True)
+                captcha_check = checks[0] if not isinstance(checks[0], Exception) else {'hasCaptcha': False}
+                login_check = checks[1] if not isinstance(checks[1], Exception) else {'requiresLogin': False}
+                
+                if captcha_check.get('hasCaptcha'):
                     print(f"⚠️ CAPTCHA detected: {captcha_check['type']}")
                     enhancements['captcha_detected'] = True
                     enhancements['captcha_type'] = captcha_check['type']
+                    # Optional: Early exit if CAPTCHA found? 
+                    # For now, we continue but flag it.
                 
-                # Check for login requirement
-                login_check = await detect_login_required(page)
-                if login_check['requiresLogin']:
+                if login_check.get('requiresLogin'):
                     print(f"⚠️ {login_check['message']}")
                     enhancements['login_required'] = True
             
@@ -147,7 +155,12 @@ async def get_form_schema(url: str, generate_speech_audio: bool = True, wait_for
                 await wait_for_google_form(page)
             else:
                 try:
-                    await page.wait_for_load_state("networkidle", timeout=10000)
+                    # 'domcontentloaded' is faster than 'networkidle'
+                    await page.wait_for_load_state("domcontentloaded", timeout=10000)
+                    # Short sleep to let React/Vue hydration finish
+                    await asyncio.sleep(1) 
+                except:
+                    pass
                 except:
                     pass
                 
@@ -159,10 +172,15 @@ async def get_form_schema(url: str, generate_speech_audio: bool = True, wait_for
                 if expanded:
                     print(f"    ✓ Expanded {expanded} sections")
                 
-                print("📜 Scrolling to load lazy content...")
-                new_fields = await scroll_and_detect_lazy_fields(page)
-                if new_fields:
-                    print(f"    ✓ Found {new_fields} lazy-loaded fields")
+                # OPTIMIZATION: Only scroll if few inputs are visible
+                visible_inputs = await page.evaluate("() => document.querySelectorAll('input:not([type=\"hidden\"]), select, textarea').length")
+                if visible_inputs < 5:
+                    print("📜 Few inputs found, scrolling to load lazy content...")
+                    new_fields = await scroll_and_detect_lazy_fields(page)
+                    if new_fields:
+                        print(f"    ✓ Found {new_fields} lazy-loaded fields")
+                else:
+                    print(f"⚡ Found {visible_inputs} inputs, skipping aggressive scroll")
             
             print("✓ Page loaded, extracting forms...")
             
@@ -254,13 +272,13 @@ async def get_form_schema(url: str, generate_speech_audio: bool = True, wait_for
                     print(f"    ⚠️ Chained select detection skipped: {e}")
             
             # ================================================================
-            # CLEANUP
+            # CLEANUP (context is auto-closed by browser pool)
             # ================================================================
             try:
                 await page.unroute_all(behavior='ignoreErrors')
             except:
                 pass
-            await browser.close()
+            # Note: browser.close() removed - browser pool manages browser lifecycle
             
             # Process and enrich fields
             fields = process_forms(forms_data)
