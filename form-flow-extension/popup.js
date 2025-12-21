@@ -1,183 +1,159 @@
+
 /**
- * FormFlow AI - Popup Script
- * 
- * Handles popup UI interactions and settings management
+ * FormFlow AI - Clean Lab Controller
+ * v1.3.1 - Reverted to Clean Theme
  */
 
 document.addEventListener('DOMContentLoaded', async () => {
-    // Elements
-    const statusDot = document.getElementById('statusDot');
-    const statusText = document.getElementById('statusText');
-    const startBtn = document.getElementById('startBtn');
-    const helpBtn = document.getElementById('helpBtn');
-    const autoDetect = document.getElementById('autoDetect');
-    const showOverlay = document.getElementById('showOverlay');
-    const recentForms = document.getElementById('recentForms');
-    const recentList = document.getElementById('recentList');
-    const docsLink = document.getElementById('docsLink');
+    // UI References
+    const ui = {
+        logs: document.getElementById('terminalLogs'),
+        statusText: document.getElementById('statusText'),
+        statusDot: document.getElementById('statusDot'),
+        retryBtn: document.getElementById('retryBtn'),
+        startBtn: document.getElementById('startBtn'),
+        autoDetect: document.getElementById('autoDetect'),
+        showOverlay: document.getElementById('showOverlay')
+    };
 
-    // Check backend health
-    await checkBackendHealth();
+    let isConnected = false;
 
-    // Load settings
+    // =========================================================================
+    // LOGGER SYSTEM (Light Theme)
+    // =========================================================================
+
+    const Logger = {
+        add: (msg, type = 'info') => {
+            const row = document.createElement('div');
+            row.className = 'log-entry';
+
+            // Timestamp
+            const now = new Date();
+            const ts = now.toLocaleTimeString('en-US', { hour12: false });
+
+            // Icon/Arrow color based on type
+            let colorClass = '';
+            if (type === 'error') colorClass = 'error';
+
+            row.innerHTML = `
+                <span class="ts">${ts}</span>
+                <span class="arrow">➜</span>
+                <span class="msg ${colorClass}">${msg}</span>
+            `;
+
+            ui.logs.appendChild(row);
+            // Smooth scroll to bottom
+            row.scrollIntoView({ behavior: 'smooth' });
+        },
+
+        setStatus: (status, state) => {
+            ui.statusText.textContent = status;
+            if (state === 'online') {
+                ui.statusDot.classList.add('online');
+                ui.statusText.style.color = 'var(--accent-green)';
+            } else {
+                ui.statusDot.classList.remove('online');
+                ui.statusText.style.color = 'var(--text-sub)';
+            }
+        }
+    };
+
+    // =========================================================================
+    // INITIALIZATION & CONNECTION
+    // =========================================================================
+
+    // Load Settings
     loadSettings();
 
-    // Load recent forms
-    loadRecentForms();
+    // Boot Sequence Simulation
+    runBootSequence();
 
-    // Event listeners
-    startBtn.onclick = startOnCurrentPage;
-    helpBtn.onclick = showHelp;
-    autoDetect.onchange = saveSettings;
-    showOverlay.onchange = saveSettings;
-    docsLink.onclick = openDocs;
+    async function runBootSequence() {
+        Logger.add('Restoring Clean Lab Interface...');
+        await wait(200);
+        Logger.add('Calibrating neural inputs...');
+        await wait(200);
+        await checkConnection();
+    }
 
-    /**
-     * Check if backend is running
-     */
-    async function checkBackendHealth() {
+    async function checkConnection() {
+        ui.retryBtn.style.display = 'none';
+        Logger.add('Pinging backend server...');
+
         try {
             const response = await chrome.runtime.sendMessage({ type: 'CHECK_BACKEND' });
 
-            if (response.success && response.healthy) {
-                statusDot.classList.add('connected');
-                statusText.textContent = `Connected (v${response.version})`;
-                startBtn.disabled = false;
+            if (response && (response.healthy || response.success)) {
+                isConnected = true;
+                Logger.setStatus('System Online', 'online');
+                Logger.add(`Connected to Core v${response.version || '1.0'}`);
+
+                ui.startBtn.disabled = false;
+
             } else {
-                statusDot.classList.remove('connected');
-                statusText.textContent = 'Backend not running. Start the server.';
-                startBtn.disabled = true;
+                throw new Error('Non-healthy response');
             }
-        } catch (error) {
-            statusDot.classList.remove('connected');
-            statusText.textContent = 'Error connecting to backend';
-            startBtn.disabled = true;
+        } catch (err) {
+            isConnected = false;
+            Logger.setStatus('Connection Failed', 'offline');
+            Logger.add(`Error: ${err.message || 'Server Unreachable'}`, 'error');
+
+            ui.retryBtn.style.display = 'block';
+            ui.startBtn.disabled = true;
         }
     }
 
-    /**
-     * Start FormFlow on the current tab
-     */
-    async function startOnCurrentPage() {
+    // =========================================================================
+    // INTERACTION HANDLERS
+    // =========================================================================
+
+    ui.startBtn.addEventListener('click', async () => {
+        if (!isConnected) return;
+
+        Logger.add('Initiating session...');
+
         try {
-            // Get current tab
             const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
 
-            if (!tab) {
-                alert('No active tab found');
-                return;
-            }
-
-            // Inject content script if needed and trigger form detection
             await chrome.scripting.executeScript({
                 target: { tabId: tab.id },
                 func: () => {
-                    // Trigger button click if already injected
                     const btn = document.querySelector('.formflow-voice-btn');
-                    if (btn) {
-                        btn.click();
-                    } else {
-                        // Force re-scan
-                        window.__formFlowInjected = false;
-                    }
+                    if (btn) btn.click();
                 }
             });
 
-            // Close popup
-            window.close();
+            Logger.add('Voice agent injected.');
+            setTimeout(() => window.close(), 1000);
 
-        } catch (error) {
-            console.error('Error starting FormFlow:', error);
-            alert('Could not start FormFlow on this page. Make sure you\'re on a page with forms.');
+        } catch (err) {
+            Logger.add(`Error: ${err.message}`, 'error');
         }
-    }
+    });
 
-    /**
-     * Show help/instructions
-     */
-    function showHelp() {
-        const helpContent = `
-How to use FormFlow AI:
+    ui.retryBtn.addEventListener('click', () => {
+        Logger.add('Retrying...');
+        checkConnection();
+    });
 
-1. Navigate to a webpage with a form
-2. Click the "🎤 Fill with Voice" button that appears
-3. Grant microphone permission when asked
-4. Start speaking naturally: "My name is John Smith, email john@example.com"
-5. FormFlow will extract and fill the fields
-6. Review and submit!
+    // Settings
+    ui.autoDetect.addEventListener('change', saveSettings);
+    ui.showOverlay.addEventListener('change', saveSettings);
 
-Tips:
-- Speak clearly and at a normal pace
-- You can say multiple fields at once
-- Say "email" or "phone" before those values for clarity
-- Click "Fill Form" when ready to complete
-    `;
-
-        alert(helpContent);
-    }
-
-    /**
-     * Load settings from storage
-     */
     async function loadSettings() {
         const result = await chrome.storage.local.get('settings');
-        const settings = result.settings || {
-            autoDetectForms: true,
-            showOverlay: true
-        };
-
-        autoDetect.checked = settings.autoDetectForms;
-        showOverlay.checked = settings.showOverlay;
+        const settings = result.settings || { autoDetectForms: true, showOverlay: true };
+        ui.autoDetect.checked = settings.autoDetectForms;
+        ui.showOverlay.checked = settings.showOverlay;
     }
 
-    /**
-     * Save settings to storage
-     */
     async function saveSettings() {
         const settings = {
-            autoDetectForms: autoDetect.checked,
-            showOverlay: showOverlay.checked,
-            voiceSpeed: 1.0,
-            language: 'en-US'
+            autoDetectForms: ui.autoDetect.checked,
+            showOverlay: ui.showOverlay.checked
         };
-
-        await chrome.storage.local.set({ settings });
+        chrome.storage.local.set({ settings });
     }
 
-    /**
-     * Load recent form submissions
-     */
-    async function loadRecentForms() {
-        const result = await chrome.storage.local.get('recentForms');
-        const forms = result.recentForms || [];
-
-        if (forms.length === 0) {
-            recentForms.style.display = 'none';
-            return;
-        }
-
-        recentForms.style.display = 'block';
-        recentList.innerHTML = '';
-
-        forms.slice(0, 3).forEach(form => {
-            const item = document.createElement('div');
-            item.className = 'recent-item';
-            item.innerHTML = `
-        <span class="recent-icon">📝</span>
-        <div class="recent-info">
-          <div class="recent-url">${new URL(form.url).hostname}</div>
-          <div class="recent-fields">${form.fieldsCount} fields filled</div>
-        </div>
-      `;
-            recentList.appendChild(item);
-        });
-    }
-
-    /**
-     * Open documentation
-     */
-    function openDocs(e) {
-        e.preventDefault();
-        chrome.tabs.create({ url: 'https://github.com/your-repo/formflow-ai#readme' });
-    }
+    function wait(ms) { return new Promise(resolve => setTimeout(resolve, ms)); }
 });

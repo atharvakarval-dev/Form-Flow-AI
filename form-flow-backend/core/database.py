@@ -117,8 +117,9 @@ async def check_database_health() -> bool:
         bool: True if database is accessible, False otherwise
     """
     try:
+        from sqlalchemy import text
         async with SessionLocal() as session:
-            await session.execute("SELECT 1")
+            await session.execute(text("SELECT 1"))
             return True
     except Exception:
         return False

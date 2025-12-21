@@ -207,23 +207,35 @@ function getExtractedData(tabId) {
 
 async function checkBackendHealth() {
     try {
+        // Use AbortController for timeout (fetch doesn't support timeout option)
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 5000);
+
         const response = await fetch(`${CONFIG.BACKEND_URL}/health`, {
             method: 'GET',
-            timeout: 5000
+            signal: controller.signal
         });
+
+        clearTimeout(timeoutId);
 
         if (response.ok) {
             const data = await response.json();
+            // Accept both 'healthy' and 'degraded' as connected
+            const isConnected = data.status === 'healthy' || data.status === 'degraded';
+            console.log('Health check passed:', data);
             return {
                 success: true,
-                healthy: data.status === 'healthy',
+                healthy: isConnected,
+                status: data.status,
                 version: data.version
             };
         }
 
+        console.log('Health check failed with status:', response.status);
         return { success: false, healthy: false };
 
     } catch (error) {
+        console.error('Health check error:', error.message);
         return { success: false, healthy: false, error: error.message };
     }
 }

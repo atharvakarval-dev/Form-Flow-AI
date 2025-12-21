@@ -90,6 +90,28 @@ app.state.limiter = limiter
 
 
 # =============================================================================
+# CORS Configuration
+# =============================================================================
+
+# Allow requests from Chrome extension and localhost development
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=[
+        "chrome-extension://*",  # Chrome extensions
+        "http://localhost:5173",  # Vite dev server
+        "http://localhost:3000",  # React dev server
+        "http://127.0.0.1:5173",
+        "http://127.0.0.1:3000",
+        "*",  # Allow all for development - restrict in production
+    ],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+    expose_headers=["*"],
+)
+
+
+# =============================================================================
 # Middleware
 # =============================================================================
 
