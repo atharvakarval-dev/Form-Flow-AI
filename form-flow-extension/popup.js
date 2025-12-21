@@ -1,7 +1,7 @@
 
 /**
- * FormFlow AI - Clean Lab Controller
- * v1.3.1 - Reverted to Clean Theme
+ * FormFlow AI - Emerald Slate Controller
+ * v2.1.0 React Port
  */
 
 document.addEventListener('DOMContentLoaded', async () => {
@@ -9,108 +9,129 @@ document.addEventListener('DOMContentLoaded', async () => {
     const ui = {
         logs: document.getElementById('terminalLogs'),
         statusText: document.getElementById('statusText'),
-        statusDot: document.getElementById('statusDot'),
-        retryBtn: document.getElementById('retryBtn'),
-        startBtn: document.getElementById('startBtn'),
-        autoDetect: document.getElementById('autoDetect'),
-        showOverlay: document.getElementById('showOverlay')
+        statusBadge: document.getElementById('statusBadge'),
+        progressBar: document.getElementById('progressBar'),
+        percentText: document.getElementById('percentText'),
+        actionText: document.getElementById('actionText'),
+        runBtn: document.getElementById('runBtn')
     };
 
     let isConnected = false;
 
     // =========================================================================
-    // LOGGER SYSTEM (Light Theme)
+    // REACT STATE SIMULATION
     // =========================================================================
 
-    const Logger = {
-        add: (msg, type = 'info') => {
+    const State = {
+        logs: [],
+        progress: 0,
+
+        addLog: (message, type = 'SYS') => {
+            const now = new Date();
+            const timeStr = now.toLocaleTimeString('en-US', { hour12: false });
+
+            // Create DOM Element
             const row = document.createElement('div');
             row.className = 'log-entry';
 
-            // Timestamp
-            const now = new Date();
-            const ts = now.toLocaleTimeString('en-US', { hour12: false });
-
-            // Icon/Arrow color based on type
-            let colorClass = '';
-            if (type === 'error') colorClass = 'error';
+            let typeColorClass = 'type-sys'; // default text-emerald-600
+            if (type === 'NET') typeColorClass = 'type-net'; // text-emerald-500
+            if (type === 'ERR') typeColorClass = 'type-err';
 
             row.innerHTML = `
-                <span class="ts">${ts}</span>
-                <span class="arrow">➜</span>
-                <span class="msg ${colorClass}">${msg}</span>
+                <span class="log-ts">[${timeStr}]</span>
+                <span class="log-type ${typeColorClass}">${type}</span>
+                <svg class="w-4 h-4 text-emerald-500" xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#10b981" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/><path d="m12 5 7 7-7 7"/></svg>
+                <span class="log-msg">${message}</span>
             `;
 
             ui.logs.appendChild(row);
-            // Smooth scroll to bottom
             row.scrollIntoView({ behavior: 'smooth' });
         },
 
-        setStatus: (status, state) => {
-            ui.statusText.textContent = status;
-            if (state === 'online') {
-                ui.statusDot.classList.add('online');
-                ui.statusText.style.color = 'var(--accent-green)';
+        setProgress: (value) => {
+            State.progress = value;
+            ui.progressBar.style.width = `${value}%`;
+            ui.percentText.textContent = `${Math.round(value)}%`;
+        },
+
+        setStatus: (text, online = true) => {
+            ui.statusText.textContent = text;
+            if (online) {
+                ui.statusBadge.style.background = 'var(--emerald-100)';
+                ui.statusBadge.querySelector('.status-dot').style.background = 'var(--emerald-500)';
             } else {
-                ui.statusDot.classList.remove('online');
-                ui.statusText.style.color = 'var(--text-sub)';
+                ui.statusBadge.style.background = '#fef2f2';
+                ui.statusBadge.querySelector('.status-dot').style.background = '#ef4444';
             }
         }
     };
 
     // =========================================================================
-    // INITIALIZATION & CONNECTION
+    // BOOT SEQUENCE (Matches User's React Code)
     // =========================================================================
 
-    // Load Settings
-    loadSettings();
-
-    // Boot Sequence Simulation
-    runBootSequence();
+    const systemLogs = [
+        { type: 'SYS', message: 'Terminal initialized successfully.', delay: 200 },
+        { type: 'SYS', message: 'Mounting file system...', delay: 600 },
+        { type: 'SYS', message: 'Loading neural interface v1.0...', delay: 1000 },
+        { type: 'NET', message: 'Establishing secure local uplink...', delay: 1500 }
+    ];
 
     async function runBootSequence() {
-        Logger.add('Restoring Clean Lab Interface...');
-        await wait(200);
-        Logger.add('Calibrating neural inputs...');
-        await wait(200);
-        await checkConnection();
+        // Run simulated logs
+        for (let i = 0; i < systemLogs.length; i++) {
+            const log = systemLogs[i];
+            setTimeout(() => {
+                State.addLog(log.message, log.type);
+                // Update progress based on logs
+                const p = ((i + 1) / (systemLogs.length + 2)) * 100; // +2 for real connection steps
+                State.setProgress(p);
+            }, log.delay);
+        }
+
+        // Check Real Connection after delay
+        setTimeout(() => checkConnection(), 2000);
     }
 
     async function checkConnection() {
-        ui.retryBtn.style.display = 'none';
-        Logger.add('Pinging backend server...');
-
         try {
             const response = await chrome.runtime.sendMessage({ type: 'CHECK_BACKEND' });
 
             if (response && (response.healthy || response.success)) {
                 isConnected = true;
-                Logger.setStatus('System Online', 'online');
-                Logger.add(`Connected to Core v${response.version || '1.0'}`);
+                State.addLog('Uplink established :: Latency <10ms', 'NET');
+                State.addLog(`Backend version ${response.version || '1.0.0'} active`, 'SYS');
+                State.setStatus('Online', true);
+                State.setProgress(100);
 
-                ui.startBtn.disabled = false;
+                ui.runBtn.disabled = false;
+                ui.actionText.textContent = "SYSTEM READY";
 
             } else {
-                throw new Error('Non-healthy response');
+                throw new Error('Connection refused');
             }
         } catch (err) {
             isConnected = false;
-            Logger.setStatus('Connection Failed', 'offline');
-            Logger.add(`Error: ${err.message || 'Server Unreachable'}`, 'error');
+            State.addLog(`Connection Failed: ${err.message}`, 'ERR');
+            State.setStatus('Offline', false);
+            ui.actionText.textContent = "SYSTEM ERROR";
 
-            ui.retryBtn.style.display = 'block';
-            ui.startBtn.disabled = true;
+            // Allow retry via run button (change icon behavior?)
+            // For now just log
         }
     }
 
     // =========================================================================
-    // INTERACTION HANDLERS
+    // INTERACTIONS
     // =========================================================================
 
-    ui.startBtn.addEventListener('click', async () => {
+    ui.runBtn.addEventListener('click', async () => {
         if (!isConnected) return;
 
-        Logger.add('Initiating session...');
+        State.addLog('Executing voice command injection...', 'SYS');
+        State.setProgress(0);
+        ui.actionText.textContent = "INJECTING...";
 
         try {
             const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
@@ -123,37 +144,15 @@ document.addEventListener('DOMContentLoaded', async () => {
                 }
             });
 
-            Logger.add('Voice agent injected.');
+            State.setProgress(100);
+            State.addLog('Voice overlay activated.', 'SYS');
             setTimeout(() => window.close(), 1000);
 
         } catch (err) {
-            Logger.add(`Error: ${err.message}`, 'error');
+            State.addLog(`Injection Error: ${err.message}`, 'ERR');
         }
     });
 
-    ui.retryBtn.addEventListener('click', () => {
-        Logger.add('Retrying...');
-        checkConnection();
-    });
-
-    // Settings
-    ui.autoDetect.addEventListener('change', saveSettings);
-    ui.showOverlay.addEventListener('change', saveSettings);
-
-    async function loadSettings() {
-        const result = await chrome.storage.local.get('settings');
-        const settings = result.settings || { autoDetectForms: true, showOverlay: true };
-        ui.autoDetect.checked = settings.autoDetectForms;
-        ui.showOverlay.checked = settings.showOverlay;
-    }
-
-    async function saveSettings() {
-        const settings = {
-            autoDetectForms: ui.autoDetect.checked,
-            showOverlay: ui.showOverlay.checked
-        };
-        chrome.storage.local.set({ settings });
-    }
-
-    function wait(ms) { return new Promise(resolve => setTimeout(resolve, ms)); }
+    // Start
+    runBootSequence();
 });

@@ -5,32 +5,46 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>FormFlow AI</title>
+    <!-- Font similar to standard sans/mono stack -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link
         href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@500&display=swap"
         rel="stylesheet">
     <style>
+        /* 
+         * Tailwind -> Vanilla CSS Mapping
+         */
         :root {
-            --bg-body: #ffffff;
-            --bg-surface: #f4f4f5;
-            /* Zinc 100 */
-            --bg-surface-hover: #e4e4e7;
-            /* Zinc 200 */
-            --primary-black: #09090b;
-            /* Zinc 950 */
-            --accent-green: #10b981;
-            /* Emerald 500 */
-            --text-main: #09090b;
-            --text-sub: #71717a;
-            /* Zinc 500 */
+            --slate-50: #f8fafc;
+            --slate-100: #f1f5f9;
+            --slate-200: #e2e8f0;
+            --slate-400: #94a3b8;
+            --slate-500: #64748b;
+            --slate-600: #475569;
+            --slate-700: #334155;
+            --slate-900: #0f172a;
 
-            --radius-window: 32px;
-            --radius-element: 16px;
+            --emerald-50: #ecfdf5;
+            --emerald-100: #d1fae5;
+            --emerald-200: #a7f3d0;
+            /* Shadow color approx */
+            --emerald-400: #34d399;
+            --emerald-500: #10b981;
+            --emerald-600: #059669;
+            --emerald-700: #047857;
 
-            --shadow-soft: 0 4px 6px -1px rgba(0, 0, 0, 0.05), 0 2px 4px -1px rgba(0, 0, 0, 0.03);
-            --shadow-strong: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
-            --shadow-glow: 0 0 15px rgba(16, 185, 129, 0.3);
+            --white: #ffffff;
+            --shadow-2xl: 0 25px 50px -12px rgba(0, 0, 0, 0.25);
+            --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+
+            --radius-3xl: 24px;
+            --radius-2xl: 16px;
+            --radius-xl: 12px;
+            --radius-full: 9999px;
+
+            --font-sans: 'Inter', system-ui, sans-serif;
+            --font-mono: 'JetBrains Mono', monospace;
         }
 
         * {
@@ -39,333 +53,476 @@
             box-sizing: border-box;
         }
 
-        ::-webkit-scrollbar {
-            width: 0px;
-        }
-
         body {
-            width: 380px;
-            height: 580px;
-            font-family: 'Inter', system-ui, sans-serif;
-            background: #fafafa;
-            color: var(--text-main);
+            width: 400px;
+            height: 600px;
+            font-family: var(--font-sans);
+            /* bg-gradient-to-br from-slate-50 via-white to-emerald-50 */
+            background: linear-gradient(135deg, var(--slate-50), var(--white), var(--emerald-50));
             display: flex;
-            flex-direction: column;
+            align-items: center;
+            justify-content: center;
             padding: 24px;
+            color: var(--slate-900);
+            overflow: hidden;
         }
 
-        /* 
-           Card Container 
-           Floating white card on off-white background
-        */
-        .app-window {
-            flex: 1;
-            background: var(--bg-body);
-            border-radius: var(--radius-window);
-            box-shadow: var(--shadow-strong);
+        /* Card Container */
+        .card {
+            width: 100%;
+            height: 100%;
+            background: var(--white);
+            border-radius: var(--radius-3xl);
+            box-shadow: var(--shadow-2xl);
+            border: 1px solid var(--slate-200);
             display: flex;
             flex-direction: column;
             overflow: hidden;
-            position: relative;
+            /* backdrop-blur-xl - mostly effective if bg was transparent, kept for fidelity */
+            backdrop-filter: blur(24px);
         }
 
-        /* Top Bar */
-        .window-header {
-            padding: 24px 24px 0 24px;
+        /* Header */
+        .header {
+            /* bg-gradient-to-r from-white to-emerald-50 */
+            background: linear-gradient(to right, var(--white), var(--emerald-50));
+            border-bottom: 1px solid var(--slate-200);
+            padding: 16px 24px;
+        }
+
+        .header-content {
             display: flex;
             align-items: center;
             justify-content: space-between;
         }
 
-        .brand-pill {
+        .brand-group {
             display: flex;
             align-items: center;
-            gap: 10px;
-            padding: 6px 12px 6px 6px;
-            background: var(--bg-surface);
-            border-radius: 99px;
-            font-size: 13px;
-            font-weight: 600;
+            gap: 12px;
+            /* gap-3 */
         }
 
-        .logo-circle {
-            width: 28px;
-            height: 28px;
-            background: var(--primary-black);
-            color: white;
-            border-radius: 50%;
+        .icon-box {
+            width: 40px;
+            height: 40px;
+            /* w-10 h-10 */
+            /* bg-gradient-to-br from-emerald-500 to-emerald-600 */
+            background: linear-gradient(135deg, var(--emerald-500), var(--emerald-600));
+            border-radius: var(--radius-xl);
             display: flex;
             align-items: center;
             justify-content: center;
-            font-size: 14px;
+            /* shadow-lg shadow-emerald-200 */
+            box-shadow: 0 10px 15px -3px rgba(167, 243, 208, 0.5);
+            color: var(--white);
+        }
+
+        .brand-text h1 {
+            font-size: 18px;
+            /* text-lg */
+            font-weight: 700;
+            letter-spacing: -0.025em;
+            /* tracking-tight */
+            color: var(--slate-900);
+        }
+
+        .brand-text p {
+            font-size: 12px;
+            /* text-xs */
+            font-weight: 500;
+            color: var(--slate-500);
+        }
+
+        .status-badge {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            /* gap-2 */
+            padding: 6px 12px;
+            background: var(--emerald-100);
+            border-radius: var(--radius-full);
         }
 
         .status-dot {
             width: 8px;
             height: 8px;
+            background: var(--emerald-500);
             border-radius: 50%;
-            background: #e4e4e7;
-            position: relative;
+            animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
         }
 
-        .status-dot.online {
-            background: var(--accent-green);
-            box-shadow: 0 0 0 4px rgba(16, 185, 129, 0.1);
+        @keyframes pulse {
+
+            0%,
+            100% {
+                opacity: 1;
+            }
+
+            50% {
+                opacity: .5;
+            }
         }
 
-        /* Hero / Progress Area */
-        .hero-section {
-            padding: 32px 24px;
-            text-align: center;
-        }
-
-        .hero-title {
-            font-size: 24px;
+        .status-text {
+            font-size: 12px;
             font-weight: 700;
-            letter-spacing: -0.03em;
-            margin-bottom: 8px;
-            color: var(--primary-black);
+            color: var(--emerald-700);
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            /* tracking-wider */
         }
 
-        .hero-subtitle {
-            font-size: 13px;
-            color: var(--text-sub);
-            font-weight: 500;
+        /* Progress Section */
+        .progress-section {
+            padding: 20px 24px;
+            /* px-6 py-5 */
+            background: var(--white);
+            border-bottom: 1px solid var(--slate-100);
         }
 
-        /* Terminal / Log Output - Light Mode */
-        .log-container {
-            margin: 0 24px;
-            flex: 1;
-            background: var(--bg-surface);
-            border-radius: 20px;
-            padding: 16px;
-            font-family: 'JetBrains Mono', monospace;
-            font-size: 11px;
-            color: var(--text-sub);
-            overflow-y: auto;
-            border: 1px solid rgba(0, 0, 0, 0.03);
+        .progress-header {
             display: flex;
-            flex-direction: column;
-            gap: 6px;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: 12px;
+        }
+
+        .progress-title {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .progress-title h2 {
+            font-size: 16px;
+            font-weight: 700;
+            color: var(--slate-900);
+        }
+
+        .progress-percent {
+            font-size: 24px;
+            /* text-2xl */
+            font-weight: 700;
+            color: var(--slate-900);
+        }
+
+        .progress-track {
+            width: 100%;
+            height: 8px;
+            background: var(--slate-100);
+            border-radius: var(--radius-full);
+            overflow: hidden;
+            box-shadow: inset 0 2px 4px 0 rgba(0, 0, 0, 0.06);
+            /* shadow-inner */
+        }
+
+        .progress-fill {
+            height: 100%;
+            /* bg-gradient-to-r from-emerald-500 to-emerald-400 */
+            background: linear-gradient(to right, var(--emerald-500), var(--emerald-400));
+            border-radius: var(--radius-full);
+            transition: width 0.5s ease-out;
+            box-shadow: 0 4px 6px -1px rgba(167, 243, 208, 0.5);
+            /* shadow-emerald-200 */
+        }
+
+        /* Terminal Output */
+        .terminal-container {
+            /* px-6 py-5 bg-gradient-to-b from-white to-slate-50 */
+            padding: 20px 24px;
+            background: linear-gradient(to bottom, var(--white), var(--slate-50));
+            flex: 1;
+            /* Take remaining height */
+            min-height: 200px;
+            overflow-y: auto;
+            font-family: var(--font-mono);
+            font-size: 13px;
+            /* text-sm approx */
         }
 
         .log-entry {
             display: flex;
-            gap: 8px;
             align-items: flex-start;
+            gap: 12px;
+            /* gap-3 */
+            margin-bottom: 8px;
+            /* space-y-2 */
+            animation: slideIn 0.3s ease-out backwards;
         }
 
-        .ts {
-            color: #d4d4d8;
-            font-weight: 500;
-            user-select: none;
+        .log-ts {
+            color: var(--slate-400);
+            font-size: 12px;
+            flex-shrink: 0;
+            margin-top: 2px;
         }
 
-        .arrow {
-            color: var(--accent-green);
+        .log-type {
+            font-weight: 700;
+            flex-shrink: 0;
         }
 
-        .msg {
-            color: var(--primary-black);
-            line-height: 1.4;
+        .log-msg {
+            color: var(--slate-700);
+            line-height: 1.6;
         }
 
-        .msg.error {
+        .type-sys {
+            color: var(--emerald-600);
+        }
+
+        .type-net {
+            color: var(--emerald-500);
+        }
+
+        .type-err {
             color: #ef4444;
         }
 
-        /* Bottom Controls */
-        .control-dock {
-            padding: 24px;
-            background: rgba(255, 255, 255, 0.8);
-            backdrop-filter: blur(10px);
-            border-top: 1px solid var(--bg-surface);
-            display: flex;
-            flex-direction: column;
-            gap: 16px;
+        @keyframes slideIn {
+            from {
+                opacity: 0;
+                transform: translateY(10px);
+            }
+
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
         }
 
-        /* Massive Black Button (Essence) */
-        .action-btn {
+        /* Command Input Section */
+        .command-section {
+            /* px-6 py-5 bg-gradient-to-t from-slate-50 to-white border-t border-slate-200 */
+            padding: 20px 24px;
+            background: linear-gradient(to top, var(--slate-50), var(--white));
+            border-top: 1px solid var(--slate-200);
+        }
+
+        .command-wrapper {
+            display: flex;
+            gap: 12px;
+            align-items: center;
+        }
+
+        .input-box {
+            flex: 1;
+            position: relative;
+        }
+
+        .input-icon {
+            position: absolute;
+            left: 16px;
+            top: 50%;
+            transform: translateY(-50%);
+            color: var(--emerald-500);
+        }
+
+        .cmd-input {
             width: 100%;
-            height: 64px;
-            border-radius: 24px;
-            background: var(--primary-black);
-            color: white;
-            border: none;
-            font-size: 16px;
-            font-weight: 600;
-            letter-spacing: -0.01em;
-            cursor: pointer;
-            transition: transform 0.2s cubic-bezier(0.34, 1.56, 0.64, 1), box-shadow 0.2s;
+            padding: 14px 16px 14px 44px;
+            /* pl-11 pr-4 py-3.5 */
+            border: 2px solid var(--slate-200);
+            border-radius: var(--radius-2xl);
+            /* rounded-2xl */
+            font-family: var(--font-mono);
+            font-size: 14px;
+            color: var(--slate-700);
+            background: var(--white);
+            outline: none;
+            transition: all 0.2s;
+        }
+
+        .cmd-input::placeholder {
+            color: var(--slate-400);
+        }
+
+        .cmd-input:focus {
+            border-color: var(--emerald-400);
+            box-shadow: 0 0 0 4px var(--emerald-100);
+        }
+
+        .cmd-btn {
+            width: 100%;
+            /* Changed from fixed width */
+            padding: 14px;
+            background: linear-gradient(135deg, var(--emerald-500), var(--emerald-600));
+            border-radius: var(--radius-2xl);
             display: flex;
             align-items: center;
             justify-content: center;
             gap: 12px;
-            position: relative;
-            overflow: hidden;
-        }
-
-        .action-btn:hover:not(:disabled) {
-            transform: scale(1.02);
-            box-shadow: 0 10px 20px -5px rgba(0, 0, 0, 0.3);
-        }
-
-        .action-btn:active:not(:disabled) {
-            transform: scale(0.96);
-        }
-
-        .action-btn:disabled {
-            background: #e4e4e7;
-            color: #a1a1aa;
-            cursor: not-allowed;
-            box-shadow: none;
-            transform: none;
-        }
-
-        /* Shine effect on button for "Active" feel */
-        .btn-shine {
-            position: absolute;
-            top: 0;
-            left: -100%;
-            width: 50%;
-            height: 100%;
-            background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.1), transparent);
-            transform: skewX(-20deg);
-            animation: shine 3s infinite;
-        }
-
-        @keyframes shine {
-            0% {
-                left: -100%;
-            }
-
-            20% {
-                left: 200%;
-            }
-
-            100% {
-                left: 200%;
-            }
-        }
-
-        /* Settings Row */
-        .settings-row {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            padding: 0 8px;
-        }
-
-        .setting-label {
-            font-size: 12px;
-            font-weight: 600;
-            color: var(--text-sub);
-        }
-
-        /* Black IOS Toggle */
-        .toggle {
-            position: relative;
-            width: 44px;
-            height: 26px;
-            background: #e4e4e7;
-            border-radius: 99px;
+            border: none;
             cursor: pointer;
-            transition: 0.3s;
+            box-shadow: 0 10px 15px -3px rgba(167, 243, 208, 0.5);
+            transition: all 0.2s;
         }
 
-        .toggle::after {
-            content: '';
-            position: absolute;
-            top: 3px;
-            left: 3px;
-            width: 20px;
-            height: 20px;
-            background: white;
-            border-radius: 50%;
-            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
-            transition: 0.3s cubic-bezier(0.5, 1.5, 0.5, 1);
+        .btn-text {
+            font-size: 16px;
+            font-weight: 700;
+            color: white;
         }
 
-        input:checked+.toggle {
-            background: var(--primary-black);
+        .cmd-btn:hover:not(:disabled) {
+            transform: translateY(-2px);
+            box-shadow: 0 20px 25px -5px rgba(167, 243, 208, 0.6);
         }
 
-        input:checked+.toggle::after {
-            transform: translateX(18px);
+        .cmd-btn:active:not(:disabled) {
+            transform: scale(0.95);
         }
 
-        input {
-            display: none;
+        .cmd-btn:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
         }
 
-        /* Retry Link */
-        .retry-text {
-            color: #ef4444;
+        .cmd-btn svg {
+            transition: transform 0.2s;
+            color: white;
+        }
+
+        .cmd-btn:hover svg {
+            transform: rotate(12deg);
+        }
+
+        /* Footer */
+        .footer {
+            padding: 12px 24px;
+            background: var(--slate-50);
+            border-top: 1px solid var(--slate-200);
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+
+        .stats-group {
+            display: flex;
+            align-items: center;
+            gap: 16px;
+        }
+
+        .stat-item {
+            display: flex;
+            align-items: center;
+            gap: 6px;
             font-size: 12px;
             font-weight: 500;
+            color: var(--slate-600);
+        }
+
+        .stat-val {
+            font-weight: 700;
+            color: var(--emerald-600);
+        }
+
+        .doc-link {
+            font-size: 12px;
+            font-weight: 500;
+            color: var(--slate-500);
+            text-decoration: none;
             cursor: pointer;
-            display: none;
-            text-decoration: underline;
+            transition: color 0.2s;
+        }
+
+        .doc-link:hover {
+            color: var(--emerald-600);
         }
     </style>
 </head>
 
 <body>
 
-    <div class="app-window">
+    <div class="card">
 
         <!-- Header -->
-        <div class="window-header">
-            <div class="brand-pill">
-                <div class="logo-circle">F</div>
-                <span>FormFlow</span>
+        <div class="header">
+            <div class="header-content">
+                <div class="brand-group">
+                    <div class="icon-box">
+                        <!-- Lucide Terminal Icon -->
+                        <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none"
+                            stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <polyline points="4 17 10 11 4 5" />
+                            <line x1="12" x2="20" y1="19" y2="19" />
+                        </svg>
+                    </div>
+                    <div class="brand-text">
+                        <h1>FORMFLOW_AI</h1>
+                        <p>SYSTEM.V1</p>
+                    </div>
+                </div>
+                <!-- Status -->
+                <div class="status-badge" id="statusBadge">
+                    <div class="status-dot"></div>
+                    <span class="status-text" id="statusText">Online</span>
+                </div>
             </div>
-            <div class="status-dot" id="statusDot"></div>
         </div>
 
-        <!-- Hero -->
-        <div class="hero-section">
-            <h1 class="hero-title">Voice Agent</h1>
-            <div class="hero-subtitle" id="statusText">System Initializing...</div>
-            <div class="retry-text" id="retryBtn">Retry Connection</div>
+        <!-- Progress -->
+        <div class="progress-section">
+            <div class="progress-header">
+                <div class="progress-title">
+                    <!-- CheckCircle2 -->
+                    <svg class="check-icon" xmlns="http://www.w3.org/2000/svg" width="20" height="20"
+                        viewBox="0 0 24 24" fill="none" stroke="#10b981" stroke-width="2" stroke-linecap="round"
+                        stroke-linejoin="round">
+                        <circle cx="12" cy="12" r="10" />
+                        <path d="m9 12 2 2 4-4" />
+                    </svg>
+                    <h2 id="actionText">SYSTEM READY</h2>
+                </div>
+                <span class="progress-percent" id="percentText">0%</span>
+            </div>
+            <div class="progress-track">
+                <div class="progress-fill" id="progressBar" style="width: 0%"></div>
+            </div>
         </div>
 
-        <!-- Clean Log Area -->
-        <div class="log-container" id="terminalLogs">
+        <!-- Terminal Logs -->
+        <div class="terminal-container" id="terminalLogs">
             <!-- JS Populated -->
         </div>
 
-        <!-- Dock -->
-        <div class="control-dock">
-
-            <button class="action-btn" id="startBtn" disabled>
-                <div class="btn-shine"></div>
-                <span>Start Session</span>
+        <!-- Command Action -->
+        <div class="command-section">
+            <button class="cmd-btn full-width" id="runBtn" disabled>
+                <span class="btn-text">Start Voice Agent</span>
+                <!-- Command Icon -->
+                <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none"
+                    stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z" />
+                    <path d="M19 10v2a7 7 0 0 1-14 0v-2" />
+                    <line x1="12" x2="12" y1="19" y2="23" />
+                    <line x1="8" x2="16" y1="23" y2="23" />
+                </svg>
             </button>
-
-            <div class="settings-row">
-                <span class="setting-label">Auto-Detect Fields</span>
-                <label>
-                    <input type="checkbox" id="autoDetect" checked>
-                    <div class="toggle"></div>
-                </label>
-            </div>
-
-            <div class="settings-row" style="margin-top:-8px;">
-                <span class="setting-label">Floating Overlay</span>
-                <label>
-                    <input type="checkbox" id="showOverlay" checked>
-                    <div class="toggle"></div>
-                </label>
-            </div>
-
         </div>
 
-        <!-- Footer / Version -->
-        <div style="text-align:center; padding-bottom:16px; font-size:10px; color:#d4d4d8; font-weight:500;">
-            v1.2.9 • SECURE
+        <!-- Footer -->
+        <div class="footer">
+            <div class="stats-group">
+                <div class="stat-item">
+                    <!-- Activity -->
+                    <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none"
+                        stroke="#10b981" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M22 12h-4l-3 9L9 3l-3 9H2" />
+                    </svg>
+                    <span>Latency: <span class="stat-val">&lt;10ms</span></span>
+                </div>
+                <div class="stat-item">
+                    <!-- Zap -->
+                    <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none"
+                        stroke="#10b981" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2" />
+                    </svg>
+                    <span>v1.0.0</span>
+                </div>
+            </div>
+            <a href="#" class="doc-link">Documentation →</a>
         </div>
 
     </div>
