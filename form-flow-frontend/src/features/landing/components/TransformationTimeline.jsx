@@ -6,38 +6,57 @@ const timelineData = [
     {
         title: 'The Old Way',
         icon: <Keyboard className="w-6 h-6" />,
-        color: 'rgb(107, 107, 107)',
+        color: '#ef4444', // Red for "Problem"
         content: (
             <div className="space-y-4">
-                <div className="bg-muted/50 p-6 rounded-lg border-2 border-border/50 backdrop-blur-sm">
-                    <div className="flex items-start gap-3 mb-4">
-                        <XCircle className="w-5 h-5 text-destructive mt-0.5 flex-shrink-0" />
-                        <div>
-                            <h4 className="font-bold text-foreground mb-2">Manual Typing</h4>
-                            <p className="text-muted-foreground text-sm leading-relaxed">
-                                Painstakingly typing each field, one character at a time. Copy-pasting from documents,
-                                double-checking every entry, losing your place mid-form.
-                            </p>
+                <div className="group relative bg-gradient-to-br from-red-500/5 via-red-500/0 to-transparent p-6 rounded-2xl border border-red-500/10 backdrop-blur-md transition-all duration-300 hover:border-red-500/20 hover:shadow-[0_0_30px_-5px_rgba(239,68,68,0.1)]">
+                    {/* Inner glow */}
+                    <div className="absolute inset-0 bg-red-500/5 blur-3xl rounded-full opacity-0 group-hover:opacity-100 transition-opacity duration-500" />
+
+                    <div className="relative space-y-6">
+                        <div className="flex gap-4">
+                            <div className="flex-shrink-0 mt-1">
+                                <div className="h-8 w-8 rounded-full bg-red-500/10 flex items-center justify-center border border-red-500/20 shadow-inner">
+                                    <XCircle className="w-4 h-4 text-red-500" />
+                                </div>
+                            </div>
+                            <div>
+                                <h4 className="font-bold text-foreground mb-2 text-lg">Manual Typing</h4>
+                                <p className="text-muted-foreground text-sm leading-relaxed">
+                                    Painstakingly typing each field, one character at a time. Copy-pasting from documents,
+                                    double-checking every entry, losing your place mid-form.
+                                </p>
+                            </div>
                         </div>
-                    </div>
-                    <div className="flex items-start gap-3">
-                        <XCircle className="w-5 h-5 text-destructive mt-0.5 flex-shrink-0" />
-                        <div>
-                            <h4 className="font-bold text-foreground mb-2">Accessibility Barriers</h4>
-                            <p className="text-muted-foreground text-sm leading-relaxed">
-                                Forms inaccessible to those with motor disabilities, visual impairments, or
-                                language barriers. A digital divide that excludes millions.
-                            </p>
+
+                        <div className="flex gap-4">
+                            <div className="flex-shrink-0 mt-1">
+                                <div className="h-8 w-8 rounded-full bg-red-500/10 flex items-center justify-center border border-red-500/20 shadow-inner">
+                                    <XCircle className="w-4 h-4 text-red-500" />
+                                </div>
+                            </div>
+                            <div>
+                                <h4 className="font-bold text-foreground mb-2 text-lg">Accessibility Barriers</h4>
+                                <p className="text-muted-foreground text-sm leading-relaxed">
+                                    Forms inaccessible to those with motor disabilities, visual impairments, or
+                                    language barriers. A digital divide that excludes millions.
+                                </p>
+                            </div>
                         </div>
-                    </div>
-                    <div className="flex items-start gap-3 mt-4">
-                        <XCircle className="w-5 h-5 text-destructive mt-0.5 flex-shrink-0" />
-                        <div>
-                            <h4 className="font-bold text-foreground mb-2">Time Consuming</h4>
-                            <p className="text-muted-foreground text-sm leading-relaxed">
-                                Average form takes 5-10 minutes. Complex forms? 20+ minutes of frustration,
-                                errors, and abandonment.
-                            </p>
+
+                        <div className="flex gap-4">
+                            <div className="flex-shrink-0 mt-1">
+                                <div className="h-8 w-8 rounded-full bg-red-500/10 flex items-center justify-center border border-red-500/20 shadow-inner">
+                                    <XCircle className="w-4 h-4 text-red-500" />
+                                </div>
+                            </div>
+                            <div>
+                                <h4 className="font-bold text-foreground mb-2 text-lg">Time Consuming</h4>
+                                <p className="text-muted-foreground text-sm leading-relaxed">
+                                    Average form takes 5-10 minutes. Complex forms? 20+ minutes of frustration,
+                                    errors, and abandonment.
+                                </p>
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -46,37 +65,56 @@ const timelineData = [
     },
     {
         title: 'Form Flow AI',
-        icon: <Mic className="w-6 h-6" />,
-        color: 'rgb(26, 137, 23)',
+        icon: <Zap className="w-6 h-6" />,
+        color: '#16a34a', // Green for "Solution"
         content: (
             <div className="space-y-4">
-                <div className="bg-gradient-to-br from-primary/10 via-primary/5 to-transparent p-6 rounded-lg border-2 border-primary/30 backdrop-blur-sm relative overflow-hidden">
-                    <div className="absolute inset-0 bg-[radial-gradient(circle_at_50%_50%,rgba(26,137,23,0.1),transparent_70%)] pointer-events-none" />
-                    <div className="relative">
-                        <div className="flex items-start gap-3 mb-4">
-                            <CheckCircle2 className="w-5 h-5 text-primary mt-0.5 flex-shrink-0" />
+                <div className="group relative bg-gradient-to-br from-primary/10 via-primary/5 to-transparent p-6 rounded-2xl border-2 border-primary/20 backdrop-blur-md transition-all duration-300 hover:border-primary/40 hover:shadow-[0_0_40px_-10px_rgba(22,163,74,0.2)] overflow-hidden">
+                    {/* Background sheen */}
+                    <div className="absolute inset-0 bg-[linear-gradient(45deg,transparent,rgba(255,255,255,0.03),transparent)] translate-x-[-100%] group-hover:translate-x-[100%] transition-transform duration-1000" />
+
+                    <div className="relative space-y-6">
+                        <div className="flex gap-4">
+                            <div className="flex-shrink-0 mt-1">
+                                <div className="h-8 w-8 rounded-full bg-primary/10 flex items-center justify-center border border-primary/20 shadow-[0_0_10px_rgba(22,163,74,0.2)]">
+                                    <CheckCircle2 className="w-4 h-4 text-primary" />
+                                </div>
+                            </div>
                             <div>
-                                <h4 className="font-bold text-foreground mb-2">Natural Voice Interaction</h4>
+                                <h4 className="font-bold text-foreground mb-2 text-lg flex items-center gap-2">
+                                    Natural Voice Interaction
+                                    <span className="text-[10px] bg-primary/10 text-primary px-2 py-0.5 rounded-full border border-primary/20 font-medium tracking-wide">AI POWERED</span>
+                                </h4>
                                 <p className="text-muted-foreground text-sm leading-relaxed">
                                     Simply speak your information. The AI understands context, asks clarifying questions,
                                     and formats everything perfectly. No typing required.
                                 </p>
                             </div>
                         </div>
-                        <div className="flex items-start gap-3">
-                            <CheckCircle2 className="w-5 h-5 text-primary mt-0.5 flex-shrink-0" />
+
+                        <div className="flex gap-4">
+                            <div className="flex-shrink-0 mt-1">
+                                <div className="h-8 w-8 rounded-full bg-primary/10 flex items-center justify-center border border-primary/20 shadow-[0_0_10px_rgba(22,163,74,0.2)]">
+                                    <CheckCircle2 className="w-4 h-4 text-primary" />
+                                </div>
+                            </div>
                             <div>
-                                <h4 className="font-bold text-foreground mb-2">Universal Access</h4>
+                                <h4 className="font-bold text-foreground mb-2 text-lg">Universal Access</h4>
                                 <p className="text-muted-foreground text-sm leading-relaxed">
                                     Voice-first design breaks down barriers. Accessible to everyone, regardless of
                                     ability, language, or technical skill.
                                 </p>
                             </div>
                         </div>
-                        <div className="flex items-start gap-3 mt-4">
-                            <CheckCircle2 className="w-5 h-5 text-primary mt-0.5 flex-shrink-0" />
+
+                        <div className="flex gap-4">
+                            <div className="flex-shrink-0 mt-1">
+                                <div className="h-8 w-8 rounded-full bg-primary/10 flex items-center justify-center border border-primary/20 shadow-[0_0_10px_rgba(22,163,74,0.2)]">
+                                    <CheckCircle2 className="w-4 h-4 text-primary" />
+                                </div>
+                            </div>
                             <div>
-                                <h4 className="font-bold text-foreground mb-2">Lightning Fast</h4>
+                                <h4 className="font-bold text-foreground mb-2 text-lg">Lightning Fast</h4>
                                 <p className="text-muted-foreground text-sm leading-relaxed">
                                     Complete complex forms in 2-3 minutes. AI handles formatting, validation,
                                     and submission automatically. Your time, reclaimed.
@@ -97,8 +135,14 @@ export const TransformationTimeline = () => {
 
     useEffect(() => {
         if (ref.current) {
-            const rect = ref.current.getBoundingClientRect();
-            setHeight(rect.height);
+            const updateHeight = () => {
+                const rect = ref.current.getBoundingClientRect();
+                setHeight(rect.height);
+            };
+
+            updateHeight();
+            window.addEventListener('resize', updateHeight);
+            return () => window.removeEventListener('resize', updateHeight);
         }
     }, [ref]);
 
@@ -112,53 +156,47 @@ export const TransformationTimeline = () => {
 
     return (
         <div
-            className="w-full bg-background/95 backdrop-blur-sm relative overflow-hidden"
+            className="w-full bg-background relative overflow-hidden"
             ref={containerRef}
+            id="how-it-works"
         >
-            {/* Smooth top gradient */}
-            <div className="absolute top-0 left-0 right-0 h-32 bg-gradient-to-b from-transparent to-background/95 pointer-events-none z-10" />
+            {/* Ambient Background Glows */}
+            <div className="absolute top-[20%] left-[-10%] w-[500px] h-[500px] bg-primary/5 rounded-full blur-[120px] pointer-events-none" />
+            <div className="absolute bottom-[20%] right-[-10%] w-[500px] h-[500px] bg-primary/5 rounded-full blur-[120px] pointer-events-none" />
 
-            {/* Background Pattern */}
+            {/* Background Grid */}
             <div className="absolute inset-0 opacity-[0.03] pointer-events-none">
                 <div
                     className="absolute inset-0"
                     style={{
-                        backgroundImage: `radial-gradient(circle at 2px 2px, var(--foreground) 1px, transparent 0)`,
-                        backgroundSize: '40px 40px',
+                        backgroundImage: `linear-gradient(var(--foreground) 1px, transparent 0), linear-gradient(90deg, var(--foreground) 1px, transparent 0)`,
+                        backgroundSize: '80px 80px',
                     }}
                 />
             </div>
 
             <div className="max-w-7xl mx-auto py-24 px-4 md:px-8 lg:px-10 relative z-10">
                 <motion.div
-                    initial={{ opacity: 0, y: 20 }}
+                    initial={{ opacity: 0, y: 30 }}
                     whileInView={{ opacity: 1, y: 0 }}
                     viewport={{ once: true }}
-                    transition={{ duration: 0.6 }}
-                    className="mb-16"
+                    transition={{ duration: 0.8 }}
+                    className="mb-24 text-center"
                 >
-                    <div className="flex items-center gap-3 mb-4">
-                        <div className="h-px w-16 bg-primary" />
-                        <span className="text-primary font-mono text-sm uppercase tracking-wider">Transformation</span>
-                        <div className="h-px flex-1 bg-border" />
+                    <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-primary/10 border border-primary/20 text-primary text-xs font-semibold tracking-wider uppercase mb-6">
+                        <Zap className="w-3 h-3" />
+                        Paradigm Shift
                     </div>
-                    <h2 className="text-4xl md:text-6xl font-bold text-foreground mb-6 leading-tight">
-                        The World Before
-                        <br />
-                        <span className="text-primary relative inline-block">
-                            Form Flow AI
-                            <motion.div
-                                className="absolute -bottom-2 left-0 right-0 h-1 bg-primary/30"
-                                initial={{ scaleX: 0 }}
-                                whileInView={{ scaleX: 1 }}
-                                viewport={{ once: true }}
-                                transition={{ duration: 0.8, delay: 0.3 }}
-                            />
+
+                    <h2 className="text-4xl md:text-5xl lg:text-7xl font-bold text-foreground mb-8 tracking-tight">
+                        The Evolution of <br className="hidden md:block" />
+                        <span className="text-transparent bg-clip-text bg-gradient-to-r from-primary to-primary/60">
+                            Data Entry
                         </span>
                     </h2>
-                    <p className="text-muted-foreground text-lg md:text-xl max-w-2xl leading-relaxed">
-                        A journey from manual frustration to intelligent automation.
-                        See how voice AI is reshaping form completion forever.
+
+                    <p className="text-muted-foreground text-lg md:text-xl max-w-2xl mx-auto leading-relaxed">
+                        We're not just improving forms. We're completely reimagining how humans interact with digital systems.
                     </p>
                 </motion.div>
             </div>
@@ -167,46 +205,41 @@ export const TransformationTimeline = () => {
                 {timelineData.map((item, index) => (
                     <motion.div
                         key={index}
-                        initial={{ opacity: 0, x: index % 2 === 0 ? -30 : 30 }}
-                        whileInView={{ opacity: 1, x: 0 }}
+                        initial={{ opacity: 0, y: 40 }}
+                        whileInView={{ opacity: 1, y: 0 }}
                         viewport={{ once: true, margin: '-100px' }}
-                        transition={{ duration: 0.6, delay: index * 0.2 }}
-                        className="flex justify-start pt-10 md:pt-32 md:gap-10"
+                        transition={{ duration: 0.7, delay: index * 0.2 }}
+                        className="flex flex-col md:flex-row gap-8 md:gap-20 mb-20 last:mb-0 relative z-20"
                     >
-                        <div className="sticky flex flex-col md:flex-row z-40 items-center top-40 self-start max-w-xs lg:max-w-sm md:w-full">
-                            <div
-                                className="h-12 absolute left-2 md:left-2 w-12 rounded-full bg-background border-2 flex items-center justify-center transition-all duration-300"
-                                style={{ borderColor: item.color }}
-                            >
+                        {/* Icon/Title Column */}
+                        <div className="md:w-1/3 flex flex-row md:flex-col items-center md:items-end md:text-right gap-6 sticky top-32 self-start">
+                            <div className="flex-1 md:flex-none">
+                                <h3 className="text-3xl md:text-5xl font-bold text-foreground leading-tight">
+                                    {item.title}
+                                </h3>
+                            </div>
+
+                            <div className="relative group">
+                                <div className="absolute inset-0 bg-current blur-2xl opacity-20 group-hover:opacity-40 transition-opacity duration-500 rounded-full" style={{ color: item.color }} />
                                 <div
-                                    className="h-6 w-6 rounded-full flex items-center justify-center transition-all duration-300"
-                                    style={{
-                                        backgroundColor: item.color,
-                                        boxShadow: `0 0 20px ${item.color}40`
-                                    }}
+                                    className="relative w-16 h-16 md:w-20 md:h-20 rounded-full bg-background border-4 flex items-center justify-center transition-all duration-300 group-hover:scale-110"
+                                    style={{ borderColor: item.color }}
                                 >
-                                    <div className="text-white">
-                                        {item.icon}
-                                    </div>
+                                    <div
+                                        className="w-full h-full rounded-full flex items-center justify-center opacity-10 absolute inset-0"
+                                        style={{ backgroundColor: item.color }}
+                                    />
+                                    {React.cloneElement(item.icon, {
+                                        className: "w-8 h-8 md:w-10 md:h-10 transition-transform duration-300 group-hover:rotate-12",
+                                        style: { color: item.color }
+                                    })}
                                 </div>
                             </div>
-                            <h3 className="hidden md:block text-2xl md:pl-24 md:text-5xl font-bold text-foreground leading-tight">
-                                {item.title}
-                            </h3>
                         </div>
 
-                        <div className="relative pl-20 pr-4 md:pl-4 w-full">
-                            <h3 className="md:hidden block text-3xl mb-6 text-left font-bold text-foreground">
-                                {item.title}
-                            </h3>
-                            <motion.div
-                                initial={{ opacity: 0, y: 20 }}
-                                whileInView={{ opacity: 1, y: 0 }}
-                                viewport={{ once: true }}
-                                transition={{ duration: 0.5, delay: 0.3 }}
-                            >
-                                {item.content}
-                            </motion.div>
+                        {/* Content Column */}
+                        <div className="md:w-2/3">
+                            {item.content}
                         </div>
                     </motion.div>
                 ))}
