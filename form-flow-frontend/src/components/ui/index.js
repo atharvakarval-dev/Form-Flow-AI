@@ -8,3 +8,6 @@ export { default as TerminalLoader } from './TerminalLoader';
 export { PromptInputBox } from './ai-prompt-box';
 export { Button, buttonVariants } from './button';
 
+// Voice Components
+export { default as SiriWave, SiriWaveCard } from './SiriWave';
+export { default as VoiceInput, VoiceInputMinimal } from './VoiceInput';

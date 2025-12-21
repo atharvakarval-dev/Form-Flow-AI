@@ -31,7 +31,7 @@ from utils.exceptions import FormFlowError
 from utils.rate_limit import limiter, rate_limit_exceeded_handler
 
 # Import Routers
-from routers import auth, forms, speech
+from routers import auth, forms, speech, conversation
 
 # Initialize logging
 setup_logging()
@@ -136,6 +136,7 @@ app.add_exception_handler(RateLimitExceeded, rate_limit_exceeded_handler)
 app.include_router(auth.router)
 app.include_router(forms.router)
 app.include_router(speech.router)
+app.include_router(conversation.router)
 
 
 # =============================================================================
@@ -191,6 +192,34 @@ async def health_check():
         "task_queue": get_queue_stats(),
         "version": settings.APP_VERSION
     }
+
+
+@app.get("/metrics", tags=["Health"])
+async def metrics_dashboard():
+    """
+    Telemetry and metrics dashboard.
+    
+    Returns application metrics including:
+        - Form submission success rates
+        - Voice processing latency
+        - AI call performance
+        - Error rates
+    """
+    from utils.telemetry import get_telemetry_dashboard
+    from utils.circuit_breaker import _circuit_breakers
+    
+    dashboard = get_telemetry_dashboard()
+    
+    # Add circuit breaker status
+    dashboard["circuit_breakers"] = {
+        name: {
+            "state": cb.state.value,
+            "failures": cb.failure_count
+        }
+        for name, cb in _circuit_breakers.items()
+    }
+    
+    return dashboard
 
 
 # =============================================================================

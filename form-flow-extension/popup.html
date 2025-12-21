@@ -1,0 +1,319 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>FormFlow AI</title>
+    <style>
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            width: 320px;
+            min-height: 400px;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: linear-gradient(135deg, #0f172a, #1e293b);
+            color: white;
+        }
+
+        .header {
+            padding: 20px;
+            background: linear-gradient(135deg, #10b981, #059669);
+            text-align: center;
+        }
+
+        .logo {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 10px;
+            font-size: 20px;
+            font-weight: 700;
+        }
+
+        .logo-icon {
+            font-size: 28px;
+        }
+
+        .tagline {
+            font-size: 12px;
+            opacity: 0.9;
+            margin-top: 4px;
+        }
+
+        .content {
+            padding: 20px;
+        }
+
+        .status-card {
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 12px;
+            padding: 16px;
+            margin-bottom: 16px;
+        }
+
+        .status-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: 12px;
+        }
+
+        .status-title {
+            font-size: 14px;
+            font-weight: 600;
+        }
+
+        .status-dot {
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            background: #ef4444;
+        }
+
+        .status-dot.connected {
+            background: #10b981;
+        }
+
+        .status-text {
+            font-size: 12px;
+            color: rgba(255, 255, 255, 0.7);
+        }
+
+        .actions {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+
+        .btn {
+            width: 100%;
+            padding: 14px;
+            border: none;
+            border-radius: 10px;
+            font-size: 14px;
+            font-weight: 600;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+            transition: all 0.2s;
+        }
+
+        .btn-primary {
+            background: linear-gradient(135deg, #10b981, #059669);
+            color: white;
+        }
+
+        .btn-primary:hover {
+            transform: translateY(-1px);
+            box-shadow: 0 4px 15px rgba(16, 185, 129, 0.4);
+        }
+
+        .btn-secondary {
+            background: rgba(255, 255, 255, 0.1);
+            color: white;
+        }
+
+        .btn-secondary:hover {
+            background: rgba(255, 255, 255, 0.15);
+        }
+
+        .btn:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+            transform: none !important;
+        }
+
+        .settings-section {
+            margin-top: 20px;
+            padding-top: 20px;
+            border-top: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        .settings-title {
+            font-size: 12px;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            color: rgba(255, 255, 255, 0.5);
+            margin-bottom: 12px;
+        }
+
+        .setting-row {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 10px 0;
+        }
+
+        .setting-label {
+            font-size: 13px;
+        }
+
+        .toggle {
+            position: relative;
+            width: 44px;
+            height: 24px;
+        }
+
+        .toggle input {
+            opacity: 0;
+            width: 0;
+            height: 0;
+        }
+
+        .toggle-slider {
+            position: absolute;
+            cursor: pointer;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(255, 255, 255, 0.2);
+            transition: 0.3s;
+            border-radius: 24px;
+        }
+
+        .toggle-slider:before {
+            position: absolute;
+            content: "";
+            height: 18px;
+            width: 18px;
+            left: 3px;
+            bottom: 3px;
+            background: white;
+            transition: 0.3s;
+            border-radius: 50%;
+        }
+
+        .toggle input:checked+.toggle-slider {
+            background: #10b981;
+        }
+
+        .toggle input:checked+.toggle-slider:before {
+            transform: translateX(20px);
+        }
+
+        .footer {
+            padding: 16px 20px;
+            text-align: center;
+            font-size: 11px;
+            color: rgba(255, 255, 255, 0.4);
+            border-top: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        .footer a {
+            color: #10b981;
+            text-decoration: none;
+        }
+
+        .recent-forms {
+            margin-top: 16px;
+        }
+
+        .recent-title {
+            font-size: 12px;
+            color: rgba(255, 255, 255, 0.5);
+            margin-bottom: 8px;
+        }
+
+        .recent-item {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 10px;
+            background: rgba(255, 255, 255, 0.05);
+            border-radius: 8px;
+            margin-bottom: 6px;
+            font-size: 12px;
+        }
+
+        .recent-icon {
+            font-size: 16px;
+        }
+
+        .recent-info {
+            flex: 1;
+            overflow: hidden;
+        }
+
+        .recent-url {
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            opacity: 0.7;
+            font-size: 11px;
+        }
+
+        .recent-fields {
+            color: #10b981;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="header">
+        <div class="logo">
+            <span class="logo-icon">🎤</span>
+            FormFlow AI
+        </div>
+        <div class="tagline">Voice-powered form filling</div>
+    </div>
+
+    <div class="content">
+        <div class="status-card">
+            <div class="status-header">
+                <span class="status-title">Backend Status</span>
+                <span class="status-dot" id="statusDot"></span>
+            </div>
+            <div class="status-text" id="statusText">Checking connection...</div>
+        </div>
+
+        <div class="actions">
+            <button class="btn btn-primary" id="startBtn" disabled>
+                🎤 Start on Current Page
+            </button>
+            <button class="btn btn-secondary" id="helpBtn">
+                ❓ How to Use
+            </button>
+        </div>
+
+        <div class="recent-forms" id="recentForms" style="display: none;">
+            <div class="recent-title">Recent Forms</div>
+            <div id="recentList"></div>
+        </div>
+
+        <div class="settings-section">
+            <div class="settings-title">Settings</div>
+
+            <div class="setting-row">
+                <span class="setting-label">Auto-detect forms</span>
+                <label class="toggle">
+                    <input type="checkbox" id="autoDetect" checked>
+                    <span class="toggle-slider"></span>
+                </label>
+            </div>
+
+            <div class="setting-row">
+                <span class="setting-label">Show overlay</span>
+                <label class="toggle">
+                    <input type="checkbox" id="showOverlay" checked>
+                    <span class="toggle-slider"></span>
+                </label>
+            </div>
+        </div>
+    </div>
+
+    <div class="footer">
+        Version 1.0.0 | <a href="#" id="docsLink">Documentation</a>
+    </div>
+
+    <script src="popup.js"></script>
+</body>
+
+</html>

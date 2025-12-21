@@ -44,3 +44,8 @@ redis>=5.0.0
 
 # Production Server
 gunicorn>=21.0.0
+
+# LangChain (Conversational Agent)
+langchain>=0.2.0
+langchain-google-genai>=1.0.0
+langchain-community>=0.2.0

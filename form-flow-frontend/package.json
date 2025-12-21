@@ -18,12 +18,14 @@
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "framer-motion": "^12.23.24",
+    "lottie-react": "^2.4.1",
     "lucide-react": "^0.400.0",
     "motion": "^12.23.26",
     "ogl": "^1.0.11",
     "react": "^19.1.0",
     "react-dom": "^19.1.0",
     "react-router-dom": "^7.11.0",
+    "react-siriwave": "^3.1.0",
     "tailwindcss": "^4.1.11"
   },
   "devDependencies": {

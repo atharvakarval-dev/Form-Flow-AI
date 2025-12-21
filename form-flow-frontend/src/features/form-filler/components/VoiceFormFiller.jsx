@@ -1,7 +1,7 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { Mic, MicOff, CheckCircle, Volume2 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Aurora } from '@/components/ui';
+import { Aurora, SiriWave } from '@/components/ui';
 import api, { API_BASE_URL } from '@/services/api';
 
 const VoiceFormFiller = ({ formSchema, formContext, onComplete }) => {
@@ -24,6 +24,13 @@ const VoiceFormFiller = ({ formSchema, formContext, onComplete }) => {
     const [isProfileLoading, setIsProfileLoading] = useState(true);
 
     const [lastFilled, setLastFilled] = useState(null);
+
+    // Audio analysis for SiriWave visualization
+    const [volumeLevel, setVolumeLevel] = useState(0);
+    const audioContextRef = useRef(null);
+    const analyserRef = useRef(null);
+    const micStreamRef = useRef(null);
+    const animationFrameRef = useRef(null);
 
     // Field name mappings for auto-fill (form field names -> user profile keys)
     const fieldMappings = {
@@ -322,10 +329,74 @@ const VoiceFormFiller = ({ formSchema, formContext, onComplete }) => {
         if (isListening) {
             recognitionRef.current.stop();
             setIsListening(false);
+            stopAudioAnalysis();
         } else {
             recognitionRef.current.start();
             setIsListening(true);
+            startAudioAnalysis();
         }
+    };
+
+    // Start audio analysis for volume visualization
+    const startAudioAnalysis = async () => {
+        try {
+            const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+            micStreamRef.current = stream;
+
+            const audioContext = new AudioContext();
+            audioContextRef.current = audioContext;
+
+            const analyser = audioContext.createAnalyser();
+            analyser.fftSize = 256;
+            analyser.smoothingTimeConstant = 0.8;
+            analyserRef.current = analyser;
+
+            const source = audioContext.createMediaStreamSource(stream);
+            source.connect(analyser);
+
+            const dataArray = new Uint8Array(analyser.frequencyBinCount);
+
+            const updateVolume = () => {
+                if (!analyserRef.current) return;
+
+                analyserRef.current.getByteFrequencyData(dataArray);
+
+                let sum = 0;
+                for (let i = 0; i < dataArray.length; i++) {
+                    sum += dataArray[i] * dataArray[i];
+                }
+                const rms = Math.sqrt(sum / dataArray.length);
+                const normalizedVolume = Math.min(1, rms / 128);
+                setVolumeLevel(normalizedVolume);
+
+                animationFrameRef.current = requestAnimationFrame(updateVolume);
+            };
+
+            updateVolume();
+        } catch (err) {
+            console.error('Error accessing microphone for visualization:', err);
+        }
+    };
+
+    // Stop audio analysis
+    const stopAudioAnalysis = () => {
+        if (animationFrameRef.current) {
+            cancelAnimationFrame(animationFrameRef.current);
+            animationFrameRef.current = null;
+        }
+
+        if (micStreamRef.current) {
+            micStreamRef.current.getTracks().forEach(track => track.stop());
+            micStreamRef.current = null;
+        }
+
+        if (audioContextRef.current) {
+            audioContextRef.current.close();
+            audioContextRef.current = null;
+        }
+
+        analyserRef.current = null;
+        setVolumeLevel(0);
     };
 
     const handleSkipField = () => {
@@ -585,28 +656,29 @@ const VoiceFormFiller = ({ formSchema, formContext, onComplete }) => {
                         </div>
                     </div>
 
-                    {/* Controls */}
-                    <div className="mt-8 relative z-10 flex items-center gap-4">
+                    {/* Controls - SiriWave Visualization */}
+                    <div className="mt-8 relative z-10 flex flex-col items-center gap-4">
+                        {/* Siri Waveform */}
+                        <SiriWave
+                            theme="ios9"
+                            isActive={isListening}
+                            volumeLevel={volumeLevel}
+                            onToggle={toggleListening}
+                            status={processing ? 'processing' : isListening ? 'listening' : 'idle'}
+                            size="lg"
+                            color="#10b981"
+                            showLabel={true}
+                        />
+
+                        {/* Skip button */}
                         {currentField && !currentField.required && (
                             <button
                                 onClick={handleSkipField}
                                 className="px-4 py-2 rounded-full text-sm font-medium bg-white/5 border border-white/20 text-white/60 hover:bg-white/10 hover:text-white transition-all"
                             >
-                                Skip
+                                Skip this field
                             </button>
                         )}
-
-                        <button
-                            onClick={toggleListening}
-                            className={`w-20 h-20 rounded-full flex items-center justify-center transition-all duration-300 shadow-2xl ${isListening
-                                ? 'bg-red-500/20 text-red-400 border border-red-500/50 hover:bg-red-500/30 shadow-[0_0_30px_rgba(239,68,68,0.3)]'
-                                : 'bg-green-500 text-black hover:scale-105 shadow-[0_0_30px_rgba(34,197,94,0.4)]'
-                                }`}
-                        >
-                            {isListening ? <MicOff size={32} /> : <Mic size={32} />}
-                        </button>
-
-                        {currentField && !currentField.required && <div className="w-16" />}
                     </div>
                 </div>
             </div>
