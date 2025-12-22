@@ -143,8 +143,7 @@ body {
 /* Focus visible for keyboard users */
 .focus-visible:focus-visible,
 *:focus-visible {
-  outline: 2px solid var(--primary);
-  outline-offset: 2px;
+  outline: none;
 }
 
 /* Reduce motion for vestibular disorders */
@@ -272,8 +271,7 @@ input:focus,
 select:focus,
 textarea:focus,
 button:focus {
-  outline: 2px solid var(--primary);
-  outline-offset: 2px;
+  outline: none;
 }
 
 /* Voice input specific styles */

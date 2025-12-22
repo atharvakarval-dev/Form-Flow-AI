@@ -70,6 +70,10 @@ const VoiceFormFiller = ({ formSchema, formContext, onComplete, onClose }) => {
         );
     }, [formSchema]);
 
+    // Conversation State
+    const [sessionId, setSessionId] = useState(null);
+    const [aiResponse, setAiResponse] = useState('');
+
     // Init Speech
     useEffect(() => {
         if ('webkitSpeechRecognition' in window || 'SpeechRecognition' in window) {
@@ -83,6 +87,7 @@ const VoiceFormFiller = ({ formSchema, formContext, onComplete, onClose }) => {
         return () => {
             recognitionRef.current?.stop();
             audioRef.current?.pause();
+            window.speechSynthesis.cancel(); // Stop AI speech
             clearTimeout(idleTimeoutRef.current);
             stopAudioAnalysis();
         };
@@ -101,56 +106,63 @@ const VoiceFormFiller = ({ formSchema, formContext, onComplete, onClose }) => {
         load();
     }, []);
 
-    // 🪄 MAGIC FILL - Intelligent auto-fill using LangChain
-    // Runs AFTER userProfile is loaded
+    // 🪄 MAGIC FILL & CONVERSATION START
     useEffect(() => {
-        const performMagicFill = async () => {
-            // Wait for user profile to be loaded first
-            if (!formSchema?.length || !userProfile) {
-                console.log('⏳ Waiting for user profile before Magic Fill...');
+        const init = async () => {
+            // Wait for user profile to be loaded first (or confirmed null)
+            if (!formSchema?.length) return;
+            if (magicFillLoading && userProfile === null) return; // Wait strictly for profile attempt
+
+            let currentData = { ...formDataRef.current };
+
+            // 1. Run Magic Fill
+            if (userProfile && !sessionId) {
+                try {
+                    console.log('✨ Starting Magic Fill...');
+                    const response = await api.post('/magic-fill', {
+                        form_schema: formSchema,
+                        user_profile: userProfile
+                    });
+
+                    if (response.data?.success && response.data.filled) {
+                        const filled = response.data.filled;
+                        setAutoFilledFields(prev => ({ ...prev, ...filled }));
+                        setFormData(prev => ({ ...prev, ...filled }));
+                        formDataRef.current = { ...formDataRef.current, ...filled };
+                        currentData = { ...currentData, ...filled };
+                        const firstUnfilled = allFields.findIndex(f => !filled[f.name] && !formDataRef.current[f.name]);
+                        if (firstUnfilled > 0) setCurrentFieldIndex(firstUnfilled);
+                        setMagicFillSummary(response.data.summary || `Filled ${Object.keys(filled).length} fields`);
+                    }
+                } catch (e) {
+                    console.error('❌ Magic Fill failed:', e);
+                } finally {
+                    setMagicFillLoading(false);
+                }
+            } else {
                 setMagicFillLoading(false);
-                return;
             }
 
-            try {
-                console.log('✨ Starting Magic Fill with profile:', userProfile);
-                const response = await api.post('/magic-fill', {
-                    form_schema: formSchema,
-                    user_profile: userProfile
-                });
-
-                console.log('✨ Magic Fill response:', response.data);
-
-                if (response.data?.success && response.data.filled) {
-                    const filled = response.data.filled;
-                    console.log('✨ Magic Fill success:', filled);
-
-                    // Merge with existing data
-                    setAutoFilledFields(prev => ({ ...prev, ...filled }));
-                    setFormData(prev => ({ ...prev, ...filled }));
-                    formDataRef.current = { ...formDataRef.current, ...filled };
-
-                    // Show summary
-                    setMagicFillSummary(response.data.summary || `Filled ${Object.keys(filled).length} fields`);
-
-                    // Auto-advance to first unfilled field
-                    const firstUnfilled = allFields.findIndex(f => !filled[f.name] && !formDataRef.current[f.name]);
-                    if (firstUnfilled > 0) {
-                        console.log('✨ Skipping to field:', firstUnfilled, allFields[firstUnfilled]?.name);
-                        setCurrentFieldIndex(firstUnfilled);
+            // 2. Start Conversation Session (once, after magic fill)
+            if (!sessionId) {
+                try {
+                    console.log('💬 Starting Conversation Session...');
+                    const sessionRes = await api.startConversationSession(formSchema, window.location.href, currentData);
+                    console.log('💬 Session Started:', sessionRes);
+                    setSessionId(sessionRes.session_id);
+                    if (sessionRes.greeting) {
+                        const utter = new SpeechSynthesisUtterance(sessionRes.greeting);
+                        window.speechSynthesis.speak(utter);
+                        setAiResponse(sessionRes.greeting);
                     }
-                } else {
-                    console.warn('⚠️ Magic Fill returned no data:', response.data);
+                } catch (e) {
+                    console.error('❌ Failed to start conversation session:', e);
                 }
-            } catch (e) {
-                console.error('❌ Magic Fill failed:', e.message, e.response?.data);
-            } finally {
-                setMagicFillLoading(false);
             }
         };
 
-        performMagicFill();
-    }, [formSchema, userProfile]); // Removed allFields to prevent re-runs
+        init();
+    }, [formSchema, userProfile]);
 
     // Fallback: Simple profile mapping (runs if Magic Fill doesn't cover everything)
     useEffect(() => {
@@ -183,14 +195,14 @@ const VoiceFormFiller = ({ formSchema, formContext, onComplete, onClose }) => {
     useEffect(() => {
         if (allFields.length && currentFieldIndex < allFields.length) {
             const field = allFields[currentFieldIndex];
-
-            // Check if we have an auto-filled value
             const preFilledValue = formDataRef.current[field.name] || autoFilledFields[field.name];
 
-            setTranscript(preFilledValue || ''); // Show pre-filled value in transcript area
+            setTranscript(preFilledValue || '');
             setTextInputValue(preFilledValue || '');
             setShowTextInput(false);
 
+            // Only play standard prompt if we don't have an active AI response regarding this field
+            // Or just play it anyway as a label?
             playPrompt(field.name);
         }
     }, [currentFieldIndex, allFields, autoFilledFields]);
@@ -222,49 +234,72 @@ const VoiceFormFiller = ({ formSchema, formContext, onComplete, onClose }) => {
         if (!text || idx >= allFields.length) return;
         setProcessing(true);
         const field = allFields[idx];
-        let val = text;
 
-        // For option-based fields (dropdown/radio), match to options
-        if (field.options?.length) {
-            const match = field.options.find(o =>
-                (o.label || o.value || '').toLowerCase().includes(text.toLowerCase()) ||
-                text.toLowerCase().includes((o.label || '').toLowerCase())
-            );
-            const numMatch = text.match(/\d+/);
-            const numIdx = numMatch ? parseInt(numMatch[0]) - 1 : -1;
+        // Use Conversation Agent if session exists
+        if (sessionId) {
+            try {
+                console.log(`💬 Sending to Agent: "${text}"`);
+                const result = await api.sendConversationMessage(sessionId, text);
+                console.log('💬 Agent Response:', result);
 
-            if (match) val = match.value || match.label;
-            else if (numIdx >= 0 && field.options[numIdx]) val = field.options[numIdx].value || field.options[numIdx].label;
+                // Update extracted values
+                if (result.extracted_values) {
+                    // Merge new values
+                    setFormData(prev => ({ ...prev, ...result.extracted_values }));
+                    formDataRef.current = { ...formDataRef.current, ...result.extracted_values };
+                    // Identify what was just filled to show toast
+                    const filledKeys = Object.keys(result.extracted_values);
+                    if (filledKeys.length > 0) {
+                        const lastKey = filledKeys[filledKeys.length - 1];
+                        setLastFilled({ label: lastKey, value: result.extracted_values[lastKey] });
+                    }
+                }
+
+                // Handle AI Speech Response
+                if (result.response) {
+                    setAiResponse(result.response);
+                    window.speechSynthesis.cancel();
+                    const utter = new SpeechSynthesisUtterance(result.response);
+                    // Use a good English voice if available
+                    const voices = window.speechSynthesis.getVoices();
+                    const preferredVoice = voices.find(v => v.name.includes('Google') && v.lang.includes('en')) || voices[0];
+                    if (preferredVoice) utter.voice = preferredVoice;
+                    window.speechSynthesis.speak(utter);
+                }
+
+                if (result.is_complete) {
+                    onComplete?.(formDataRef.current);
+                }
+
+                // If the current field was filled, move next
+                if (result.extracted_values && result.extracted_values[field.name]) {
+                    setTimeout(() => handleNext(idx), 1000);
+                } else if (result.next_questions && result.next_questions.length > 0) {
+                    // The AI wants to ask something else?
+                    // For now, let's stick to our linear flow unless the user explicitly skipped
+                }
+
+            } catch (e) {
+                console.error("Agent failed, falling back:", e);
+                // Fallback to simple update if agent fails
+                updateField(field, text);
+                setTimeout(() => handleNext(idx), 600);
+            }
         } else {
-            // For free-text fields, use AI refinement with full context
+            // Fallback: simple text refinement
             try {
                 const fieldLabel = field.label || field.display_name || field.name;
                 const fieldType = inferFieldType(field);
-
-                const result = await refineText(
-                    text,
-                    fieldLabel,           // Question context
-                    fieldType,            // Field type for formatting
-                    qaHistoryRef.current  // Previous Q&A for context (use ref for latest)
-                );
-
-                if (result.success && result.refined) {
-                    val = result.refined;
-                    console.log(`[AI Refine] "${text}" → "${val}"`);
-                }
+                const result = await api.refineText(text, fieldLabel, fieldType, qaHistoryRef.current);
+                const val = (result.success && result.refined) ? result.refined : text;
+                updateField(field, val);
             } catch (e) {
-                console.warn('[AI Refine] Failed, using raw input:', e.message);
+                updateField(field, text);
             }
+            setTimeout(() => handleNext(idx), 600);
         }
 
-        // Update Q&A history for future context
-        const newEntry = { question: field.label || field.name, answer: val };
-        qaHistoryRef.current = [...qaHistoryRef.current, newEntry];
-        setQaHistory(prev => [...prev, newEntry]);
-
-        updateField(field, val);
         setProcessing(false);
-        setTimeout(() => handleNext(idx), 600);
     };
 
     // Infer field type from field metadata for better AI formatting
@@ -512,7 +547,8 @@ const VoiceFormFiller = ({ formSchema, formContext, onComplete, onClose }) => {
                                             {/* SIRI ORB */}
                                             <button
                                                 onClick={toggleListening}
-                                                className="relative group cursor-pointer outline-none focus:outline-none focus:ring-0 focus:border-none focus-visible:outline-none focus-visible:ring-0 transition-transform active:scale-95"
+                                                className="relative group cursor-pointer !outline-none !border-none !ring-0 !shadow-none focus:!outline-none focus-visible:!outline-none focus:!ring-0 focus-visible:!ring-0 transition-transform active:scale-95"
+                                                style={{ outline: 'none', boxShadow: 'none', border: 'none' }}
                                             >
                                                 <div className="relative w-28 h-28 flex items-center justify-center">
                                                     <motion.div
@@ -613,12 +649,12 @@ const VoiceFormFiller = ({ formSchema, formContext, onComplete, onClose }) => {
                                                 type="text"
                                                 value={textInputValue}
                                                 onChange={(e) => setTextInputValue(e.target.value)}
-                                                onKeyDown={(e) => e.key === 'Enter' && textInputValue && (updateField(currentField, textInputValue), handleNext(currentFieldIndex))}
+                                                onKeyDown={(e) => e.key === 'Enter' && textInputValue && processVoiceInput(textInputValue, currentFieldIndex)}
                                                 placeholder="Type your answer..."
                                                 className="w-full bg-black/40 backdrop-blur-xl border border-white/10 rounded-xl px-5 py-4 text-xl text-white placeholder:text-white/20 focus:outline-none focus:border-emerald-500/50 focus:ring-1 focus:ring-emerald-500/50 transition-all font-light shadow-inner"
                                             />
                                             <button
-                                                onClick={() => textInputValue && (updateField(currentField, textInputValue), handleNext(currentFieldIndex))}
+                                                onClick={() => textInputValue && processVoiceInput(textInputValue, currentFieldIndex)}
                                                 className="absolute right-3 top-1/2 -translate-y-1/2 p-2 bg-emerald-500 rounded-lg text-black hover:bg-emerald-400 shadow-lg hover:shadow-emerald-500/20 transition-all"
                                             >
                                                 <Send size={18} />

@@ -313,5 +313,42 @@ export const refineText = async (text, question = '', fieldType = '', previousQA
     return result;
 };
 
+// ============ Conversation Agent APIs ============
+
+/**
+ * Start a new conversation session
+ */
+export const startConversationSession = async (formSchema, formUrl, initialData = {}) => {
+    const response = await api.post('/conversation/session', {
+        form_schema: formSchema,
+        form_url: formUrl,
+        initial_data: initialData
+    });
+    return response.data;
+};
+
+/**
+ * Send a message to the conversation agent
+ */
+export const sendConversationMessage = async (sessionId, message) => {
+    const response = await api.post('/conversation/message', {
+        session_id: sessionId,
+        message: message
+    });
+    return response.data;
+};
+
+/**
+ * Confirm a low-confidence value
+ */
+export const confirmConversationValue = async (sessionId, fieldName, confirmedValue) => {
+    const response = await api.post('/conversation/confirm', {
+        session_id: sessionId,
+        field_name: fieldName,
+        confirmed_value: confirmedValue
+    });
+    return response.data;
+};
+
 export default api;
 
