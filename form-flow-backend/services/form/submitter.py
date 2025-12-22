@@ -8,6 +8,12 @@ from urllib.parse import urlparse
 # Import browser pool for memory-efficient browser reuse
 from .browser_pool import get_browser_context
 
+# Import CAPTCHA detection
+from .detectors.captcha import detect_captcha
+
+
+
+
 
 class FormSubmitter:
     """Optimized form submission handler with Playwright automation."""
@@ -770,26 +776,31 @@ class FormSubmitter:
     # PUBLIC API
     # ─────────────────────────────────────────────────────────────────────────
     
-    async def submit_form_data(self, url: str, form_data: Dict[str, str], form_schema: List[Dict]) -> Dict[str, Any]:
-        """Submit form data to target website with visible browser.
+    async def submit_form_data(self, url: str, form_data: Dict[str, str], form_schema: List[Dict], use_cdp: bool = False) -> Dict[str, Any]:
+        """Submit form data to target website with CAPTCHA detection.
         
-        Uses a dedicated browser instance (not the shared pool) so the user 
-        can see the form being filled in real-time.
+        Flow:
+            1. Open form in visible browser
+            2. Fill all fields
+            3. Detect CAPTCHA
+            4. If CAPTCHA found: DON'T submit, leave browser open for user
+            5. If no CAPTCHA: Submit form normally
         """
         is_google = 'docs.google.com/forms' in url
         
         try:
             from playwright.async_api import async_playwright
             
-            # Create a dedicated browser for form submission (visible mode)
             playwright = await async_playwright().start()
+            
+            # Create visible browser for form submission
             browser = await playwright.chromium.launch(
-                headless=False,  # Visible browser so user can see form filling
+                headless=False,
                 args=['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage']
             )
             context = await browser.new_context(
                 viewport={'width': 1280, 'height': 800},
-                user_agent='Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36'
+                user_agent='Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/121.0.0.0 Safari/537.36'
             )
             page = await context.new_page()
             
@@ -811,27 +822,127 @@ class FormSubmitter:
                 await asyncio.sleep(1)
             
             initial_url = page.url
-            result = await self._fill_and_submit_form(page, form_data, form_schema, is_google)
+            
+            # ================================================================
+            # STEP 1: FILL FORM FIELDS
+            # ================================================================
+            fill_result = await self._fill_form_only(page, form_data, form_schema, is_google)
+            
+            # ================================================================
+            # STEP 2: CHECK FOR CAPTCHA
+            # ================================================================
+            captcha_info = await detect_captcha(page)
+            
+            if captcha_info.get('hasCaptcha'):
+                print(f"🛑 CAPTCHA detected: {captcha_info.get('type')}. Not submitting automatically.")
+                print("   Browser left open for user to solve CAPTCHA and submit manually.")
+                
+                # DON'T close browser - leave it open for user to solve CAPTCHA
+                # User will manually submit after solving
+                return {
+                    "success": False,
+                    "captcha_detected": True,
+                    "captcha_type": captcha_info.get('type', 'unknown'),
+                    "message": "CAPTCHA detected. Please solve it in the browser window, then click Submit manually.",
+                    "browser_left_open": True,
+                    "fields_filled": fill_result.get("filled_fields", []),
+                    "fill_rate": fill_result.get("fill_rate", 0)
+                }
+            
+            # ================================================================
+            # STEP 3: NO CAPTCHA - SUBMIT NORMALLY
+            # ================================================================
+            submit_ok = await (self._submit_google_form if is_google else self._submit_form)(page, form_schema)
+            await asyncio.sleep(2)
+            
             validation = await self.validate_form_submission(page, initial_url)
             
-            try:
-                await page.screenshot()
-            except:
-                pass
-            
-            # Clean up browser
+            # Clean up browser after successful submission
             await context.close()
             await browser.close()
             await playwright.stop()
             
-            success = result.get("submit_success", False) and not result.get("errors") and validation.get("likely_success", False)
+            success = submit_ok and not fill_result.get("errors") and validation.get("likely_success", False)
             
             return {
                 "success": success,
+                "captcha_detected": False,
                 "message": "Form submitted successfully" if success else "Form submission completed with issues",
-                "submission_result": result, "validation_result": validation, "screenshot_taken": True
+                "submission_result": fill_result,
+                "validation_result": validation
             }
+            
         except Exception as e:
             import traceback
             traceback.print_exc()
             return {"success": False, "error": str(e), "message": "Form submission failed"}
+    
+    async def _fill_form_only(self, page, form_data: Dict[str, str], form_schema: List[Dict], is_google_form: bool = False) -> Dict[str, Any]:
+        """Fill form fields WITHOUT submitting."""
+        filled, errors = [], []
+        
+        # Build field mapping
+        field_map = {f.get('name', ''): f for form in form_schema for f in form.get('fields', [])}
+        
+        # Find password for confirmation fields
+        password_val = next((v for k, v in form_data.items() 
+                            if 'password' in k.lower() and not any(x in k.lower() for x in ['confirm', 'verify', 'retype', 'cpass'])), '')
+        
+        def is_confirm_field(name, label):
+            combined = (name + (label or '')).lower()
+            return any(k in combined for k in ['confirm', 'verify', 'retype', 'repeat', 'cpass', 'cpassword']) and 'password' in combined
+        
+        # Build fields to process
+        fields_to_process, processed = [], set()
+        for name, value in form_data.items():
+            field_info = field_map.get(name, {})
+            label = field_info.get('label') or field_info.get('display_name', '')
+            final_val = password_val if is_confirm_field(name, label) and password_val else value
+            fields_to_process.append((name, final_val))
+            processed.add(name)
+        
+        # Add missing confirm fields from schema
+        for name, info in field_map.items():
+            if name not in processed:
+                label = info.get('label', '')
+                if is_confirm_field(name, label) and password_val:
+                    fields_to_process.append((name, password_val))
+        
+        # Fill each field
+        for name, value in fields_to_process:
+            if name not in field_map:
+                continue
+            field_info = field_map[name]
+            success = False
+            
+            for attempt in range(3):
+                try:
+                    success = await (self._fill_google_form_field if is_google_form else self._fill_field)(page, field_info, value, attempt)
+                    if success:
+                        filled.append(name)
+                        break
+                except Exception as e:
+                    if attempt == 2:
+                        errors.append(f"Error filling {name}: {e}")
+                await asyncio.sleep(0.5)
+            
+            if not success:
+                errors.append(f"Failed to fill: {name}")
+        
+        await asyncio.sleep(1)
+        
+        # Auto-check terms
+        try:
+            checked = await self._auto_check_terms(page)
+            if checked:
+                print(f"✅ Auto-checked {checked} Terms/Privacy checkbox(es)")
+        except:
+            pass
+        
+        return {
+            "filled_fields": filled,
+            "errors": errors,
+            "total_fields": len(form_data),
+            "successful_fields": len(filled),
+            "fill_rate": len(filled) / len(form_data) if form_data else 0
+        }

@@ -271,12 +271,20 @@ const VoiceFormFiller = ({ formSchema, formContext, onComplete, onClose }) => {
                     onComplete?.(formDataRef.current);
                 }
 
-                // If the current field was filled, move next
+                // If the current field was filled, move next or jump to AI suggestion
                 if (result.extracted_values && result.extracted_values[field.name]) {
                     setTimeout(() => handleNext(idx), 1000);
                 } else if (result.next_questions && result.next_questions.length > 0) {
-                    // The AI wants to ask something else?
-                    // For now, let's stick to our linear flow unless the user explicitly skipped
+                    // AI suggested a new path/question
+                    // "next_questions" is now a list of field objects: [{name: 'email', ...}]
+                    const nextFieldObj = result.next_questions[0];
+                    if (nextFieldObj && nextFieldObj.name) {
+                        const nextIdx = allFields.findIndex(f => f.name === nextFieldObj.name);
+                        if (nextIdx !== -1 && nextIdx !== idx) {
+                            console.log(`🦘 Jumping to field: ${nextFieldObj.name} (Index ${nextIdx})`);
+                            setCurrentFieldIndex(nextIdx);
+                        }
+                    }
                 }
 
             } catch (e) {

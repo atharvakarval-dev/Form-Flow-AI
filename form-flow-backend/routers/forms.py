@@ -38,6 +38,7 @@ class FormSubmitRequest(BaseModel):
     url: str
     form_data: Dict[str, str]
     form_schema: List[Dict[str, Any]]
+    use_cdp: bool = False  # If True, connect to user's browser via Chrome DevTools Protocol
 
 class ConversationalFlowRequest(BaseModel):
     extracted_fields: Dict[str, str]
@@ -440,13 +441,15 @@ async def submit_form(
             result = await form_submitter.submit_form_data(
                 url=data.url,
                 form_data=formatted_data,
-                form_schema=data.form_schema
+                form_schema=data.form_schema,
+                use_cdp=data.use_cdp
             )
         else:
             result = await form_submitter.submit_form_data(
                 url=data.url,
                 form_data=data.form_data,
-                form_schema=data.form_schema
+                form_schema=data.form_schema,
+                use_cdp=data.use_cdp
             )
         
         # --- History Tracking ---

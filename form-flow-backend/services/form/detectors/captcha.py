@@ -17,36 +17,89 @@ async def detect_captcha(page) -> Dict[str, Any]:
     """
     selectors_js = json.dumps(CAPTCHA_SELECTORS)
     
-    return await page.evaluate(f"""
+    result = await page.evaluate(f"""
         () => {{
             const captchaIndicators = {selectors_js};
             
+            // Helper function to check if element is visible
+            const isVisible = (el) => {{
+                if (!el) return false;
+                // For iframes, just check if they exist (they're often hidden via CSS transforms)
+                if (el.tagName === 'IFRAME') return true;
+                // For other elements, do a more thorough check
+                const style = window.getComputedStyle(el);
+                const rect = el.getBoundingClientRect();
+                return style.display !== 'none' && 
+                       style.visibility !== 'hidden' && 
+                       rect.width > 0 && 
+                       rect.height > 0;
+            }};
+            
             for (const selector of captchaIndicators) {{
                 try {{
-                    const el = document.querySelector(selector);
-                    if (el && el.offsetParent !== null) {{
-                        let captchaType = 'unknown';
-                        if (selector.includes('recaptcha') || selector.includes('g-recaptcha')) {{
-                            captchaType = 'recaptcha';
-                        }} else if (selector.includes('hcaptcha')) {{
-                            captchaType = 'hcaptcha';
-                        }} else if (selector.includes('turnstile') || selector.includes('cf-')) {{
-                            captchaType = 'cloudflare-turnstile';
+                    const elements = document.querySelectorAll(selector);
+                    for (const el of elements) {{
+                        if (isVisible(el)) {{
+                            let captchaType = 'unknown';
+                            const selectorLower = selector.toLowerCase();
+                            const html = el.outerHTML.toLowerCase();
+                            
+                            if (selectorLower.includes('recaptcha') || selectorLower.includes('g-recaptcha') || 
+                                html.includes('recaptcha') || html.includes('g-recaptcha')) {{
+                                captchaType = 'recaptcha';
+                            }} else if (selectorLower.includes('hcaptcha') || html.includes('hcaptcha')) {{
+                                captchaType = 'hcaptcha';
+                            }} else if (selectorLower.includes('turnstile') || selectorLower.includes('cf-') ||
+                                       html.includes('turnstile') || html.includes('cf-turnstile')) {{
+                                captchaType = 'cloudflare-turnstile';
+                            }} else if (html.includes('captcha')) {{
+                                captchaType = 'generic-captcha';
+                            }}
+                            
+                            console.log('🔍 CAPTCHA DETECTED:', captchaType, 'Selector:', selector);
+                            
+                            return {{
+                                hasCaptcha: true,
+                                type: captchaType,
+                                selector: selector,
+                                message: 'Form requires CAPTCHA verification. Please solve it manually.'
+                            }};
                         }}
-                        
-                        return {{
-                            hasCaptcha: true,
-                            type: captchaType,
-                            selector: selector,
-                            message: 'Form requires CAPTCHA verification. Consider using a CAPTCHA solving service like 2captcha.com'
-                        }};
                     }}
-                }} catch(e) {{}}
+                }} catch(e) {{
+                    console.log('CAPTCHA check error for selector:', selector, e);
+                }}
             }}
             
+            // Also check for any iframes that might contain captcha
+            const allIframes = document.querySelectorAll('iframe');
+            for (const iframe of allIframes) {{
+                const src = (iframe.src || '').toLowerCase();
+                const title = (iframe.title || '').toLowerCase();
+                if (src.includes('captcha') || src.includes('recaptcha') || src.includes('hcaptcha') ||
+                    title.includes('captcha') || title.includes('recaptcha') || title.includes('challenge')) {{
+                    console.log('🔍 CAPTCHA IFRAME DETECTED:', src || title);
+                    return {{
+                        hasCaptcha: true,
+                        type: src.includes('hcaptcha') ? 'hcaptcha' : 'recaptcha',
+                        selector: 'iframe',
+                        message: 'Form requires CAPTCHA verification. Please solve it manually.'
+                    }};
+                }}
+            }}
+            
+            console.log('✅ No CAPTCHA detected');
             return {{ hasCaptcha: false, type: null, message: null }};
         }}
     """)
+    
+    # Log the result for debugging
+    if result.get('hasCaptcha'):
+        print(f"🔍 CAPTCHA detected: {result.get('type')} via {result.get('selector')}")
+    else:
+        print("✅ No CAPTCHA detected on page")
+    
+    return result
 
 
 async def detect_login_required(page) -> Dict[str, Any]:

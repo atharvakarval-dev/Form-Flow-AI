@@ -11,6 +11,10 @@ from asyncio import TimeoutError
 import re
 import os
 
+# Import modular extractors
+from services.form.extractors.standard import extract_standard_forms as _modular_extract_standard
+from services.form.extractors.google_forms import extract_google_forms as _modular_extract_google, wait_for_google_form as _modular_wait_google
+
 # ============================================================================
 # CONSTANTS
 # ============================================================================
@@ -143,28 +147,8 @@ async def get_form_schema(url: str, generate_speech: bool = True, wait_for_dynam
 # ============================================================================
 
 async def _wait_for_google_form(page):
-    """Wait for Google Form content to load."""
-    print("⏳ Waiting for Google Form...")
-    try:
-        await page.wait_for_selector('.Qr7Oae, [role="listitem"], .freebirdFormviewerViewItemsItemItem', timeout=30000)
-        await asyncio.sleep(3)
-        await page.evaluate("""
-            async () => {
-                let total = 0;
-                const timer = setInterval(() => {
-                    window.scrollBy(0, 200);
-                    total += 200;
-                    if (total >= document.body.scrollHeight) {
-                        clearInterval(timer);
-                        window.scrollTo(0, 0);
-                    }
-                }, 100);
-                await new Promise(r => setTimeout(r, 2000));
-            }
-        """)
-        await asyncio.sleep(1)
-    except TimeoutError:
-        print("⚠️ Timeout waiting for form elements - attempting extraction anyway")
+    """Wait for Google Form content to load. Delegates to modular extractor."""
+    await _modular_wait_google(page)
 
 
 async def _extract_custom_dropdown_options(page, forms_data: List[Dict]) -> List[Dict]:
@@ -270,10 +254,14 @@ async def _extract_all_frames(page, url: str) -> List[Dict]:
 
 
 async def _extract_standard_forms(frame) -> List[Dict]:
-    """Extract forms using JavaScript evaluation - handles radio/checkbox groups properly."""
-    return await frame.evaluate("""
-        () => {
-            const getText = el => el ? (el.innerText || el.textContent || '').trim() : '';
+    """Extract forms using modular standard extractor."""
+    return await _modular_extract_standard(frame)
+
+
+# NOTE: The original inline JS extraction code has been moved to
+# services/form/extractors/standard.py for better maintainability.
+# The following placeholder prevents accidental usage of old code.
+_STANDARD_EXTRACTION_MOVED = """
             const isVisible = el => {
                 if (!el) return false;
                 const style = window.getComputedStyle(el);
@@ -523,7 +511,7 @@ async def _extract_standard_forms(frame) -> List[Dict]:
                 };
             }).filter(f => f.fields.length > 0);
         }
-    """)
+"""
 
 
 def _extract_with_beautifulsoup(html: str) -> List[Dict]:
@@ -635,13 +623,14 @@ def _extract_with_beautifulsoup(html: str) -> List[Dict]:
 
 
 async def _extract_google_forms(page) -> List[Dict]:
-    """Specialized Google Forms extraction with robust selectors."""
-    print("🔍 Extracting Google Form...")
-    
-    return await page.evaluate("""
-        () => {
+    """Extract Google Forms using modular extractor."""
+    return await _modular_extract_google(page)
+
+
+# NOTE: The original inline JS extraction code has been moved to
+# services/form/extractors/google_forms.py for better maintainability.
+_GOOGLE_FORMS_EXTRACTION_MOVED = """
             const getText = el => el ? (el.innerText || el.textContent || '').trim() : '';
-            
             const titleEl = document.querySelector('[role="heading"], .freebirdFormviewerViewHeaderTitle, h1');
             const formTitle = getText(titleEl);
             
@@ -778,7 +767,7 @@ async def _extract_google_forms(page) -> List[Dict]:
             
             return form.fields.length > 0 ? [form] : [];
         }
-    """)
+"""
 
 
 # ============================================================================

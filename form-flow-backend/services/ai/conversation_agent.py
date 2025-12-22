@@ -113,7 +113,7 @@ class AgentResponse:
     needs_confirmation: List[str]
     remaining_fields: List[Dict[str, Any]]
     is_complete: bool
-    next_questions: List[str]
+    next_questions: List[Dict[str, Any]]
 
 
 # =============================================================================
@@ -460,7 +460,7 @@ OUTPUT FORMAT (JSON):
             needs_confirmation=[],
             remaining_fields=remaining_fields,
             is_complete=False,
-            next_questions=[f.get('label', f.get('name', '')) for f in first_batch]
+            next_questions=[{'name': f.get('name'), 'label': f.get('label'), 'type': f.get('type')} for f in first_batch]
         )
     
     def _create_greeting(self, first_batch: List[Dict[str, Any]]) -> str:
@@ -546,7 +546,7 @@ OUTPUT FORMAT (JSON):
             batches = self.clusterer.create_batches(new_remaining)
             if batches:
                 session.current_question_batch = [f.get('name') for f in batches[0]]
-                result.next_questions = [f.get('label', f.get('name', '')) for f in batches[0]]
+                result.next_questions = [{'name': f.get('name'), 'label': f.get('label'), 'type': f.get('type')} for f in batches[0]]
             result.remaining_fields = new_remaining
         
         # Persist session changes to Redis

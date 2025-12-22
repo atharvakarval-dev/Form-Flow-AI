@@ -40,7 +40,7 @@ class CreateSessionResponse(BaseModel):
     """Response after creating a session."""
     session_id: str
     greeting: str
-    next_questions: List[str]
+    next_questions: List[Dict[str, Any]]
     remaining_fields_count: int
 
 
@@ -58,7 +58,7 @@ class MessageResponse(BaseModel):
     needs_confirmation: List[str]
     remaining_fields_count: int
     is_complete: bool
-    next_questions: List[str]
+    next_questions: List[Dict[str, Any]]
 
 
 class ConfirmValueRequest(BaseModel):
