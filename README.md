@@ -58,8 +58,26 @@ Modern **React 18** app with **Vite**.
 - **Feature-Based Structure**: `features/auth`, `features/dashboard`, `features/form-wizard`.
 - **Design System**: Custom Glassmorphism UI (`GlassCard`, `GlassInput`) with TailwindCSS.
 
-### How It Works
-![Magic Fill Flow](docs/how_it_works.png)
+### 🪄 How Magic Fill Works
+
+```mermaid
+sequenceDiagram
+    participant User
+    participant Frontend as VoiceFormFiller
+    participant Backend as /magic-fill
+    participant LangChain as SmartFormFillerChain
+    participant Gemini as Gemini LLM
+
+    User->>Frontend: Opens Voice Interface
+    Frontend->>Backend: POST /magic-fill {form_schema, user_profile}
+    Backend->>LangChain: fill(user_profile, form_schema)
+    LangChain->>Gemini: "Map this profile to these fields..."
+    Gemini-->>LangChain: {filled_fields: [...], unfilled_fields: [...]}
+    LangChain-->>Backend: MagicFillResult
+    Backend-->>Frontend: {success: true, filled: {...}, summary: "..."}
+    Frontend->>Frontend: Pre-populate fields, skip to first unfilled
+    Frontend-->>User: "✨ 5 of 8 fields filled. Let's get the rest!"
+```
 
 ---
 
