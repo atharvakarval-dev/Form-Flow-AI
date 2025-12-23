@@ -762,10 +762,16 @@ CONVERSATION HISTORY (last 4 turns):
                     break
         
         # 3. Extract name (handles "my name is X", "I am X", "X here")
+        # STOP WORDS: transition phrases that indicate end of name
+        name_stop_words = r'(?=\s+(?:and\s+(?:my)?|my\s+(?:email|phone|mobile|number|address)|email|phone|mobile|number|@|\d)|\s*$)'
+        
         name_patterns = [
-            r'(?:my\s+)?(?:name|full\s*name)\s+(?:is|:)\s+([A-Za-z][a-z]*(?:\s+[A-Za-z][a-z]*)+)',  # "my name is John Doe"
-            r'^([A-Za-z][a-z]*(?:\s+[A-Za-z][a-z]*)+)',  # Name at start
-            r'(?:i\s+am|i\'m|this\s+is)\s+([A-Za-z][a-z]*(?:\s+[A-Za-z][a-z]*)+)',  # "I am John Doe"
+            # "my name is John Doe" - stops before "and my email" or similar
+            rf'(?:my\s+)?(?:name|full\s*name)\s+(?:is|:)\s+([A-Za-z][A-Za-z]*(?:\s+[A-Za-z][A-Za-z]*)*){name_stop_words}',
+            # Name at start of sentence - stops before transitions
+            rf'^([A-Za-z][A-Za-z]*(?:\s+[A-Za-z][A-Za-z]*)*){name_stop_words}',
+            # "I am John Doe" - stops before transitions
+            rf'(?:i\s+am|i\'m|this\s+is)\s+([A-Za-z][A-Za-z]*(?:\s+[A-Za-z][A-Za-z]*)*){name_stop_words}',
         ]
         for pattern in name_patterns:
             name_match = re.search(pattern, user_text, re.IGNORECASE)
