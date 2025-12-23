@@ -17,6 +17,11 @@ Run:
     uvicorn main:app --reload
 """
 
+
+import warnings
+# Suppress Pydantic V1 warning from LangChain
+warnings.filterwarnings("ignore", message=".*Core Pydantic V1 functionality.*")
+
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
