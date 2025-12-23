@@ -120,8 +120,462 @@ class AgentResponse:
 
 
 # =============================================================================
-# Field Clustering for Smart Batching
+# Enhanced LLM Prompt Engineering
 # =============================================================================
+
+IMPROVED_SYSTEM_PROMPT = """You are FormFlow, an expert form-filling assistant.
+
+YOUR CORE TASK:
+Extract field values from user's natural speech with SURGICAL PRECISION.
+
+CRITICAL EXTRACTION PRINCIPLES:
+
+1. BOUNDARY DETECTION:
+   - Each field value has CLEAR START and END boundaries
+   - STOP extraction at transition markers: "and", "my", "also", "plus"
+   - STOP at mentions of OTHER field names/types
+   - Extract MINIMAL viable value - don't be greedy
+
+2. FIELD-AWARE EXTRACTION:
+   When extracting for a field named "name" or "email":
+   - Know what you're looking for (name = 2-3 words, email = has @, etc.)
+   - Stop when you've captured enough for THAT field type
+   - Don't continue into next field's territory
+
+3. MULTI-FIELD INPUT HANDLING:
+   Input: "My name is John Doe and my email is john@example.com"
+   
+   For field "name": Extract "John Doe" (STOP before "and my email")
+   For field "email": Extract "john@example.com" (isolated extraction)
+   
+   NEVER include transition words in values!
+
+4. CONFIDENCE SCORING:
+   - 0.95-1.0: Perfect extraction with clear boundaries
+   - 0.80-0.94: Good extraction, minor ambiguity
+   - 0.60-0.79: Uncertain, needs confirmation
+   - <0.60: Very uncertain or missing
+
+5. TYPE-SPECIFIC RULES:
+   - Names: 2-4 words, alphabetic, title case
+   - Emails: Contains @, lowercase
+   - Phones: Digits only, 10-15 chars
+   - Dates: Recognize formats (DD/MM/YYYY, etc.)
+   - Numbers: Pure numeric
+
+CONTEXT-AWARE EXTRACTION:
+You'll receive:
+- Current fields being asked about
+- User's complete input
+- Previously extracted values
+
+Your job: Extract ONLY for current fields, respecting boundaries.
+
+OUTPUT FORMAT (strict JSON):
+{
+    "response": "Friendly acknowledgment + next question",
+    "extracted": {
+        "field_name": "precise_value_only"
+    },
+    "confidence": {
+        "field_name": 0.95
+    },
+    "needs_confirmation": ["field_name_if_confidence_low"],
+    "reasoning": "Brief explanation of extraction decisions"
+}
+
+EXAMPLE:
+User: "hi my name is Sarah Chen and my email is sarah.chen@company.com and phone is 9876543210"
+
+Current fields: ["full_name", "email_address", "phone_number"]
+
+Correct output:
+{
+    "response": "Perfect! I've got your name, email, and phone number. What's your company name?",
+    "extracted": {
+        "full_name": "Sarah Chen",
+        "email_address": "sarah.chen@company.com", 
+        "phone_number": "9876543210"
+    },
+    "confidence": {
+        "full_name": 0.98,
+        "email_address": 0.99,
+        "phone_number": 0.97
+    },
+    "needs_confirmation": [],
+    "reasoning": "Clear boundaries detected. Name stopped before 'and my email', email isolated between 'is' and 'and phone', phone number at end."
+}
+
+WRONG output (what NOT to do):
+{
+    "extracted": {
+        "full_name": "Sarah Chen and my email"  // ❌ Crossed boundary!
+    }
+}
+
+Remember: PRECISION over capture. When in doubt, extract less, ask more."""
+
+
+# =============================================================================
+# Intelligent Context Builder
+# =============================================================================
+
+class SmartContextBuilder:
+    """Builds rich context for LLM to make intelligent extraction decisions."""
+    
+    @staticmethod
+    def build_extraction_context(
+        current_batch: List[Dict[str, Any]],
+        remaining_fields: List[Dict[str, Any]],
+        user_input: str,
+        conversation_history: List[Dict[str, str]],
+        already_extracted: Dict[str, str]
+    ) -> str:
+        """
+        Build comprehensive context that helps LLM understand:
+        1. What fields we're currently asking about
+        2. What values to look for
+        3. Where to stop extraction
+        """
+        
+        # 1. Current fields context (what we're asking about NOW)
+        current_fields_info = []
+        for field in current_batch:
+            field_info = {
+                'name': field.get('name'),
+                'label': field.get('label', field.get('name')),
+                'type': field.get('type', 'text'),
+                'expected_format': SmartContextBuilder._get_expected_format(field)
+            }
+            current_fields_info.append(field_info)
+        
+        # 2. Remaining fields context (what's coming next - for boundary detection)
+        upcoming_field_names = [
+            f.get('label', f.get('name', '')) 
+            for f in remaining_fields 
+            if f not in current_batch
+        ][:5]  # Next 5 fields
+        
+        # 3. Build smart context
+        context = f"""EXTRACTION TASK:
+
+USER INPUT: "{user_input}"
+
+FIELDS TO EXTRACT (focus on these ONLY):
+{json.dumps(current_fields_info, indent=2)}
+
+ALREADY COLLECTED:
+{json.dumps(already_extracted, indent=2) if already_extracted else "None yet"}
+
+UPCOMING FIELDS (for boundary detection):
+{json.dumps(upcoming_field_names, indent=2)}
+
+EXTRACTION GUIDELINES FOR THIS INPUT:
+1. Identify where each current field's value starts and ends
+2. Stop extraction when you encounter:
+   - Transition words: "and", "my", "also", "plus"
+   - Mentions of upcoming field names: {', '.join(upcoming_field_names[:3])}
+   - Natural sentence boundaries
+3. Extract with surgical precision - less is more
+4. Assign confidence based on boundary clarity
+
+RECENT CONVERSATION:
+{json.dumps(conversation_history[-4:], indent=2)}"""
+        
+        return context
+    
+    @staticmethod
+    def _get_expected_format(field: Dict[str, Any]) -> str:
+        """Describe expected format for field type."""
+        field_type = field.get('type', 'text').lower()
+        field_name = field.get('name', '').lower()
+        field_label = field.get('label', '').lower()
+        
+        # Type-based expectations
+        if field_type == 'email' or 'email' in field_name or 'email' in field_label:
+            return "email format (user@domain.com), lowercase"
+        elif field_type == 'tel' or 'phone' in field_name or 'mobile' in field_label:
+            return "phone number (digits only, 10-15 characters)"
+        elif 'name' in field_name or 'name' in field_label:
+            return "person's name (2-4 words, alphabetic, title case)"
+        elif field_type == 'number':
+            return "numeric value"
+        elif field_type == 'date':
+            return "date (DD/MM/YYYY or similar)"
+        elif field_type == 'url':
+            return "website URL"
+        else:
+            return "text value"
+
+
+# =============================================================================
+# Enhanced Fallback with Smart Tokenization
+# =============================================================================
+
+class IntelligentFallbackExtractor:
+    """
+    Fallback extractor that uses NLP-inspired techniques without hardcoded patterns.
+    Works by understanding sentence structure and field types dynamically.
+    """
+    
+    @staticmethod
+    def extract_with_intelligence(
+        user_input: str,
+        current_batch: List[Dict[str, Any]],
+        remaining_fields: List[Dict[str, Any]]
+    ) -> Tuple[Dict[str, str], Dict[str, float]]:
+        """
+        Intelligent extraction using sentence segmentation and field type matching.
+        
+        Strategy:
+        1. Split input into segments (by "and", "also", commas, etc.)
+        2. For each segment, identify what field it's describing
+        3. Extract the value portion from that segment
+        4. Validate against field type expectations
+        """
+        
+        extracted = {}
+        confidence = {}
+        
+        # Step 1: Segment the input
+        segments = IntelligentFallbackExtractor._segment_input(user_input)
+        
+        # Step 2: Create field matchers
+        field_matchers = IntelligentFallbackExtractor._create_field_matchers(current_batch)
+        
+        # Step 3: Match segments to fields
+        for segment in segments:
+            segment_lower = segment.lower().strip()
+            
+            for field_info in field_matchers:
+                if field_info['name'] in extracted:
+                    continue  # Already extracted
+                
+                # Check if segment mentions this field
+                if IntelligentFallbackExtractor._segment_mentions_field(segment_lower, field_info):
+                    # Extract value from segment
+                    value, conf = IntelligentFallbackExtractor._extract_value_from_segment(
+                        segment, 
+                        field_info
+                    )
+                    
+                    if value:
+                        extracted[field_info['name']] = value
+                        confidence[field_info['name']] = conf
+        
+        return extracted, confidence
+    
+    @staticmethod
+    def _segment_input(text: str) -> List[str]:
+        """
+        Split input into logical segments.
+        Splits on: "and", "also", "plus", commas (smart comma detection)
+        """
+        # Replace common separators with a delimiter
+        text = re.sub(r'\s+and\s+', ' |AND| ', text, flags=re.IGNORECASE)
+        text = re.sub(r'\s+also\s+', ' |AND| ', text, flags=re.IGNORECASE)
+        text = re.sub(r'\s+plus\s+', ' |AND| ', text, flags=re.IGNORECASE)
+        
+        # Smart comma handling (don't split within email addresses or names)
+        # Only split on commas followed by field indicators
+        text = re.sub(r',\s+(?=(?:my|the|and)\s)', ' |AND| ', text, flags=re.IGNORECASE)
+        
+        # Split and clean
+        segments = [s.strip() for s in text.split('|AND|') if s.strip()]
+        
+        return segments
+    
+    @staticmethod
+    def _create_field_matchers(fields: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """Create matcher objects for each field with metadata."""
+        matchers = []
+        
+        for field in fields:
+            field_name = field.get('name', '')
+            field_label = field.get('label', field_name)
+            field_type = field.get('type', 'text')
+            
+            # Extract keywords from label/name
+            keywords = set()
+            for word in (field_name + ' ' + field_label).lower().split():
+                if len(word) > 2:  # Skip short words
+                    keywords.add(word)
+            
+            matchers.append({
+                'name': field_name,
+                'label': field_label,
+                'type': field_type,
+                'keywords': keywords,
+                'extractor': IntelligentFallbackExtractor._get_extractor_for_type(field_type, field_name, field_label)
+            })
+        
+        return matchers
+    
+    @staticmethod
+    def _get_extractor_for_type(field_type: str, field_name: str, field_label: str) -> Dict[str, Any]:
+        """Get appropriate extractor configuration for field type."""
+        field_type = field_type.lower()
+        field_name_lower = field_name.lower()
+        field_label_lower = field_label.lower()
+        
+        # Email detector
+        if field_type == 'email' or 'email' in field_name_lower or 'email' in field_label_lower:
+            return {
+                'type': 'email',
+                'pattern': r'[\w\.-]+@[\w\.-]+\.\w+',
+                'normalizer': lambda x: x.lower().replace(' at ', '@').replace(' dot ', '.')
+            }
+        
+        # Phone detector
+        if field_type == 'tel' or any(k in field_name_lower for k in ['phone', 'mobile', 'tel']):
+            return {
+                'type': 'phone',
+                'pattern': r'[\d\s\-\+\(\)]{10,}',
+                'normalizer': lambda x: re.sub(r'[^\d+]', '', x)
+            }
+        
+        # Name detector
+        if 'name' in field_name_lower or 'name' in field_label_lower:
+            return {
+                'type': 'name',
+                'pattern': r'\b[A-Z][a-z]+(?:\s+[A-Z]?[a-z]+){1,3}\b',
+                'normalizer': lambda x: x.strip().title()
+            }
+        
+        # Number detector
+        if field_type == 'number':
+            return {
+                'type': 'number',
+                'pattern': r'\d+(?:\.\d+)?',
+                'normalizer': lambda x: x.strip()
+            }
+        
+        # Generic text
+        return {
+            'type': 'text',
+            'pattern': None,
+            'normalizer': lambda x: x.strip()
+        }
+    
+    @staticmethod
+    def _segment_mentions_field(segment: str, field_info: Dict[str, Any]) -> bool:
+        """Check if segment is talking about this field."""
+        # Check if any field keyword appears in segment
+        for keyword in field_info['keywords']:
+            if keyword in segment:
+                return True
+        
+        # Special patterns like "my X is", "the X is"
+        label_pattern = rf'(?:my|the)\s+{re.escape(field_info["label"][:20])}'
+        if re.search(label_pattern, segment, re.IGNORECASE):
+            return True
+        
+        return False
+    
+    @staticmethod
+    def _extract_value_from_segment(
+        segment: str, 
+        field_info: Dict[str, Any]
+    ) -> Tuple[Optional[str], float]:
+        """
+        Extract actual value from a segment that mentions a field.
+        
+        Uses field-specific extractors and validates the result.
+        """
+        extractor = field_info['extractor']
+        
+        # 1. Try to extract using contextual patterns ("my X is Y")
+        # This is prioritized because it handles "My Name Is..." boundaries better
+        value_patterns = [
+            rf'(?:my\s+)?{re.escape(field_info["label"][:20])}\s+(?:is|:)\s+(.+?)(?:\s+(?:and|my|the|also)|\s*$)',
+            rf'{re.escape(field_info["label"][:20])}\s*[:=]\s*(.+?)(?:\s+(?:and|my|the)|\s*$)',
+            rf'(?:my\s+)?{re.escape(field_info["name"][:20])}\s+(?:is|:)\s+(.+?)(?:\s+(?:and|my|the|also)|\s*$)',
+        ]
+        
+        for pattern in value_patterns:
+            match = re.search(pattern, segment, re.IGNORECASE)
+            if match:
+                value = match.group(1).strip()
+                # Apply normalizer to just the value part
+                value = extractor['normalizer'](value)
+                
+                is_valid, confidence = IntelligentFallbackExtractor._validate_extraction(
+                    value,
+                    extractor['type']
+                )
+                
+                if is_valid:
+                    # Higher confidence for explicit patterns
+                    return value, confidence * 0.95
+
+        # 2. Apply normalizer to handle speech-to-text quirks on whole segment
+        normalized_segment = extractor['normalizer'](segment)
+        
+        # 3. Extract using generic pattern if available
+        if extractor['pattern']:
+            match = re.search(extractor['pattern'], normalized_segment)
+            if match:
+                value = match.group().strip()
+                
+                # For names, avoid "My Name Is" being captured if pattern matched early
+                if extractor['type'] == 'name':
+                     if value.lower().startswith('my name') or value.lower().startswith('my email'):
+                         return None, 0.0
+
+                # Validate extracted value
+                is_valid, confidence = IntelligentFallbackExtractor._validate_extraction(
+                    value, 
+                    extractor['type']
+                )
+                
+                if is_valid:
+                    return value, confidence
+        
+        return None, 0.0
+    
+    @staticmethod
+    def _validate_extraction(value: str, field_type: str) -> Tuple[bool, float]:
+        """Validate extracted value against field type expectations."""
+        if not value or len(value) < 2:
+            return False, 0.0
+        
+        if field_type == 'email':
+            # Must contain @, and have valid structure
+            if '@' in value and '.' in value.split('@')[1]:
+                return True, 0.95
+            return False, 0.0
+        
+        elif field_type == 'phone':
+            # Must be 10-15 digits
+            digits = re.sub(r'[^\d]', '', value)
+            if 10 <= len(digits) <= 15:
+                return True, 0.92
+            return False, 0.0
+        
+        elif field_type == 'name':
+            # Must be 2-4 words, mostly alphabetic
+            words = value.split()
+            if 2 <= len(words) <= 4 and all(w.isalpha() for w in words):
+                return True, 0.88
+            elif len(words) >= 2:
+                return True, 0.75
+            return False, 0.0
+        
+        elif field_type == 'number':
+            # Must be numeric
+            try:
+                float(value)
+                return True, 0.95
+            except ValueError:
+                return False, 0.0
+        
+        else:  # text
+            # Basic validation - has content, reasonable length
+            if 2 <= len(value) <= 500:
+                return True, 0.80
+            return False, 0.0
+
+
 
 class FieldClusterer:
     """Semantic field clustering for natural question batching."""
@@ -263,30 +717,7 @@ class ConversationAgent:
     batched questions for efficient form completion.
     """
     
-    SYSTEM_PROMPT = """You are a friendly, professional form-filling assistant named FormFlow.
-Your job is to help users complete forms through natural conversation.
-
-RULES:
-1. Be conversational and friendly, not robotic
-2. Group related questions together (2-4 max per turn)
-3. Acknowledge information the user provides
-4. Ask for clarification if something is unclear
-5. For low-confidence extractions, ask for confirmation
-6. Keep responses concise - users are busy
-
-EXTRACTION RULES:
-- Extract values from user speech accurately
-- Handle common speech patterns (e.g., "john at gmail dot com" → "john@gmail.com")
-- Return confidence score 0.0-1.0 for each extraction
-- Mark values needing confirmation if confidence < 0.7
-
-OUTPUT FORMAT (JSON):
-{
-    "response": "Your natural language response to the user",
-    "extracted": {"field_name": "value", ...},
-    "confidence": {"field_name": 0.95, ...},
-    "needs_confirmation": ["field_name", ...]
-}"""
+    SYSTEM_PROMPT = IMPROVED_SYSTEM_PROMPT
 
     def __init__(self, api_key: Optional[str] = None, model: str = "gemini-1.5-flash", session_manager=None):
         """
@@ -620,20 +1051,25 @@ OUTPUT FORMAT (JSON):
         current_batch: List[Dict[str, Any]],
         remaining_fields: List[Dict[str, Any]]
     ) -> AgentResponse:
-        """Process input using LangChain LLM."""
+        """Process input using LangChain LLM with Smart Context."""
         try:
-            # Build context message
-            context = self._build_context(session, current_batch, remaining_fields)
+            # Build intelligent context
+            context = SmartContextBuilder.build_extraction_context(
+                current_batch=current_batch,
+                remaining_fields=remaining_fields,
+                user_input=user_input,
+                conversation_history=session.conversation_history,
+                already_extracted=session.extracted_fields
+            )
             
             messages = [
-                SystemMessage(content=self.SYSTEM_PROMPT),
-                HumanMessage(content=f"{context}\n\nUser says: \"{user_input}\"")
+                SystemMessage(content=IMPROVED_SYSTEM_PROMPT),
+                HumanMessage(content=context)
             ]
             
             response = self.llm.invoke(messages)
             log_api_call("LangChain-Gemini", "invoke", success=True)
             
-            # Parse LLM response
             return self._parse_llm_response(response.content, remaining_fields)
             
         except Exception as e:
@@ -704,139 +1140,16 @@ CONVERSATION HISTORY (last 4 turns):
         current_batch: List[Dict[str, Any]],
         remaining_fields: List[Dict[str, Any]]
     ) -> AgentResponse:
-        """Fallback processing without LLM - uses robust pattern matching."""
-        extracted = {}
-        confidence = {}
+        """Fallback processing without LLM - uses intelligent extraction."""
         
-        user_text = user_input.strip()
-        user_lower = user_text.lower()
+        # Use intelligent fallback extractor
+        extracted, confidence = IntelligentFallbackExtractor.extract_with_intelligence(
+            user_input=user_input,
+            current_batch=current_batch,
+            remaining_fields=remaining_fields
+        )
         
-        # --- SMART EXTRACTION FROM NATURAL SPEECH ---
-        # Handles patterns like: "my name is X and my email is Y and my phone is Z"
-        
-        # 1. Extract email (handle speech-to-text quirks)
-        # First, normalize common speech patterns for email
-        email_text = user_text
-        email_text = re.sub(r'\s*@\s*', '@', email_text)  # Remove spaces around @
-        email_text = re.sub(r'\s+at\s+', '@', email_text, flags=re.IGNORECASE)  # "at" -> @
-        email_text = re.sub(r'\s+dot\s+', '.', email_text, flags=re.IGNORECASE)  # "dot" -> .
-        email_text = re.sub(r'\s+dot\s*$', '.com', email_text, flags=re.IGNORECASE)  # trailing "dot" -> .com
-        
-        email_match = re.search(r'[\w\.-]+@[\w\.-]+\.\w+', email_text)
-        if email_match:
-            email_value = email_match.group().lower()
-            logger.info(f"Extracted email: {email_value}")
-            # Find the first email field in remaining_fields
-            for field in remaining_fields:
-                fname = field.get('name', '').lower()
-                ftype = field.get('type', '').lower()
-                flabel = field.get('label', '').lower()
-                if ftype == 'email' or 'email' in fname or 'email' in flabel or 'mail' in fname:
-                    extracted[field.get('name')] = email_value
-                    confidence[field.get('name')] = 0.95
-                    break
-        
-        # 2. Extract phone/mobile number
-        # Look for patterns: "9518 377 949", "+91 9518377949", "my mobile is 9518377949"
-        phone_patterns = [
-            r'(?:phone|mobile|cell|tel|number)\s*(?:is|:)?\s*([\d\s\-\+\(\)]{10,})',
-            r'([\+]?\d{10,15})',  # Plain long number
-            r'(\d{4,5}\s+\d{3,4}\s+\d{3,4})',  # Spaced digits like "9518 377 949"
-        ]
-        for pattern in phone_patterns:
-            phone_match = re.search(pattern, user_text, re.IGNORECASE)
-            if phone_match:
-                phone_digits = re.sub(r'[^\d+]', '', phone_match.group(1) if phone_match.lastindex else phone_match.group())
-                if len(phone_digits) >= 10:
-                    # Find phone field
-                    for field in remaining_fields:
-                        fname = field.get('name', '').lower()
-                        ftype = field.get('type', '').lower()
-                        flabel = field.get('label', '').lower()
-                        if (ftype == 'tel' or 'phone' in fname or 'mobile' in fname or 
-                            'phone' in flabel or 'mobile' in flabel or 'cell' in flabel):
-                            if field.get('name') not in extracted:
-                                extracted[field.get('name')] = phone_digits
-                                confidence[field.get('name')] = 0.9
-                                break
-                    break
-        
-        # 3. Extract name (handles "my name is X", "I am X", "X here")
-        # STOP WORDS: transition phrases that indicate end of name
-        name_stop_words = r'(?=\s+(?:and\s+(?:my)?|my\s+(?:email|phone|mobile|number|address)|email|phone|mobile|number|@|\d)|\s*$)'
-        
-        name_patterns = [
-            # "my name is John Doe" - stops before "and my email" or similar
-            rf'(?:my\s+)?(?:name|full\s*name)\s+(?:is|:)\s+([A-Za-z][A-Za-z]*(?:\s+[A-Za-z][A-Za-z]*)*){name_stop_words}',
-            # Name at start of sentence - stops before transitions
-            rf'^([A-Za-z][A-Za-z]*(?:\s+[A-Za-z][A-Za-z]*)*){name_stop_words}',
-            # "I am John Doe" - stops before transitions
-            rf'(?:i\s+am|i\'m|this\s+is)\s+([A-Za-z][A-Za-z]*(?:\s+[A-Za-z][A-Za-z]*)*){name_stop_words}',
-        ]
-        for pattern in name_patterns:
-            name_match = re.search(pattern, user_text, re.IGNORECASE)
-            if name_match:
-                name_value = name_match.group(1).strip().title()  # Title case
-                # Skip if it looks like it's part of something else
-                if name_value.lower() not in ['my', 'and', 'the', 'is', 'email', 'phone', 'mobile', 'address']:
-                    # Find name field
-                    for field in remaining_fields:
-                        fname = field.get('name', '').lower()
-                        flabel = field.get('label', '').lower()
-                        if ('name' in fname or 'name' in flabel) and field.get('name') not in extracted:
-                            extracted[field.get('name')] = name_value
-                            confidence[field.get('name')] = 0.85
-                            break
-                    break
-        
-        # 4. Extract select/dropdown fields by matching options
-        for field in remaining_fields:
-            field_name = field.get('name', '')
-            if field_name in extracted:
-                continue
-            
-            field_type = field.get('type', '').lower()
-            options = field.get('options', [])
-            
-            if field_type in ['select', 'radio'] or options:
-                flabel = field.get('label', field_name).lower()
-                
-                # Try to match any option against user input
-                for opt in options:
-                    opt_value = opt.get('value', opt.get('text', ''))
-                    opt_text = opt.get('text', opt.get('label', opt_value))
-                    
-                    if not opt_value or opt_value.lower() in ['', 'select', 'choose', 'please select']:
-                        continue
-                    
-                    # Check if option appears in user input (fuzzy match)
-                    opt_lower = opt_text.lower().strip()
-                    if opt_lower and (opt_lower in user_lower or 
-                                     any(word in user_lower for word in opt_lower.split() if len(word) > 3)):
-                        extracted[field_name] = opt_value
-                        confidence[field_name] = 0.85
-                        logger.info(f"Matched dropdown option: {field_name} = {opt_value}")
-                        break
-        
-        # 5. Fallback: Try to match any remaining current_batch fields more loosely
-        for field in current_batch:
-            field_name = field.get('name', '')
-            if field_name in extracted:
-                continue
-            
-            field_label = field.get('label', field_name).lower()
-            
-            # Look for "my <field_label> is <value>" pattern
-            label_pattern = rf'(?:my\s+)?{re.escape(field_label)}\s+(?:is|:)\s+(.+?)(?:\s+and\s+|\s+my\s+|$)'
-            label_match = re.search(label_pattern, user_lower)
-            if label_match:
-                value = label_match.group(1).strip()
-                if value and len(value) > 1:
-                    extracted[field_name] = value.title() if 'name' in field_label else value
-                    confidence[field_name] = 0.8
-        
-        # Log extraction results for debugging
-        logger.info(f"Fallback extraction from '{user_text[:50]}...': {extracted}")
+        logger.info(f"Intelligent fallback extraction: {extracted}")
         
         # Generate response
         if extracted:
@@ -852,17 +1165,32 @@ CONVERSATION HISTORY (last 4 turns):
                         next_q = ', '.join(next_labels[:-1]) + f" and {next_labels[-1]}"
                     else:
                         next_q = next_labels[0] if next_labels else ""
-                    # Acknowledge what we got
-                    got_labels = [f.get('label', f.get('name', '')) for f in remaining_fields if f.get('name') in extracted][:3]
-                    ack = f" I got your {', '.join(got_labels)}." if got_labels else ""
-                    message = f"Great!{ack} Now, what's your {next_q}?"
+                    
+                    got_fields = [f.get('label', f.get('name', '')) for f in current_batch if f.get('name') in extracted]
+                    ack = f"Got your {', '.join(got_fields[:2])}!" if got_fields else "Thanks!"
+                    message = f"{ack} What's your {next_q}?"
+                    next_questions = [{'name': f.get('name'), 'label': f.get('label'), 'type': f.get('type')} for f in batches[0]]
                 else:
-                    message = "Thanks! Let me check what else we need."
+                    message = "Perfect! Let me check what else we need."
+                    next_questions = []
             else:
-                message = "Perfect! I've got all the information needed. Ready to submit?"
+                message = "Excellent! I have everything needed. Ready to fill the form?"
+                next_questions = []
         else:
-            # Try to give a more helpful message
-            message = "I didn't quite catch that. Could you please say something like 'My name is [your name] and my email is [your email]'?"
+            # Provide helpful example based on current fields
+            field_examples = []
+            for field in current_batch[:2]:
+                label = field.get('label', field.get('name', 'field'))
+                if 'name' in label.lower():
+                    field_examples.append(f"my name is John Doe")
+                elif 'email' in label.lower():
+                    field_examples.append(f"my email is john@example.com")
+                else:
+                    field_examples.append(f"my {label.lower()} is ...")
+            
+            example = ' and '.join(field_examples) if field_examples else "your name and email"
+            message = f"I didn't catch that. Could you say something like: '{example}'?"
+            next_questions = []
         
         return AgentResponse(
             message=message,
@@ -871,8 +1199,46 @@ CONVERSATION HISTORY (last 4 turns):
             needs_confirmation=[k for k, v in confidence.items() if v < 0.7],
             remaining_fields=[f for f in remaining_fields if f.get('name') not in extracted],
             is_complete=len(remaining_fields) == len(extracted) and len(extracted) > 0,
-            next_questions=[]
+            next_questions=next_questions
         )
+    
+    def _clean_name_value(self, raw_name: str) -> str:
+        """
+        Clean extracted name value by removing transition phrases and stop words.
+        This is critical for fixing cases like "John Doe And My Email" -> "John Doe"
+        """
+        if not raw_name or not raw_name.strip():
+            return raw_name
+        
+        cleaned = raw_name.strip()
+        
+        # 1. Remove common transition phrases
+        transition_patterns = [
+            r'\s+and\s+my\s+.*$',  # "and my email...", "and my phone..."
+            r'\s+and\s+(?:the|this|that)\s+.*$',  # "and the...", "and this..."
+            r'\s+my\s+(?:email|phone|mobile|address|number)\s*.*$',  # "my email..."
+            r'\s+@\s*.*$',  # starting an email
+            r'\s+\d{3,}.*$',  # starting a phone number
+            r'\s+(?:email|phone|mobile|address)\s*(?:is|:)?\s*.*$',  # "email is..."
+        ]
+        for pattern in transition_patterns:
+            cleaned = re.sub(pattern, '', cleaned, flags=re.IGNORECASE)
+        
+        # 2. Remove trailing common words that aren't part of names
+        stop_words = {'and', 'or', 'the', 'my', 'is', 'are', 'at', 'to', 'for', 
+                      'email', 'phone', 'mobile', 'number', 'address', 'name'}
+        words = cleaned.split()
+        while words and words[-1].lower() in stop_words:
+            words.pop()
+        
+        # 3. Also remove leading stop words like "my name is"
+        while words and words[0].lower() in stop_words:
+            words.pop(0)
+        
+        cleaned = ' '.join(words)
+        
+        # 4. Title case for names
+        return cleaned.strip().title() if cleaned else raw_name
     
     def _refine_extracted_values(
         self, 
@@ -882,73 +1248,75 @@ CONVERSATION HISTORY (last 4 turns):
         """
         Refine extracted values using TextRefiner for cleaner form data.
         
-        Applies type-specific formatting (email normalization, phone digits, etc.)
+        ALWAYS cleans name fields first, then applies type-specific formatting.
         """
-        if not TEXT_REFINER_AVAILABLE or not extracted_values:
+        if not extracted_values:
             return extracted_values
         
+        # Build field type lookup from current batch
+        field_types = {}
+        for field in current_batch:
+            name = field.get('name', '')
+            label = field.get('label', '').lower()
+            ftype = field.get('type', 'text').lower()
+            
+            if 'name' in label or 'name' in name.lower():
+                field_types[name] = 'name'
+            elif 'email' in label or 'email' in name.lower():
+                field_types[name] = 'email'
+            elif 'phone' in label or 'tel' in ftype or 'mobile' in label:
+                field_types[name] = 'phone'
+            else:
+                field_types[name] = ftype
+        
+        # ALWAYS clean name fields first - this runs regardless of TEXT_REFINER
+        cleaned_values = {}
+        for field_name, value in extracted_values.items():
+            if field_types.get(field_name) == 'name':
+                cleaned_values[field_name] = self._clean_name_value(value)
+                logger.info(f"Name cleanup: '{value}' -> '{cleaned_values[field_name]}'")
+            else:
+                cleaned_values[field_name] = value
+        
+        # Now apply TEXT_REFINER if available for additional processing
+        if not TEXT_REFINER_AVAILABLE:
+            return cleaned_values
+        
         try:
-            import asyncio
             refiner = get_text_refiner()
             
-            # Build field type lookup
-            field_types = {}
-            for field in current_batch:
-                name = field.get('name', '')
-                label = field.get('label', '').lower()
-                ftype = field.get('type', 'text').lower()
-                
-                # Infer field type from label/name if type is generic
-                if 'email' in label or 'email' in name.lower():
-                    field_types[name] = 'email'
-                elif 'phone' in label or 'tel' in ftype or 'mobile' in label:
-                    field_types[name] = 'phone'
-                elif 'name' in label:
-                    field_types[name] = 'name'
-                elif 'experience' in label or 'years' in label:
-                    field_types[name] = 'number'
-                elif 'date' in ftype:
-                    field_types[name] = 'date'
-                else:
-                    field_types[name] = ftype
-            
-            # Refine each extracted value
+            # Refine each value (names already cleaned above)
             refined = {}
-            for field_name, raw_value in extracted_values.items():
-                if not raw_value or not raw_value.strip():
-                    refined[field_name] = raw_value
+            for field_name, value in cleaned_values.items():
+                if not value or not value.strip():
+                    refined[field_name] = value
                     continue
                 
                 field_type = field_types.get(field_name, 'text')
                 
                 # Use quick synchronous clean for simple refinement
-                cleaned = refiner.quick_clean(raw_value)
+                cleaned = refiner.quick_clean(value)
                 
-                # Apply type-specific rules
+                # Apply type-specific rules (names already handled above)
                 if field_type == 'email':
-                    # Convert "john at gmail dot com" to "john@gmail.com"
                     cleaned = re.sub(r'\s*at\s*', '@', cleaned, flags=re.IGNORECASE)
                     cleaned = re.sub(r'\s*dot\s*', '.', cleaned, flags=re.IGNORECASE)
                     cleaned = cleaned.replace(' ', '').lower()
                 elif field_type == 'phone':
-                    # Extract only digits
                     digits = re.sub(r'[^\d+]', '', cleaned)
                     if len(digits) >= 10:
                         cleaned = digits
-                elif field_type == 'name':
-                    # Title case for names
-                    cleaned = cleaned.title()
                 
                 refined[field_name] = cleaned.strip()
                 
-                if cleaned != raw_value:
-                    logger.debug(f"Refined {field_name}: '{raw_value}' -> '{cleaned}'")
+                if cleaned != value:
+                    logger.debug(f"Refined {field_name}: '{value}' -> '{cleaned}'")
             
             return refined
             
         except Exception as e:
-            logger.warning(f"Value refinement failed, using raw values: {e}")
-            return extracted_values
+            logger.warning(f"Value refinement failed, using cleaned values: {e}")
+            return cleaned_values
     
     async def confirm_value(
         self, 
