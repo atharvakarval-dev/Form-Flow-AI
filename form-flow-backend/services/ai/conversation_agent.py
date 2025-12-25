@@ -119,6 +119,7 @@ class ConversationSession:
     conversation_context: ConversationContext = field(default_factory=ConversationContext)
     undo_stack: List[Dict[str, Any]] = field(default_factory=list)
     correction_history: List[Dict[str, Any]] = field(default_factory=list)
+    field_attempt_counts: Dict[str, int] = field(default_factory=dict)  # Track extraction failures per field
     
     def is_expired(self, ttl_minutes: int = 30) -> bool:
         """Check if session has expired."""
@@ -153,6 +154,7 @@ class ConversationSession:
             'conversation_context': self.conversation_context.to_dict(),
             'undo_stack': self.undo_stack,
             'correction_history': self.correction_history,
+            'field_attempt_counts': self.field_attempt_counts,
         }
     
     @classmethod
@@ -172,6 +174,7 @@ class ConversationSession:
             conversation_context=ConversationContext.from_dict(data.get('conversation_context', {})),
             undo_stack=data.get('undo_stack', []),
             correction_history=data.get('correction_history', []),
+            field_attempt_counts=data.get('field_attempt_counts', {}),
         )
 
 
@@ -185,6 +188,7 @@ class AgentResponse:
     remaining_fields: List[Dict[str, Any]]
     is_complete: bool
     next_questions: List[Dict[str, Any]]
+    fallback_options: List[Dict[str, Any]] = field(default_factory=list)  # Multi-modal fallback options
 
 
 # =============================================================================
@@ -1009,9 +1013,48 @@ class ConversationAgent:
         if len(labels) == 2:
             return f"Hi! Let's get you started. What's your {labels[0]} and {labels[1]}?"
         else:
-            # 3-4 fields
             all_but_last = ', '.join(labels[:-1])
             return f"Hello! I'll help you fill this out quickly. Can you tell me your {all_but_last}, and {labels[-1]}? You can say them all at once!"
+    
+    def _check_and_offer_fallback(
+        self,
+        session: ConversationSession,
+        field: Dict[str, Any],
+        is_voice: bool,
+        remaining_fields: List[Dict[str, Any]]
+    ) -> Optional[AgentResponse]:
+        """
+        Check if we should offer a fallback for voice input difficulties.
+        
+        Called when extraction fails for a voice input.
+        Returns fallback response if threshold reached, None otherwise.
+        """
+        if not is_voice:
+            return None
+        
+        field_name = field.get('name', '')
+        field_type = field.get('type', 'text')
+        
+        # Increment attempt count
+        session.field_attempt_counts[field_name] = session.field_attempt_counts.get(field_name, 0) + 1
+        failure_count = session.field_attempt_counts[field_name]
+        
+        # Check if fallback should be offered
+        if MultiModalFallback.should_offer_fallback(field_name, field_type, failure_count):
+            fallback = MultiModalFallback.generate_fallback_response(field_name)
+            
+            return AgentResponse(
+                message=fallback['message'],
+                extracted_values={},
+                confidence_scores={},
+                needs_confirmation=[],
+                remaining_fields=remaining_fields,
+                is_complete=False,
+                next_questions=[{'name': field.get('name'), 'label': field.get('label'), 'type': field.get('type')}],
+                fallback_options=fallback.get('options', [])
+            )
+        
+        return None
     
     async def process_user_input(
         self, 
@@ -1250,8 +1293,63 @@ class ConversationAgent:
         
         return result
     
-    async def _handle_undo(self, session: ConversationSession) -> AgentResponse:
-        """Handle undo/back request."""
+    # Maximum undo stack size to prevent memory issues
+    MAX_UNDO_STACK_SIZE = 20
+    
+    def _parse_undo_command(
+        self, 
+        user_input: str, 
+        session: ConversationSession
+    ) -> Tuple[str, Any]:
+        """
+        Parse undo command to determine target.
+        
+        Returns:
+            Tuple of (undo_type, target):
+            - ('last', 1) - default undo last
+            - ('last', N) - undo last N items
+            - ('field', field_name) - undo specific field
+        """
+        lower = user_input.lower().strip()
+        
+        # Check for count: "undo last 3", "undo 2", "undo the last two"
+        count_match = re.search(r'undo\s+(?:the\s+)?(?:last\s+)?(\d+)', lower)
+        if count_match:
+            return ('last', min(int(count_match.group(1)), len(session.undo_stack)))
+        
+        # Word numbers
+        word_numbers = {'one': 1, 'two': 2, 'three': 3, 'four': 4, 'five': 5}
+        for word, num in word_numbers.items():
+            if f'undo {word}' in lower or f'undo last {word}' in lower:
+                return ('last', min(num, len(session.undo_stack)))
+        
+        # Check for field name: "undo email", "undo my name", "undo the phone"
+        field_words = lower.replace('undo', '').replace('the', '').replace('my', '').strip()
+        if field_words:
+            matched = self._fuzzy_match_field(
+                field_words, 
+                list(session.extracted_fields.keys()), 
+                session
+            )
+            if matched:
+                return ('field', matched)
+        
+        # Default: undo last 1
+        return ('last', 1)
+    
+    async def _handle_undo(
+        self, 
+        session: ConversationSession,
+        user_input: str = ""
+    ) -> AgentResponse:
+        """
+        Handle undo/back request with smart parsing.
+        
+        Supports:
+        - "undo" / "go back" - undo last action
+        - "undo email" / "undo my name" - undo specific field
+        - "undo last 3" / "undo two" - undo multiple actions
+        """
         if not session.undo_stack:
             return AgentResponse(
                 message="There's nothing to undo right now. Let's continue!",
@@ -1263,28 +1361,60 @@ class ConversationAgent:
                 next_questions=[]
             )
         
-        # Pop last action
-        last_action = session.undo_stack.pop()
-        field_name = last_action.get('field_name')
+        # Parse undo command
+        undo_type, target = self._parse_undo_command(user_input, session)
         
-        # Remove from extracted fields
-        if field_name in session.extracted_fields:
-            del session.extracted_fields[field_name]
-        if field_name in session.confidence_scores:
-            del session.confidence_scores[field_name]
+        undone_fields = []
+        
+        if undo_type == 'field':
+            # Undo specific field
+            field_name = target
+            
+            # Find and remove from undo stack
+            for i, action in enumerate(session.undo_stack):
+                if action.get('field_name') == field_name:
+                    session.undo_stack.pop(i)
+                    break
+            
+            # Remove from extracted fields
+            if field_name in session.extracted_fields:
+                del session.extracted_fields[field_name]
+                undone_fields.append(field_name)
+            if field_name in session.confidence_scores:
+                del session.confidence_scores[field_name]
+                
+        else:
+            # Undo last N actions
+            count = target
+            for _ in range(count):
+                if not session.undo_stack:
+                    break
+                    
+                last_action = session.undo_stack.pop()
+                field_name = last_action.get('field_name')
+                
+                if field_name in session.extracted_fields:
+                    del session.extracted_fields[field_name]
+                    undone_fields.append(field_name)
+                if field_name in session.confidence_scores:
+                    del session.confidence_scores[field_name]
         
         await self._save_session(session)
         
-        # Get field label for friendly message
+        # Build friendly message
         remaining = self._get_remaining_fields(session)
-        field_label = field_name
-        for f in remaining:
-            if f.get('name') == field_name:
-                field_label = f.get('label', field_name)
-                break
+        
+        if len(undone_fields) == 1:
+            field_label = self._get_field_label(session, undone_fields[0])
+            message = f"Okay, I've removed your {field_label}. What would you like to enter instead?"
+        elif len(undone_fields) > 1:
+            labels = [self._get_field_label(session, f) for f in undone_fields]
+            message = f"Done! I've removed {', '.join(labels)}. Let's re-enter those."
+        else:
+            message = "I couldn't find that to undo. What would you like to do?"
         
         return AgentResponse(
-            message=f"Okay, I've removed your {field_label}. What would you like to enter instead?",
+            message=message,
             extracted_values={},
             confidence_scores={},
             needs_confirmation=[],
