@@ -120,6 +120,8 @@ class ConversationSession:
     undo_stack: List[Dict[str, Any]] = field(default_factory=list)
     correction_history: List[Dict[str, Any]] = field(default_factory=list)
     field_attempt_counts: Dict[str, int] = field(default_factory=dict)  # Track extraction failures per field
+    shown_milestones: set = field(default_factory=set)  # Track shown progress milestones
+    turns_per_field: Dict[str, int] = field(default_factory=dict)  # Turns taken per field for metrics
     
     def is_expired(self, ttl_minutes: int = 30) -> bool:
         """Check if session has expired."""
@@ -155,6 +157,8 @@ class ConversationSession:
             'undo_stack': self.undo_stack,
             'correction_history': self.correction_history,
             'field_attempt_counts': self.field_attempt_counts,
+            'shown_milestones': list(self.shown_milestones),
+            'turns_per_field': self.turns_per_field,
         }
     
     @classmethod
@@ -175,6 +179,8 @@ class ConversationSession:
             undo_stack=data.get('undo_stack', []),
             correction_history=data.get('correction_history', []),
             field_attempt_counts=data.get('field_attempt_counts', {}),
+            shown_milestones=set(data.get('shown_milestones', [])),
+            turns_per_field=data.get('turns_per_field', {}),
         )
 
 
@@ -301,13 +307,15 @@ class SmartContextBuilder:
         remaining_fields: List[Dict[str, Any]],
         user_input: str,
         conversation_history: List[Dict[str, str]],
-        already_extracted: Dict[str, str]
+        already_extracted: Dict[str, str],
+        session_context: Optional[Dict[str, Any]] = None
     ) -> str:
         """
         Build comprehensive context that helps LLM understand:
         1. What fields we're currently asking about
         2. What values to look for
         3. Where to stop extraction
+        4. User context (voice mode, sentiment, etc.)
         """
         
         # 1. Current fields context (what we're asking about NOW)
@@ -328,10 +336,27 @@ class SmartContextBuilder:
             if f not in current_batch
         ][:5]  # Next 5 fields
         
-        # 3. Build smart context
+        # 3. Build session context additions
+        context_notes = []
+        if session_context:
+            if session_context.get('is_voice'):
+                context_notes.append("INPUT MODE: Voice (may have transcription errors)")
+            if session_context.get('is_frustrated'):
+                context_notes.append("USER STATE: Frustrated - be extra careful and helpful")
+            if session_context.get('needs_clarity'):
+                context_notes.append("USER STATE: Confused - extraction may need verification")
+            if session_context.get('style') == 'concise':
+                context_notes.append("USER STYLE: Prefers brief responses")
+        
+        context_note_str = "\n".join(context_notes) if context_notes else "Standard mode"
+        
+        # 4. Build smart context
         context = f"""EXTRACTION TASK:
 
 USER INPUT: "{user_input}"
+
+CONTEXT NOTES:
+{context_note_str}
 
 FIELDS TO EXTRACT (focus on these ONLY):
 {json.dumps(current_fields_info, indent=2)}
@@ -1257,6 +1282,19 @@ class ConversationAgent:
             if original_input != user_input:
                 logger.info(f"Voice normalized: '{original_input}' -> '{user_input}'")
         
+        # Audio quality assessment for voice input
+        audio_quality_hint = None
+        if is_voice and stt_confidence < 0.9 and current_batch:
+            audio_quality = NoiseHandler.assess_audio_quality(stt_confidence)
+            field = current_batch[0]
+            is_critical = field.get('type') in ['email', 'tel']
+            
+            audio_quality_hint = NoiseHandler.get_quality_adapted_response(
+                audio_quality, field.get('type', 'text'), is_critical
+            )
+            if audio_quality_hint:
+                logger.info(f"Audio quality: {audio_quality.value}, adding hint")
+        
         # --- INTENT RECOGNITION ---
         
         # Detect user style from input patterns
@@ -1376,6 +1414,12 @@ class ConversationAgent:
                 session.confidence_scores[field_name] = result.confidence_scores.get(field_name, 1.0)
         
         result.extracted_values = refined_values
+        
+        # --- METRICS LOGGING ---
+        # Log extraction metrics for data-driven tuning
+        for field_name in refined_values.keys():
+            correction_count = session.conversation_context.repeated_corrections.get(field_name, 0)
+            logger.info(f"METRICS: field={field_name}, corrections={correction_count}, confusion={session.conversation_context.confusion_count}")
         
         # Generate adaptive response
         new_remaining = self._get_remaining_fields(session)

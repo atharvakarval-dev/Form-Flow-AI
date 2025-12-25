@@ -77,6 +77,7 @@ class ConversationContext:
     last_intent: Optional[UserIntent] = None
     positive_interactions: int = 0
     negative_interactions: int = 0
+    clean_turn_count: int = 0  # Track clean turns for negative decay
     
     # Markers for detection
     CONFUSION_MARKERS = [
@@ -97,39 +98,64 @@ class ConversationContext:
     
     def update_from_input(self, user_input: str) -> None:
         """
-        Analyze user input to update context state.
+        Analyze user input to update context state using weighted scoring.
         
-        Args:
-            user_input: Raw user input text
+        Uses accumulated scores instead of early returns to handle
+        mixed signals (e.g., "No problem, my email is...").
         """
         lower_input = user_input.lower().strip()
         
-        # Detect confusion
-        if any(marker in lower_input for marker in self.CONFUSION_MARKERS):
+        # Weighted scoring - accumulate signals
+        scores = {'confusion': 0, 'negative': 0, 'positive': 0}
+        
+        # Check all marker types
+        for marker in self.CONFUSION_MARKERS:
+            if marker in lower_input:
+                scores['confusion'] += 2
+                
+        for marker in self.FRUSTRATION_MARKERS:
+            if marker in lower_input:
+                scores['negative'] += 2
+                
+        for marker in self.POSITIVE_MARKERS:
+            if marker in lower_input:
+                scores['positive'] += 1
+        
+        # Resolve sentiment by highest score
+        max_score = max(scores.values())
+        
+        if max_score == 0:
+            # No signals detected - clean turn
+            self.clean_turn_count += 1
+            
+            # Decay negative state after 3 clean turns
+            if self.clean_turn_count >= 3 and self.negative_interactions > 0:
+                self.negative_interactions = max(0, self.negative_interactions - 1)
+                self.clean_turn_count = 0
+                logger.debug("Decaying negative state after clean turns")
+            
+            # Return to neutral from positive
+            if self.user_sentiment == UserSentiment.POSITIVE:
+                self.user_sentiment = UserSentiment.NEUTRAL
+            return
+        
+        # Reset clean turn count on any signal
+        self.clean_turn_count = 0
+        
+        if scores['confusion'] >= scores['negative'] and scores['confusion'] >= scores['positive']:
             self.confusion_count += 1
             self.user_sentiment = UserSentiment.CONFUSED
             logger.debug(f"Confusion detected (count: {self.confusion_count})")
-            return
-        
-        # Detect frustration
-        if any(marker in lower_input for marker in self.FRUSTRATION_MARKERS):
+        elif scores['negative'] > scores['positive']:
             self.user_sentiment = UserSentiment.NEGATIVE
             self.negative_interactions += 1
             logger.debug("Frustration detected")
-            return
-        
-        # Detect positivity
-        if any(marker in lower_input for marker in self.POSITIVE_MARKERS):
+        elif scores['positive'] > 0:
             self.user_sentiment = UserSentiment.POSITIVE
             self.positive_interactions += 1
-            # Reset confusion on positive interaction
+            # Reset confusion on positive
             self.confusion_count = max(0, self.confusion_count - 1)
             logger.debug("Positive sentiment detected")
-            return
-        
-        # Default: stay neutral or return to neutral from positive
-        if self.user_sentiment == UserSentiment.POSITIVE:
-            self.user_sentiment = UserSentiment.NEUTRAL
     
     def record_correction(self, field_name: str) -> None:
         """Record a field correction."""
@@ -253,6 +279,8 @@ class IntentRecognizer:
         """
         Detect primary user intent with confidence score.
         
+        Uses priority gating to avoid misclassifying data as intents.
+        
         Args:
             user_input: Raw user input
             
@@ -261,7 +289,25 @@ class IntentRecognizer:
         """
         user_input = user_input.strip()
         user_lower = user_input.lower()
+        words = user_input.split()
         
+        # --- PRIORITY GATING ---
+        # Long input with strong data signals → bias toward DATA
+        if len(words) > 5 and self._contains_strong_data_signals(user_input):
+            logger.debug("Priority gating: long input with data signals → DATA")
+            return UserIntent.DATA, 0.90
+        
+        # Short input that's mostly data → likely DATA
+        if len(words) <= 5 and self._contains_strong_data_signals(user_input):
+            # Check if any intent pattern matches at start
+            for intent, patterns in self._compiled_patterns.items():
+                for pattern in patterns:
+                    if pattern.pattern.startswith('^') and pattern.search(user_lower):
+                        # Intent at start, but also has data → return both signals
+                        return intent, 0.75  # Lower confidence due to mixed signals
+            return UserIntent.DATA, 0.85
+        
+        # --- STANDARD INTENT DETECTION ---
         for intent, patterns in self._compiled_patterns.items():
             for pattern in patterns:
                 if pattern.search(user_lower):
@@ -275,6 +321,28 @@ class IntentRecognizer:
             return UserIntent.DATA, 0.80
         
         return None, 0.0
+    
+    def _contains_strong_data_signals(self, user_input: str) -> bool:
+        """Check if input contains strong data signals (emails, numbers, etc.)."""
+        import re
+        
+        # Email pattern
+        if re.search(r'[\w.+-]+@[\w-]+\.[\w.-]+', user_input):
+            return True
+        
+        # Phone-like numbers (5+ digits)
+        if re.search(r'\d{5,}', user_input.replace(' ', '')):
+            return True
+        
+        # Date patterns
+        if re.search(r'\d{1,2}[/-]\d{1,2}[/-]\d{2,4}', user_input):
+            return True
+        
+        # Names with capitalization (First Last pattern)
+        if re.search(r'[A-Z][a-z]+ [A-Z][a-z]+', user_input):
+            return True
+        
+        return False
     
     def has_data_content(self, user_input: str) -> bool:
         """
@@ -421,14 +489,43 @@ class ProgressTracker:
 # =============================================================================
 
 class AdaptiveResponseGenerator:
-    """Generate contextually appropriate, natural responses."""
+    """Generate contextually appropriate, natural responses with style adaptation."""
     
-    # Response variations
+    # Response variations by sentiment
     ACKNOWLEDGMENTS = {
         UserSentiment.POSITIVE: ['Perfect!', 'Excellent!', 'Awesome!', 'Great!', 'Wonderful!'],
         UserSentiment.NEUTRAL: ['Got it!', 'Thanks!', 'Okay!', 'Noted!', 'Alright!'],
         UserSentiment.CONFUSED: ['I see.', 'Alright,', 'Okay,', 'Got it.'],
         UserSentiment.NEGATIVE: ['Thank you.', 'Understood.', 'Noted.', 'Got it.'],
+    }
+    
+    # Style matrix - responses by user_preference_style
+    STYLE_VARIATIONS = {
+        'concise': {
+            'ack': 'Got it.',
+            'question': "What's your {label}?",
+            'next': "{label}?",
+        },
+        'casual': {
+            'ack': 'Cool!',
+            'question': "So what's your {label}?",
+            'next': "And {label}?",
+        },
+        'formal': {
+            'ack': 'Thank you.',
+            'question': "May I have your {label}, please?",
+            'next': "Could you provide your {label}?",
+        },
+        'detailed': {
+            'ack': "I've recorded that, thank you!",
+            'question': "Now I need your {label}. Please provide it when ready.",
+            'next': "Next, I'll need your {label}.",
+        },
+        'balanced': {
+            'ack': 'Got it!',
+            'question': "What's your {label}?",
+            'next': "And your {label}?",
+        },
     }
     
     QUESTION_STYLES = [
@@ -438,6 +535,40 @@ class AdaptiveResponseGenerator:
         "Now, what's your {label}?",
         "How about your {label}?",
     ]
+    
+    @classmethod
+    def _get_style_adjusted_ack(cls, context: 'ConversationContext') -> str:
+        """
+        Get acknowledgment adjusted for user style, confusion, and frustration.
+        
+        Uses deterministic selection when user is confused/frustrated (no randomness).
+        """
+        style = context.user_preference_style
+        
+        # Deterministic phrasing when confused or frustrated
+        if context.is_frustrated() or context.needs_extra_clarity():
+            # Use simple, consistent acknowledgment (first item, no randomness)
+            return cls.ACKNOWLEDGMENTS.get(context.user_sentiment, ['Got it.'])[0]
+        
+        # Use style matrix if available
+        if style in cls.STYLE_VARIATIONS:
+            return cls.STYLE_VARIATIONS[style]['ack']
+        
+        # Default: sentiment-based with variety
+        acks = cls.ACKNOWLEDGMENTS.get(context.user_sentiment, cls.ACKNOWLEDGMENTS[UserSentiment.NEUTRAL])
+        return acks[hash(str(context.positive_interactions)) % len(acks)]
+    
+    @classmethod
+    def _get_style_adjusted_question(cls, label: str, context: 'ConversationContext', is_first: bool = True) -> str:
+        """Get question adjusted for user style."""
+        style = context.user_preference_style
+        
+        if style in cls.STYLE_VARIATIONS:
+            template = cls.STYLE_VARIATIONS[style]['question' if is_first else 'next']
+            return template.format(label=label)
+        
+        # Default
+        return f"What's your {label}?"
     
     @classmethod
     def generate_response(
@@ -490,9 +621,17 @@ class AdaptiveResponseGenerator:
     @classmethod
     def _generate_clarification_response(
         cls,
-        current_batch: List[Dict[str, Any]]
+        current_batch: List[Dict[str, Any]],
+        confusion_count: int = 1
     ) -> str:
-        """Extra clear response when user is confused."""
+        """
+        Extra clear response when user is confused.
+        
+        Progressive clarification:
+        - 1st confusion: Short rephrase
+        - 2nd confusion: Provide example
+        - 3rd+ confusion: Structured options
+        """
         if not current_batch:
             return "Let me be clearer. I'm helping you fill out a form by collecting some information. Just answer naturally!"
         
@@ -500,19 +639,32 @@ class AdaptiveResponseGenerator:
         label = field.get('label', field.get('name', 'information'))
         field_type = field.get('type', 'text').lower()
         
-        examples = {
-            'email': f"I need your email address. You can say something like 'My email is sarah@example.com' or just 'sarah@example.com'.",
-            'tel': f"I need your phone number. Just say it like '555-123-4567' or 'My phone is 555-123-4567'.",
-            'text': f"I'm asking for your {label}. You can say 'My {label} is ...' or just tell me directly.",
-        }
+        # Progressive clarification based on confusion count
+        if confusion_count == 1:
+            # 1st confusion: Short rephrase
+            if 'name' in label.lower():
+                return f"I just need your {label} - like 'John Smith'."
+            return f"Could you tell me your {label}?"
         
-        # Check for name fields
-        if 'name' in label.lower():
-            return f"I need your {label}. You can say something like 'John Smith' or 'My name is John Smith'."
+        elif confusion_count == 2:
+            # 2nd confusion: Provide example
+            examples = {
+                'email': f"For your email, try: 'john at example dot com' or 'john@example.com'.",
+                'tel': f"For your phone, say the digits: 'five five five one two three four'.",
+                'text': f"For {label}, just say it directly, like 'My {label} is ...'.",
+            }
+            if 'name' in label.lower():
+                return "Try saying: 'First name John, last name Smith' or just 'John Smith'."
+            return examples.get(field_type, f"Try saying: 'My {label} is ...' followed by your answer.")
         
-        return examples.get(field_type, 
-            f"No worries! I just need your {label}. You can say it naturally, like 'My {label} is ...'"
-        )
+        else:
+            # 3rd+ confusion: Structured options
+            return (
+                f"Having trouble with {label}? Here are your options:\n"
+                f"• Say '{label}' directly\n"
+                f"• Say 'skip' to skip this field\n"
+                f"• Say 'help' for more assistance"
+            )
     
     @classmethod
     def _generate_empathetic_response(
