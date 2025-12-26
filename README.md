@@ -89,7 +89,7 @@ sequenceDiagram
 | **Parsing** | Generic HTML | ✅ Stable | `input`, `textarea`, `select`, `radio`, `checkbox` |
 | | Google Forms | ✅ Stable | Custom parsing for non-standard class names |
 | | Shadow DOM | ✅ Stable | Recursive traversal of shadow roots |
-| | Dynamic Fields | 🚧 Beta | Detection of post-interaction fields |
+| | Dynamic Fields | ✅ Stable | Detection of post-interaction fields |
 | **Voice** | Speech-to-Text | ✅ Stable | Web Speech API with silence detection |
 | | Text-to-Speech | ✅ Stable | Browser-native synthesis |
 | | Wake Word | ⏳ Planned | "Hey Wizard" activation |

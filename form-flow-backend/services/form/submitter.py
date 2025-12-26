@@ -48,14 +48,94 @@ class FormSubmitter:
         "error", "invalid", "required field", "missing", "failed",
         "please fill", "this field is required", "must be", "correct the errors"
     ]
+    
+    # Field types that can trigger visibility of other fields
+    TRIGGER_TYPES = {'radio', 'checkbox', 'select', 'dropdown'}
 
     def __init__(self):
         self.session_timeout = 30000
         self.debug_screenshots = []
+        self._detected_dynamic_fields: List[Dict[str, Any]] = []  # Track newly appeared fields
 
     # ─────────────────────────────────────────────────────────────────────────
-    # SELECTOR UTILITIES
+    # DYNAMIC FIELD DETECTION
     # ─────────────────────────────────────────────────────────────────────────
+    
+    async def _get_visible_fields_snapshot(self, page) -> Dict[str, Dict[str, Any]]:
+        """
+        Capture snapshot of all currently visible form fields.
+        Returns dict: { "field_id_or_name": { name, id, type, label, visible } }
+        """
+        return await page.evaluate("""
+            () => {
+                const snapshot = {};
+                const inputs = document.querySelectorAll('input, select, textarea');
+                
+                inputs.forEach(el => {
+                    // Skip hidden/disabled inputs
+                    if (el.type === 'hidden' || el.disabled) return;
+                    
+                    // Check visibility (offsetParent is null for hidden elements)
+                    const isVisible = el.offsetParent !== null || 
+                                      getComputedStyle(el).display !== 'none';
+                    if (!isVisible) return;
+                    
+                    const name = el.name || el.id || '';
+                    if (!name) return;
+                    
+                    // Find associated label
+                    let label = '';
+                    if (el.labels && el.labels.length > 0) {
+                        label = el.labels[0].textContent.trim();
+                    } else {
+                        // Look for nearby label
+                        const wrapper = el.closest('.form-group, .form-field, label, div');
+                        if (wrapper) {
+                            const labelEl = wrapper.querySelector('label');
+                            if (labelEl) label = labelEl.textContent.trim();
+                        }
+                    }
+                    
+                    snapshot[name] = {
+                        name: name,
+                        id: el.id || '',
+                        type: el.type || el.tagName.toLowerCase(),
+                        label: label,
+                        tagName: el.tagName.toLowerCase()
+                    };
+                });
+                
+                return snapshot;
+            }
+        """)
+
+    async def _detect_new_fields(
+        self, 
+        before_snapshot: Dict[str, Any], 
+        after_snapshot: Dict[str, Any],
+        form_data_keys: set
+    ) -> List[Dict[str, Any]]:
+        """
+        Compare snapshots and return list of newly visible fields
+        that are NOT already in the form_data.
+        """
+        new_fields = []
+        
+        for name, info in after_snapshot.items():
+            if name not in before_snapshot:
+                # This field appeared after interaction
+                if name not in form_data_keys:
+                    # We don't have data for this field!
+                    new_fields.append({
+                        'name': name,
+                        'id': info.get('id', ''),
+                        'type': info.get('type', 'text'),
+                        'label': info.get('label', name),
+                        'is_dynamic': True
+                    })
+                    print(f"🆕 Dynamic field detected: {name} ({info.get('label', 'No label')})")
+        
+        return new_fields
     
     def _get_selectors(self, field_info: Dict) -> List[str]:
         """Build prioritized CSS selectors for a field."""
@@ -665,11 +745,21 @@ class FormSubmitter:
     # ─────────────────────────────────────────────────────────────────────────
     
     async def _fill_and_submit_form(self, page, form_data: Dict[str, str], form_schema: List[Dict], is_google_form: bool = False) -> Dict[str, Any]:
-        """Fill form fields and submit."""
+        """Fill form fields and submit. Detects dynamic fields that appear during filling."""
         filled, errors = [], []
+        self._detected_dynamic_fields = []  # Reset for this run
+        form_data_keys = set(form_data.keys())
         
         # Build field mapping
         field_map = {f.get('name', ''): f for form in form_schema for f in form.get('fields', [])}
+        
+        # --- DYNAMIC FIELD DETECTION: Initial Snapshot ---
+        try:
+            initial_snapshot = await self._get_visible_fields_snapshot(page)
+            print(f"📸 Initial snapshot: {len(initial_snapshot)} visible fields")
+        except Exception as e:
+            print(f"⚠️ Snapshot failed: {e}")
+            initial_snapshot = {}
         
         # Find password for confirmation fields
         password_val = next((v for k, v in form_data.items() 
@@ -695,11 +785,15 @@ class FormSubmitter:
                 if is_confirm_field(name, label) and password_val:
                     fields_to_process.append((name, password_val))
         
+        # Track current snapshot for delta detection
+        current_snapshot = initial_snapshot.copy()
+        
         # Fill each field with retry
         for name, value in fields_to_process:
             if name not in field_map:
                 continue
             field_info = field_map[name]
+            ftype = field_info.get('type', 'text')
             success = False
             
             for attempt in range(3):
@@ -715,6 +809,22 @@ class FormSubmitter:
             
             if not success:
                 errors.append(f"Failed to fill: {name}")
+            
+            # --- DYNAMIC FIELD DETECTION: Check after trigger fields ---
+            if success and ftype in self.TRIGGER_TYPES:
+                try:
+                    await asyncio.sleep(0.3)  # Wait for DOM update
+                    new_snapshot = await self._get_visible_fields_snapshot(page)
+                    new_fields = await self._detect_new_fields(current_snapshot, new_snapshot, form_data_keys)
+                    
+                    if new_fields:
+                        self._detected_dynamic_fields.extend(new_fields)
+                        print(f"🔍 Detected {len(new_fields)} new field(s) after filling {name}")
+                    
+                    # Update current snapshot
+                    current_snapshot = new_snapshot
+                except Exception as e:
+                    print(f"⚠️ Dynamic detection error after {name}: {e}")
         
         await asyncio.sleep(1)
         
@@ -727,6 +837,21 @@ class FormSubmitter:
             pass
         
         await asyncio.sleep(0.5)
+        
+        # --- DYNAMIC FIELD CHECK: Halt if unfilled dynamic fields exist ---
+        if self._detected_dynamic_fields:
+            print(f"⚠️ HALTING SUBMISSION: {len(self._detected_dynamic_fields)} unfilled dynamic field(s) detected")
+            return {
+                "status": "partial_success",
+                "filled_fields": filled, 
+                "errors": errors, 
+                "submit_success": False,
+                "total_fields": len(form_data), 
+                "successful_fields": len(filled),
+                "fill_rate": len(filled) / len(form_data) if form_data else 0,
+                "dynamic_fields_detected": self._detected_dynamic_fields,
+                "message": f"Form filling paused: {len(self._detected_dynamic_fields)} new field(s) appeared that need values."
+            }
         
         # Submit
         submit_ok = False
@@ -741,9 +866,11 @@ class FormSubmitter:
             await asyncio.sleep(0.5)
         
         return {
+            "status": "complete" if submit_ok else "submit_failed",
             "filled_fields": filled, "errors": errors, "submit_success": submit_ok,
             "total_fields": len(form_data), "successful_fields": len(filled),
-            "fill_rate": len(filled) / len(form_data) if form_data else 0
+            "fill_rate": len(filled) / len(form_data) if form_data else 0,
+            "dynamic_fields_detected": []
         }
 
     async def _verify_field(self, page, field_info: Dict, expected: str) -> bool:
