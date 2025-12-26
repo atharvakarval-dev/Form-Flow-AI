@@ -21,8 +21,16 @@ const Navigation = () => {
 
     return (
         <>
-            <nav className="fixed top-6 right-8 z-[100] flex items-center gap-2 bg-white/40 dark:bg-gray-800/40 backdrop-blur-xl px-2 py-2 rounded-full border border-white/20 dark:border-gray-700/30 shadow-lg shadow-black/5">
-                <a href={ROUTES.HOME} className="px-4 py-2 rounded-full text-gray-600 dark:text-gray-300 hover:text-black dark:hover:text-white hover:bg-white/50 dark:hover:bg-gray-700/50 transition-all font-medium text-sm tracking-wide">Home</a>
+            <nav className="fixed top-6 right-8 z-[100] flex items-center gap-2 bg-white/40 dark:bg-gray-800/40 backdrop-blur-xl p-1.5 rounded-full border border-white/20 dark:border-gray-700/30 shadow-lg shadow-black/5">
+                <Link to={ROUTES.HOME} className="relative w-10 h-10 rounded-full flex items-center justify-center transition-transform hover:scale-105 overflow-hidden">
+                    <img
+                        src={themeContext?.isDark ? "/logo_black.jpg" : "/logo_white.jpg"}
+                        alt="Home"
+                        className="w-full h-full object-cover"
+                    />
+                </Link>
+
+                <a href={ROUTES.HOME} className="px-5 py-2 rounded-full text-gray-700 dark:text-gray-200 hover:text-black dark:hover:text-white hover:bg-white/50 dark:hover:bg-gray-700/50 transition-all font-medium text-sm tracking-normal">Home</a>
 
                 {localStorage.getItem('token') ? (
                     <>

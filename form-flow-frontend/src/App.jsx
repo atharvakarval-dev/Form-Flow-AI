@@ -34,16 +34,6 @@ function App() {
           {/* Content Layer */}
           <div className="relative z-10 w-full min-h-screen">
 
-            {/* Logo Brand */}
-            {/* Logo Brand */}
-            <a href={ROUTES.HOME} className="fixed top-6 left-8 z-[100] flex items-center gap-3 bg-white/40 dark:bg-gray-800/40 backdrop-blur-xl pr-6 pl-2 py-2 rounded-full border border-white/20 dark:border-gray-700/30 shadow-lg shadow-black/5 hover:bg-white/60 dark:hover:bg-gray-700/60 transition-all group">
-              <div className="w-10 h-10 rounded-full bg-white dark:bg-gray-900 flex items-center justify-center overflow-hidden shadow-sm border border-black/5 dark:border-white/10 p-1">
-                <img src="/logo.png" alt="Form Flow AI" className="w-full h-full object-contain" />
-              </div>
-              <span className="font-semibold text-lg tracking-tight text-gray-800 dark:text-gray-100 group-hover:text-black dark:group-hover:text-white transition-colors hidden sm:block">
-                Form Flow AI
-              </span>
-            </a>
 
             <Navigation />
 
