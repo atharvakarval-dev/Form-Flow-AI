@@ -95,9 +95,37 @@ sequenceDiagram
 | | Wake Word | ⏳ Planned | "Hey Wizard" activation |
 | **Automation** | Auto-Fill | ✅ Stable | Human-mimicry typing; DOM injection fallback |
 | | Checkbox Logic | ✅ Stable | Smart toggle + efficient iteration |
-| | Captcha Solving | 🚧 WIP | Hook points for 2Captcha/AntiCaptcha |
+| | CAPTCHA Solving | ✅ Stable | Multi-strategy: Stealth, Auto-wait, 2Captcha API, Manual fallback |
 | **UI/UX** | Glassmorphism | ✅ Stable | Full system-wide theme |
 | | Visualization | ✅ Live | Recharts + Gemini Insights (Tabbed Dashboard) |
+
+---
+
+## 🔐 CAPTCHA Solving Architecture
+
+Form Flow AI uses a **multi-strategy approach** to handle CAPTCHAs:
+
+```mermaid
+flowchart TD
+    A[CAPTCHA Detected] --> B{Is it Turnstile/Invisible?}
+    B -->|Yes| C[Wait & Auto-Solve]
+    B -->|No| D{Stealth Mode Enabled?}
+    D -->|Yes| E[Apply Stealth & Retry]
+    D -->|No| F{API Key Available?}
+    F -->|Yes| G[2Captcha / AntiCaptcha]
+    F -->|No| H[Manual Fallback - Notify User]
+    G -->|Success| I[Continue Filling]
+    G -->|Fail| H
+    C -->|Solved| I
+    E -->|Solved| I
+    H -->|User Solved| I
+```
+
+**Supported CAPTCHA Types:**
+- ✅ Google reCAPTCHA v2/v3
+- ✅ hCaptcha
+- ✅ Cloudflare Turnstile
+- ✅ Generic image CAPTCHAs (via 2Captcha)
 
 ---
 

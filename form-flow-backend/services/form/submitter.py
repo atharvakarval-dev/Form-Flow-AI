@@ -8,8 +8,9 @@ from urllib.parse import urlparse
 # Import browser pool for memory-efficient browser reuse
 from .browser_pool import get_browser_context
 
-# Import CAPTCHA detection
+# Import CAPTCHA detection and solving
 from .detectors.captcha import detect_captcha
+from services.captcha.solver import CaptchaSolverService, get_captcha_solver
 
 
 
@@ -1004,25 +1005,45 @@ class FormSubmitter:
             fill_result = await self._fill_form_only(page, form_data, form_schema, is_google)
             
             # ================================================================
-            # STEP 2: CHECK FOR CAPTCHA
+            # STEP 2: CHECK FOR CAPTCHA AND ATTEMPT AUTO-SOLVE
             # ================================================================
             captcha_info = await detect_captcha(page)
             
             if captcha_info.get('hasCaptcha'):
-                print(f"🛑 CAPTCHA detected: {captcha_info.get('type')}. Not submitting automatically.")
-                print("   Browser left open for user to solve CAPTCHA and submit manually.")
+                print(f"🔐 CAPTCHA detected: {captcha_info.get('type')}")
                 
-                # DON'T close browser - leave it open for user to solve CAPTCHA
-                # User will manually submit after solving
-                return {
-                    "success": False,
-                    "captcha_detected": True,
-                    "captcha_type": captcha_info.get('type', 'unknown'),
-                    "message": "CAPTCHA detected. Please solve it in the browser window, then click Submit manually.",
-                    "browser_left_open": True,
-                    "fields_filled": fill_result.get("filled_fields", []),
-                    "fill_rate": fill_result.get("fill_rate", 0)
-                }
+                # Attempt to solve using CaptchaSolverService
+                solver = get_captcha_solver()
+                solve_result = await solver.solve(page, captcha_info, initial_url)
+                
+                if solve_result.success:
+                    print(f"✅ CAPTCHA solved via {solve_result.strategy_used.value}")
+                    # Continue to submission
+                elif solve_result.requires_user_action:
+                    # Manual fallback - leave browser open
+                    print("🛑 CAPTCHA requires manual solving. Browser left open.")
+                    return {
+                        "success": False,
+                        "captcha_detected": True,
+                        "captcha_type": captcha_info.get('type', 'unknown'),
+                        "captcha_strategy": solve_result.strategy_used.value,
+                        "message": solve_result.error or "Please solve the CAPTCHA in the browser window, then click Submit.",
+                        "browser_left_open": True,
+                        "fields_filled": fill_result.get("filled_fields", []),
+                        "fill_rate": fill_result.get("fill_rate", 0)
+                    }
+                else:
+                    # Solver failed unexpectedly
+                    print(f"⚠️ CAPTCHA solve failed: {solve_result.error}")
+                    return {
+                        "success": False,
+                        "captcha_detected": True,
+                        "captcha_type": captcha_info.get('type', 'unknown'),
+                        "message": f"CAPTCHA solve failed: {solve_result.error}. Please solve manually.",
+                        "browser_left_open": True,
+                        "fields_filled": fill_result.get("filled_fields", []),
+                        "fill_rate": fill_result.get("fill_rate", 0)
+                    }
             
             # ================================================================
             # STEP 3: NO CAPTCHA - SUBMIT NORMALLY

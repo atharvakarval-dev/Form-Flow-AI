@@ -66,6 +66,22 @@ class Settings(BaseSettings):
     )
     
     # ==========================================================================
+    # CAPTCHA Solving Configuration
+    # ==========================================================================
+    TWOCAPTCHA_API_KEY: Optional[str] = Field(
+        default=None,
+        description="2Captcha API key for automated CAPTCHA solving"
+    )
+    ANTICAPTCHA_API_KEY: Optional[str] = Field(
+        default=None,
+        description="AntiCaptcha API key for automated CAPTCHA solving"
+    )
+    CAPTCHA_SOLVE_TIMEOUT: int = Field(
+        default=120,
+        description="Maximum seconds to wait for CAPTCHA solution"
+    )
+    
+    # ==========================================================================
     # Redis Configuration (for caching and rate limiting)
     # ==========================================================================
     REDIS_URL: Optional[str] = Field(
