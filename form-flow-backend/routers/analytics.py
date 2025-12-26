@@ -57,6 +57,7 @@ async def get_dashboard_analytics(
         submissions_by_day = _get_submissions_by_day(submissions)
         
         # Success by form type
+        # Success by form type
         success_by_type = _get_success_by_type(submissions)
         
         # Field types filled (mock based on typical form data)
@@ -69,10 +70,16 @@ async def get_dashboard_analytics(
             {"name": "Other", "value": int(total_fields_filled * 0.10)},
         ]
         
+        # Top Domains & Activity by Hour
+        top_domains = _get_top_domains(submissions)
+        activity_by_hour = _get_activity_by_hour(submissions)
+        
         charts = {
             "submissions_by_day": submissions_by_day,
             "success_by_type": success_by_type,
             "field_types": field_types,
+            "top_domains": top_domains,
+            "activity_by_hour": activity_by_hour,
         }
         
         # === AI INSIGHTS ===
@@ -130,6 +137,44 @@ def _get_success_by_type(submissions: List[Submission]) -> List[Dict[str, Any]]:
         {"type": t, "success": d["success"], "fail": d["fail"]}
         for t, d in type_stats.items()
     ]
+
+
+def _get_top_domains(submissions: List[Submission]) -> List[Dict[str, Any]]:
+    """Get top 5 most frequent domains from submissions."""
+    from urllib.parse import urlparse
+    
+    domain_counts = defaultdict(int)
+    for s in submissions:
+        url = getattr(s, 'form_url', '') or ''
+        if not url:
+            continue
+        try:
+            # Extract domain
+            if 'http' not in url:
+                url = 'http://' + url
+            parsed = urlparse(url)
+            domain = parsed.netloc.replace('www.', '')
+            if domain:
+                domain_counts[domain] += 1
+        except:
+            continue
+            
+    # Sort by count desc and take top 5
+    sorted_domains = sorted(domain_counts.items(), key=lambda x: x[1], reverse=True)[:5]
+    
+    return [{"name": domain, "value": count} for domain, count in sorted_domains]
+
+
+def _get_activity_by_hour(submissions: List[Submission]) -> List[Dict[str, Any]]:
+    """Get submission activity count by hour of day (0-23)."""
+    hour_counts = defaultdict(int)
+    
+    for s in submissions:
+        if hasattr(s, 'timestamp') and s.timestamp:
+            hour_counts[s.timestamp.hour] += 1
+            
+    # Return all 24 hours
+    return [{"hour": h, "count": hour_counts[h]} for h in range(24)]
 
 
 def _generate_ai_insights(summary: Dict[str, Any], submissions: List) -> str:

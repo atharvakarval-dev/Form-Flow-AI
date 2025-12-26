@@ -6,7 +6,7 @@ import { Clock, ExternalLink, FileText, CheckCircle2, XCircle, TrendingUp, PieCh
 import api, { getAnalytics } from '@/services/api'
 import { ROUTES } from '@/constants'
 import { useTheme } from '@/context/ThemeProvider'
-import { SubmissionTrendChart, SuccessRateChart, FieldTypesChart, FormTypeChart } from './AnalyticsCharts'
+import { SubmissionTrendChart, SuccessRateChart, FieldTypesChart, FormTypeChart, TopDomainsChart, ActivityHourlyChart } from './AnalyticsCharts'
 import { AIInsights } from './AIInsights'
 
 const ITEMS_PER_PAGE = 5;
@@ -135,7 +135,29 @@ export function Dashboard() {
             }
         ];
 
-        return { submissions_by_day, field_types, success_by_type };
+        // Top Domains
+        const domainCounts = {};
+        submissions.forEach(s => {
+            try {
+                const hostname = new URL(s.form_url).hostname.replace('www.', '');
+                domainCounts[hostname] = (domainCounts[hostname] || 0) + 1;
+            } catch (e) { /* ignore invalid urls */ }
+        });
+        const top_domains = Object.entries(domainCounts)
+            .map(([name, value]) => ({ name, value }))
+            .sort((a, b) => b.value - a.value)
+            .slice(0, 5);
+
+        // Activity by Hour
+        const hours = Array(24).fill(0).map((_, i) => ({ hour: i, count: 0 }));
+        submissions.forEach(s => {
+            const h = new Date(s.timestamp).getHours();
+            if (hours[h]) hours[h].count++;
+        });
+        // Filter to only show active ranges or compress if needed, but returning full 24h is fine for bar chart
+        const activity_by_hour = hours;
+
+        return { submissions_by_day, field_types, success_by_type, top_domains, activity_by_hour };
     }
 
     // Pagination calculations
@@ -179,8 +201,8 @@ export function Dashboard() {
                             <button
                                 onClick={() => setActiveTab('history')}
                                 className={`px-3 py-1.5 rounded-md text-xs font-medium transition-all flex items-center gap-2 ${activeTab === 'history'
-                                        ? `${isDark ? 'bg-white/10 text-white shadow-sm' : 'bg-white text-zinc-900 shadow-sm border border-black/5'}`
-                                        : `${isDark ? 'text-white/40 hover:bg-white/5 hover:text-white/60' : 'text-zinc-400 hover:bg-zinc-200/50 hover:text-zinc-600'}`
+                                    ? `${isDark ? 'bg-white/10 text-white shadow-sm' : 'bg-white text-zinc-900 shadow-sm border border-black/5'}`
+                                    : `${isDark ? 'text-white/40 hover:bg-white/5 hover:text-white/60' : 'text-zinc-400 hover:bg-zinc-200/50 hover:text-zinc-600'}`
                                     }`}
                             >
                                 <FileText className="w-3.5 h-3.5" />
@@ -189,8 +211,8 @@ export function Dashboard() {
                             <button
                                 onClick={() => setActiveTab('analytics')}
                                 className={`px-3 py-1.5 rounded-md text-xs font-medium transition-all flex items-center gap-2 ${activeTab === 'analytics'
-                                        ? `${isDark ? 'bg-white/10 text-white shadow-sm' : 'bg-white text-zinc-900 shadow-sm border border-black/5'}`
-                                        : `${isDark ? 'text-white/40 hover:bg-white/5 hover:text-white/60' : 'text-zinc-400 hover:bg-zinc-200/50 hover:text-zinc-600'}`
+                                    ? `${isDark ? 'bg-white/10 text-white shadow-sm' : 'bg-white text-zinc-900 shadow-sm border border-black/5'}`
+                                    : `${isDark ? 'text-white/40 hover:bg-white/5 hover:text-white/60' : 'text-zinc-400 hover:bg-zinc-200/50 hover:text-zinc-600'}`
                                     }`}
                             >
                                 <TrendingUp className="w-3.5 h-3.5" />
@@ -304,76 +326,110 @@ export function Dashboard() {
 
                         {/* Tab Content: ANALYTICS */}
                         {activeTab === 'analytics' && (
-                            <div className="space-y-8">
-                                {/* Stats Cards - Moved Inside Analytics Tab */}
-                                <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                                    <div className={`rounded-2xl p-6 border ${cardBgClass}`}>
-                                        <div className={`text-xs font-medium uppercase tracking-wider mb-2 ${cardLabelClass}`}>Total Forms</div>
-                                        <div className="text-4xl font-bold">{analytics?.summary?.total_forms || history.length}</div>
-                                    </div>
-                                    <div className={`rounded-2xl p-6 border ${cardBgClass}`}>
-                                        <div className={`text-xs font-medium uppercase tracking-wider mb-2 ${cardLabelClass}`}>Success Rate</div>
-                                        <div className="text-4xl font-bold text-green-400">
-                                            {analytics?.summary?.success_rate || (history.length > 0
-                                                ? Math.round((history.filter(h => h.status === 'Success').length / history.length) * 100)
-                                                : 0)}%
+                            <div className="grid grid-cols-1 md:grid-cols-3 gap-6 auto-rows-[minmax(180px,auto)]">
+
+                                {/* COLUMN 1: Stats & Success Rate */}
+                                <div className="space-y-6 flex flex-col h-full">
+                                    {/* Top: Quick Stats */}
+                                    <div className={`rounded-3xl p-6 border flex-1 flex flex-col justify-center gap-4 ${cardBgClass}`}>
+                                        <div className="flex items-center justify-between">
+                                            <div className={`text-xs font-medium uppercase tracking-wider ${cardLabelClass}`}>Total Forms</div>
+                                            <div className="text-2xl font-bold">{analytics?.summary?.total_forms || history.length}</div>
+                                        </div>
+                                        <div className="w-full h-px bg-white/5"></div>
+                                        <div className="flex items-center justify-between">
+                                            <div className={`text-xs font-medium uppercase tracking-wider ${cardLabelClass}`}>Time Saved</div>
+                                            <div className="text-2xl font-bold text-blue-400">
+                                                {analytics?.summary?.avg_time_saved_seconds
+                                                    ? `${Math.round(analytics.summary.avg_time_saved_seconds / 60)}m`
+                                                    : '0m'}
+                                            </div>
                                         </div>
                                     </div>
-                                    <div className={`rounded-2xl p-6 border ${cardBgClass}`}>
-                                        <div className={`text-xs font-medium uppercase tracking-wider mb-2 ${cardLabelClass}`}>Time Saved</div>
-                                        <div className="text-4xl font-bold text-blue-400">
-                                            {analytics?.summary?.avg_time_saved_seconds
-                                                ? `${Math.round(analytics.summary.avg_time_saved_seconds / 60)}m`
-                                                : '0m'}
+
+                                    {/* Bottom: Success Rate (Big Pie) */}
+                                    <div className={`rounded-3xl p-6 border flex-[2] relative ${cardBgClass}`}>
+                                        <div className="flex items-center gap-2 mb-4 absolute top-6 left-6 z-10">
+                                            <PieChart className={`h-4 w-4 ${isDark ? 'text-green-400' : 'text-green-600'}`} />
+                                            <h3 className={`font-semibold text-sm ${mainTextClass}`}>Success Rate</h3>
+                                        </div>
+                                        <div className="h-full pt-6">
+                                            <SuccessRateChart successRate={analytics?.summary?.success_rate || (history.length > 0 ? Math.round((history.filter(h => h.status === 'Success').length / history.length) * 100) : 0)} />
                                         </div>
                                     </div>
                                 </div>
 
-                                {/* AI Insights */}
-                                {analytics?.ai_insights && (
-                                    <AIInsights
-                                        insights={analytics.ai_insights}
-                                        isLoading={analyticsLoading}
-                                        onRefresh={fetchAnalytics}
-                                    />
-                                )}
-
-                                {/* Charts Grid (using fallback chartData) */}
-                                {chartData && history.length > 0 ? (
-                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                                        <div className={`rounded-2xl p-6 border ${cardBgClass}`}>
-                                            <div className="flex items-center gap-2 mb-4">
-                                                <TrendingUp className={`h-5 w-5 ${isDark ? 'text-green-400' : 'text-green-600'}`} />
-                                                <h3 className={`font-semibold ${mainTextClass}`}>Submission Trend (7 days)</h3>
-                                            </div>
-                                            <SubmissionTrendChart data={chartData.submissions_by_day || []} />
-                                        </div>
-
-                                        <div className={`rounded-2xl p-6 border ${cardBgClass}`}>
-                                            <div className="flex items-center gap-2 mb-4">
-                                                <BarChart3 className={`h-5 w-5 ${isDark ? 'text-blue-400' : 'text-blue-600'}`} />
-                                                <h3 className={`font-semibold ${mainTextClass}`}>Fields Filled by Type</h3>
-                                            </div>
-                                            <FieldTypesChart data={chartData.field_types || []} />
-                                        </div>
-
-                                        {chartData.success_by_type?.length > 0 && (
-                                            <div className={`rounded-2xl p-6 border md:col-span-2 ${cardBgClass}`}>
-                                                <div className="flex items-center gap-2 mb-4">
-                                                    <PieChart className={`h-5 w-5 ${isDark ? 'text-purple-400' : 'text-purple-600'}`} />
-                                                    <h3 className={`font-semibold ${mainTextClass}`}>Success by Form Type</h3>
-                                                </div>
-                                                <div className="h-64">
-                                                    <FormTypeChart data={chartData.success_by_type} />
-                                                </div>
-                                            </div>
-                                        )}
+                                {/* COLUMN 2: AI Insights & Line Chart */}
+                                <div className="space-y-6 flex flex-col h-full">
+                                    {/* Top: AI Insights (Data Labeling) */}
+                                    <div className={`rounded-3xl p-6 border flex-1 ${cardBgClass} overflow-hidden`}>
+                                        <AIInsights
+                                            insights={analytics?.ai_insights}
+                                            isLoading={analyticsLoading}
+                                            onRefresh={fetchAnalytics}
+                                        />
                                     </div>
-                                ) : (
-                                    <div className="text-center py-12 opacity-50">
-                                        No data available for charts yet.
+
+                                    {/* Middle: Activity by Hour */}
+                                    <div className={`rounded-3xl p-6 border flex-1 relative ${cardBgClass}`}>
+                                        <div className="flex items-center gap-2 mb-2">
+                                            <Clock className={`h-4 w-4 ${isDark ? 'text-blue-400' : 'text-blue-600'}`} />
+                                            <h3 className={`font-semibold text-sm ${mainTextClass}`}>Hourly Activity</h3>
+                                        </div>
+                                        <div className="h-[120px] w-full">
+                                            <ActivityHourlyChart data={chartData?.activity_by_hour || []} />
+                                        </div>
                                     </div>
-                                )}
+
+                                    {/* Bottom: Submission Trend */}
+                                    <div className={`rounded-3xl p-6 border flex-[1.5] relative ${cardBgClass}`}>
+                                        <div className="flex items-center gap-2 mb-2">
+                                            <TrendingUp className={`h-4 w-4 ${isDark ? 'text-amber-400' : 'text-amber-600'}`} />
+                                            <h3 className={`font-semibold text-sm ${mainTextClass}`}>Activity Trend</h3>
+                                        </div>
+                                        <div className="h-[160px] w-full">
+                                            <SubmissionTrendChart data={chartData?.submissions_by_day || []} />
+                                        </div>
+                                    </div>
+                                </div>
+
+                                {/* COLUMN 3: Composition / Field Types */}
+                                <div className={`rounded-3xl p-6 border md:col-span-1 h-full flex flex-col ${cardBgClass}`}>
+                                    <div className="flex items-center gap-2 mb-6 shrink-0">
+                                        <BarChart3 className={`h-4 w-4 ${isDark ? 'text-purple-400' : 'text-purple-600'}`} />
+                                        <h3 className={`font-semibold text-sm ${mainTextClass}`}>Field Composition</h3>
+                                    </div>
+
+                                    <div className={`text-xs mb-4 ${subTextClass}`}>
+                                        Breakdown of input types across all submitted forms.
+                                    </div>
+
+                                    <div className="flex-1 min-h-[180px]">
+                                        <FieldTypesChart data={chartData?.field_types || []} />
+                                    </div>
+
+                                    {/* Legend for Composition */}
+                                    <div className="grid grid-cols-2 gap-2 mt-4 pt-4 border-t border-white/5 mb-6">
+                                        {(chartData?.field_types || []).slice(0, 6).map((type, i) => (
+                                            <div key={type.name} className="flex items-center gap-2 text-xs text-zinc-500">
+                                                <div className="w-2 h-2 rounded-full" style={{ backgroundColor: ['#3B82F6', '#8B5CF6', '#F59E0B', '#10B981', '#EC4899', '#6366F1'][i] }}></div>
+                                                {type.name}
+                                            </div>
+                                        ))}
+                                    </div>
+
+                                    {/* Top Domains - Stacked in Col 3 */}
+                                    <div className={`pt-6 border-t ${isDark ? 'border-white/10' : 'border-zinc-200'}`}>
+                                        <div className="flex items-center gap-2 mb-4">
+                                            <ExternalLink className={`h-4 w-4 ${isDark ? 'text-pink-400' : 'text-pink-600'}`} />
+                                            <h3 className={`font-semibold text-sm ${mainTextClass}`}>Top Domains</h3>
+                                        </div>
+                                        <div className="h-[150px] w-full">
+                                            <TopDomainsChart data={chartData?.top_domains || []} />
+                                        </div>
+                                    </div>
+                                </div>
+
                             </div>
                         )}
 
