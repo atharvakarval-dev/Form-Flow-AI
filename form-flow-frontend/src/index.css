@@ -287,3 +287,14 @@ button:focus {
   opacity: 0.8;
   pointer-events: none;
 }
+
+/* Prompt Input Box - Inverted theme styling */
+/* Light mode: black box with light text/placeholder */
+.prompt-input-textarea::placeholder {
+  color: #a1a1aa;
+}
+
+/* Dark mode: white box with dark text/placeholder */
+.dark .prompt-input-textarea::placeholder {
+  color: #71717a;
+}
