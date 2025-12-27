@@ -1,303 +1,286 @@
 """
-Voice Input Processor
+Voice Processor
 
-Core voice processing functionality.
-Re-exports components from submodules for backwards compatibility.
+Main orchestrator for voice input processing.
+Coordinates normalization, STT correction, and quality assessment.
 """
 
-import re
-from typing import Dict, Any, Optional, List
-from collections import defaultdict
-from dataclasses import dataclass
-from enum import Enum
+from typing import Dict, Any, Optional
 
-from services.ai.normalizers import normalize_email_smart
 from utils.logging import get_logger
+
+# Import normalizers
+from services.ai.voice.normalization import (
+    EmailNormalizer,
+    PhoneNormalizer,
+    NameNormalizer,
+    NumberNormalizer,
+    DateNormalizer,
+    AddressNormalizer,
+)
+
+# Import STT modules
+from services.ai.voice.stt import (
+    STTCorrector,
+    SpelledTextHandler,
+    LearningSystem,
+)
+
+# Import quality modules
+from services.ai.voice.quality import (
+    HesitationDetector,
+    ConfidenceCalibrator,
+)
+
+# Import strategies
+from services.ai.voice.strategies import (
+    ClarificationStrategy,
+    FallbackStrategy,
+)
 
 logger = get_logger(__name__)
 
 
-class VoiceInputProcessor:
+class VoiceProcessor:
     """
-    Handle voice-specific issues that text doesn't have.
+    Main voice processing orchestrator.
     
-    Converts spoken text to proper format:
-    - "john at gmail dot com" → "john@gmail.com"
-    - "five five five one two three four" → "555-1234"
-    - "j o h n" → "john" (spelled out letters)
+    Coordinates:
+    - STT corrections
+    - Field-specific normalization
+    - Learning from corrections
+    - Hesitation detection
     """
     
-    # Common STT (Speech-to-Text) articulation patterns
-    STT_CORRECTIONS = {
-        'at the rate': '@', 'at the rate of': '@', 'at sign': '@',
-        'at symbol': '@', 'at the': '@',
-        'dot com': '.com', 'dot org': '.org', 'dot net': '.net',
-        'dot edu': '.edu', 'dot co': '.co', 'dot gov': '.gov', 'dot io': '.io',
-        'gmail dot com': 'gmail.com', 'yahoo dot com': 'yahoo.com',
-        'g mail': 'gmail', 'gee mail': 'gmail', 'hot mail': 'hotmail',
-        'underscore': '_', 'under score': '_', 'hyphen': '-', 'dash': '-',
-        'period': '.', 'dot': '.', 'full stop': '.', 'plus': '+',
-    }
+    def __init__(self):
+        """Initialize with all components."""
+        # Normalizers by field type
+        self.normalizers = {
+            'email': EmailNormalizer(),
+            'tel': PhoneNormalizer(),
+            'phone': PhoneNormalizer(),
+            'mobile': PhoneNormalizer(),
+            'name': NameNormalizer(),
+            'first_name': NameNormalizer(),
+            'last_name': NameNormalizer(),
+            'number': NumberNormalizer(),
+            'date': DateNormalizer(),
+            'dob': DateNormalizer(),
+            'address': AddressNormalizer(),
+            'street': AddressNormalizer(),
+        }
+        
+        # Other components
+        self.stt_corrector = STTCorrector()
+        self.learning_system = LearningSystem()
+        self.hesitation_detector = HesitationDetector
     
-    # Number words to digits
-    NUMBER_WORDS = {
-        'zero': '0', 'oh': '0', 'o': '0', 'one': '1', 'two': '2',
-        'three': '3', 'four': '4', 'five': '5', 'six': '6',
-        'seven': '7', 'eight': '8', 'nine': '9', 'ten': '10',
-    }
-    
-    # Learning system for user corrections
-    _user_corrections: Dict[str, str] = {}
-    _correction_count: Dict[str, int] = defaultdict(int)
-    
-    @classmethod
-    def normalize_voice_input(
-        cls, 
-        raw_voice_text: str,
-        expected_field_type: Optional[str] = None,
+    def normalize_input(
+        self,
+        text: str,
+        field_type: Optional[str] = None,
+        field_name: Optional[str] = None,
         context: Optional[Dict[str, Any]] = None
     ) -> str:
         """
-        Normalize voice input with context awareness.
+        Main entry point for voice normalization.
+        
+        Pipeline:
+        1. Apply learned corrections
+        2. Apply general STT corrections
+        3. Handle spelled-out text
+        4. Route to specific normalizer
         
         Args:
-            raw_voice_text: Raw text from STT
-            expected_field_type: Hint about what type of data is expected
-            context: Previous field values for cross-field validation
+            text: Raw voice input
+            field_type: Type of field (email, phone, etc.)
+            field_name: Name of field
+            context: Additional context
             
         Returns:
-            Normalized text ready for extraction
+            Normalized text
         """
-        if not raw_voice_text:
+        if not text:
             return ""
         
-        normalized = raw_voice_text.strip().lower()
+        result = text.strip()
         
-        # Apply learned corrections
-        normalized = cls._apply_learned_corrections(normalized)
+        # 1. Apply learned corrections first
+        result = self.learning_system.apply_learned_corrections(result)
         
-        # Apply general STT corrections
-        normalized = cls._apply_stt_corrections(normalized)
+        # 2. Apply general STT corrections
+        result = self.stt_corrector.apply_corrections(result, field_type)
         
-        # Handle spelled-out text
-        if cls._is_spelled_out(normalized):
-            normalized = cls._join_spelled_letters(normalized)
+        # 3. Handle spelled-out text
+        if SpelledTextHandler.is_spelled_out(result):
+            result = SpelledTextHandler.join_spelled_letters(result)
         
-        # Field-specific normalization
-        if expected_field_type == 'email':
-            normalized = cls._normalize_email(normalized)
-        elif expected_field_type in ['tel', 'phone']:
-            normalized = cls._normalize_phone(normalized, context)
-        elif expected_field_type == 'number':
-            normalized = cls._normalize_number(normalized)
-        elif expected_field_type == 'name':
-            normalized = cls._normalize_name(normalized)
+        # 4. Route        # Select normalizer
+        normalizer = self._get_normalizer(field_type, field_name)
         
-        return normalized.strip()
-    
-    @classmethod
-    def _apply_learned_corrections(cls, text: str) -> str:
-        """Apply corrections learned from user feedback."""
-        result = text
-        for wrong, correct in cls._user_corrections.items():
-            if wrong in result:
-                result = result.replace(wrong, correct)
+        if normalizer:
+            result = normalizer.normalize(result, context)
+        
+        logger.debug(f"Normalized: '{text}' → '{result}'")
         return result
     
-    @classmethod
-    def learn_from_correction(cls, heard: str, actual: str):
-        """Learn from user corrections to improve over time."""
-        if heard and actual and heard != actual:
-            heard_lower = heard.lower().strip()
-            actual_lower = actual.lower().strip()
-            
-            # Only learn if it's a clear pattern
-            if len(heard_lower) >= 3 and len(actual_lower) >= 3:
-                cls._user_corrections[heard_lower] = actual_lower
-                cls._correction_count[heard_lower] += 1
+    def _get_normalizer(self, field_type: Optional[str], field_name: Optional[str]):
+        """Get appropriate normalizer for field."""
+        # Try by type first
+        if field_type and field_type in self.normalizers:
+            return self.normalizers[field_type]
+        
+        # Try by name
+        if field_name:
+            name_lower = field_name.lower()
+            for key, normalizer in self.normalizers.items():
+                if key in name_lower:
+                    return normalizer
+        
+        return None
     
-    @classmethod
-    def _apply_stt_corrections(cls, text: str) -> str:
-        """Apply all STT correction patterns."""
-        result = text
-        for pattern, replacement in cls.STT_CORRECTIONS.items():
-            result = result.replace(pattern, replacement)
-        return result
+    def learn_from_correction(self, heard: str, actual: str, context: Optional[Dict] = None):
+        """
+        Learn from user correction.
+        
+        Args:
+            heard: What STT heard
+            actual: What user corrected to
+            context: Additional context
+        """
+        self.learning_system.record_correction(heard, actual, context)
     
-    @classmethod
-    def _is_spelled_out(cls, text: str) -> bool:
-        """Detect if user is spelling out letters."""
-        words = text.split()
-        if len(words) < 4:
-            return False
-        single_letters = sum(1 for w in words if len(w) == 1 and w.isalpha())
-        return single_letters >= len(words) * 0.6
+    def detect_hesitation(self, text: str) -> bool:
+        """Check if user is hesitating."""
+        return self.hesitation_detector.detect_hesitation(text)
     
-    @classmethod
-    def _join_spelled_letters(cls, text: str) -> str:
-        """Join spelled out letters: 'j o h n at g m a i l' → 'john@gmail'"""
-        words = text.split()
-        result = []
-        current = []
-        
-        for word in words:
-            # Check for separators
-            if word in ['at', '@']:
-                if current:
-                    result.append(''.join(current))
-                    current = []
-                result.append('@')
-            elif word in ['dot', '.']:
-                if current:
-                    result.append(''.join(current))
-                    current = []
-                result.append('.')
-            elif len(word) == 1 and word.isalpha():
-                current.append(word)
-            else:
-                if current:
-                    result.append(''.join(current))
-                    current = []
-                result.append(word)
-        
-        if current:
-            result.append(''.join(current))
-        
-        return ''.join(result)
+    def get_clarification(
+        self,
+        field_info: Dict[str, Any],
+        attempt_count: int
+    ) -> str:
+        """Get progressive clarification message."""
+        return ClarificationStrategy.get_clarification(field_info, attempt_count)
     
-    @classmethod
-    def _normalize_email(cls, text: str) -> str:
-        """Normalize email using centralized smart normalizer."""
-        return normalize_email_smart(text)
+    def should_offer_fallback(
+        self,
+        field_name: str,
+        field_type: str,
+        failure_count: int
+    ) -> bool:
+        """Check if fallback options should be offered."""
+        return FallbackStrategy.should_offer_fallback(field_name, field_type, failure_count)
     
-    @classmethod
-    def _normalize_phone(cls, text: str, context: Optional[Dict] = None) -> str:
-        """Normalize phone numbers."""
-        # Convert number words to digits
-        words = text.split()
-        result = []
-        for word in words:
-            if word in cls.NUMBER_WORDS:
-                result.append(cls.NUMBER_WORDS[word])
-            else:
-                result.append(word)
-        
-        text = ' '.join(result)
-        
-        # Extract digits only
-        digits = re.sub(r'[^\d+]', '', text)
-        return digits
+    def get_fallback_options(self, field_name: str, label: str) -> Dict[str, Any]:
+        """Get fallback options for UI."""
+        return FallbackStrategy.generate_fallback_options(field_name, label)
     
-    @classmethod
-    def _normalize_number(cls, text: str) -> str:
-        """Convert spoken numbers to digits."""
-        words = text.split()
-        result = []
-        for word in words:
-            if word in cls.NUMBER_WORDS:
-                result.append(cls.NUMBER_WORDS[word])
-            elif word.isdigit():
-                result.append(word)
-        return ''.join(result) if result else text
-    
-    @classmethod
-    def _normalize_name(cls, text: str) -> str:
-        """Normalize names with proper capitalization."""
-        # Remove common prefixes
-        prefixes = [
-            r"^(?:my\s+)?(?:name\s+is\s+)",
-            r"^(?:i'?m\s+)",
-            r"^(?:this\s+is\s+)",
-            r"^(?:call\s+me\s+)",
-        ]
-        
-        for prefix in prefixes:
-            text = re.sub(prefix, '', text, flags=re.IGNORECASE)
-        
-        return text.strip().title()
-    
-    @classmethod
-    def detect_hesitation(cls, text: str) -> Dict[str, Any]:
-        """Detect if user is hesitating/struggling."""
-        filler_patterns = [
-            r'\bum+\b', r'\buh+\b', r'\ber+\b', r'\bah+\b',
-            r'\blike\b', r'\byou know\b', r'\bi mean\b',
-            r'\bso\b', r'\bwell\b', r'\bactually\b',
-        ]
-        
-        filler_count = sum(
-            len(re.findall(pattern, text.lower()))
-            for pattern in filler_patterns
-        )
-        
-        word_count = len(text.split())
-        is_hesitant = filler_count >= 2 or (word_count > 0 and filler_count / word_count > 0.3)
-        
+    def get_statistics(self) -> Dict[str, Any]:
+        """Get processing statistics."""
         return {
-            "is_hesitant": is_hesitant,
-            "filler_count": filler_count,
-            "confidence_penalty": min(0.3, filler_count * 0.1)
+            'learning': self.learning_system.get_statistics(),
         }
+
+
+# Singleton instance for backward compatibility
+_processor_instance = None
+
+
+def get_voice_processor() -> VoiceProcessor:
+    """Get singleton voice processor instance."""
+    global _processor_instance
+    if _processor_instance is None:
+        _processor_instance = VoiceProcessor()
+    return _processor_instance
+
+
+# Backward compatibility class wrapper
+class VoiceInputProcessor:
+    """
+    Backward compatibility wrapper.
     
-    @classmethod
-    def extract_partial_email(cls, text: str) -> Dict[str, Any]:
-        """Extract parts of an email for step-by-step entry."""
-        result = {"local_part": None, "domain": None}
+    Provides static methods that delegate to VoiceProcessor instance.
+    """
+    
+    @staticmethod
+    def normalize_voice_input(
+        text: str,
+        expected_field_type: Optional[str] = None,
+        context: Optional[Dict] = None,
+        **kwargs
+    ) -> str:
+        """Normalize voice input (backward compatible)."""
+        processor = get_voice_processor()
+        
+        # Determine actual context
+        # If context passed explicitly, use it. Merge kwargs if any.
+        actual_context = context or {}
+        if kwargs:
+            actual_context.update(kwargs)
+            
+        return processor.normalize_input(
+            text,
+            field_type=expected_field_type,
+            context=actual_context
+        )
+    
+    @staticmethod
+    def learn_from_correction(heard: str, actual: str):
+        """Learn from correction (backward compatible)."""
+        processor = get_voice_processor()
+        processor.learn_from_correction(heard, actual)
+    
+    @staticmethod
+    def detect_hesitation(text: str) -> bool:
+        """Detect hesitation (backward compatible)."""
+        processor = get_voice_processor()
+        return processor.detect_hesitation(text)
+    
+    @staticmethod
+    def _is_spelled_out(text: str) -> bool:
+        """Check if text is spelled out (backward compatible)."""
+        return SpelledTextHandler.is_spelled_out(text)
+    
+    @staticmethod
+    def _join_spelled_letters(text: str) -> str:
+        """Join spelled letters (backward compatible)."""
+        return SpelledTextHandler.join_spelled_letters(text)
+    
+    @staticmethod
+    def extract_partial_email(text: str) -> Dict[str, Any]:
+        """
+        Extract partial email for step-by-step entry.
+        
+        Args:
+            text: Input that may contain partial email
+            
+        Returns:
+            Dict with local_part, domain, is_complete
+        """
+        result = {
+            'local_part': '',
+            'domain': '',
+            'is_complete': False
+        }
+        
+        if not text:
+            return result
+        
+        text = text.strip()
         
         if '@' in text:
-            parts = text.split('@')
-            result["local_part"] = parts[0].strip()
-            if len(parts) > 1:
-                result["domain"] = parts[1].strip()
+            parts = text.split('@', 1)
+            result['local_part'] = parts[0]
+            result['domain'] = parts[1] if len(parts) > 1 and parts[1] else None
+            result['is_complete'] = '.' in (result['domain'] or '')
+        else:
+            result['local_part'] = text
+            result['domain'] = None
         
         return result
 
 
-# Re-export PhoneticMatcher for compatibility
-class PhoneticMatcher:
-    """Match names phonetically for better STT error handling."""
-    
-    PHONETIC_MAP = {
-        'B': '1', 'F': '1', 'P': '1', 'V': '1',
-        'C': '2', 'G': '2', 'J': '2', 'K': '2', 'Q': '2', 'S': '2', 'X': '2', 'Z': '2',
-        'D': '3', 'T': '3',
-        'L': '4',
-        'M': '5', 'N': '5',
-        'R': '6',
-    }
-    
-    @classmethod
-    def get_phonetic_key(cls, name: str) -> str:
-        """Generate phonetic key for name matching."""
-        if not name:
-            return ""
-        
-        name = name.upper().strip()
-        first_letter = name[0] if name else ''
-        
-        # Apply phonetic mapping
-        key = first_letter
-        prev_code = ''
-        
-        for char in name[1:]:
-            code = cls.PHONETIC_MAP.get(char, '')
-            if code and code != prev_code:
-                key += code
-                prev_code = code
-        
-        return (key + '0000')[:4]
-    
-    @classmethod
-    def are_similar(cls, name1: str, name2: str, threshold: float = 0.8) -> bool:
-        """Check if two names are phonetically similar."""
-        key1 = cls.get_phonetic_key(name1)
-        key2 = cls.get_phonetic_key(name2)
-        
-        if not key1 or not key2:
-            return False
-        
-        # Compare keys
-        matches = sum(1 for a, b in zip(key1, key2) if a == b)
-        similarity = matches / max(len(key1), len(key2))
-        
-        return similarity >= threshold
+# Initialize backward compatibility state
+# Bind the corrections dict so tests can access/clear it
+VoiceInputProcessor._user_corrections = get_voice_processor().learning_system.corrections
+
