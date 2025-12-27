@@ -270,6 +270,30 @@ class IntentHandler:
                     next_questions=[]
                 )
         
+        # Check skipped or remaining fields (User might say "correct country" even if skipped)
+        all_other_fields = session.get_remaining_fields() + \
+                          [f for f in session.get_all_fields() if f['name'] in session.skipped_fields]
+        
+        for field in all_other_fields:
+            field_name = field.get('name', '')
+            field_label = field.get('label', field_name)
+            
+            if field_name.lower() in user_input_lower or field_label.lower() in user_input_lower:
+                # Found a field they want to fill/correct
+                # If it was skipped, remove from skipped
+                if field_name in session.skipped_fields:
+                    session.skipped_fields.remove(field_name)
+                    
+                return AgentResponse(
+                    message=f"Sure, let's fill {field_label}. What is the value?",
+                    extracted_values={},
+                    confidence_scores={},
+                    needs_confirmation=[],
+                    remaining_fields=remaining_fields,
+                    is_complete=False,
+                    next_questions=[field] # Ask about this field specifically
+                )
+        
         # No specific field mentioned - ask which one
         filled_fields = list(session.extracted_fields.keys())
         if filled_fields:

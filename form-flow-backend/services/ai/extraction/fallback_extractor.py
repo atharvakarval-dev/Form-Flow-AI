@@ -45,8 +45,12 @@ class IntelligentFallbackExtractor:
         # Step 1: Segment the input
         segments = IntelligentFallbackExtractor._segment_input(user_input)
         
-        # Step 2: Create field matchers
-        field_matchers = IntelligentFallbackExtractor._create_field_matchers(current_batch)
+        # Step 2: Create field matchers for ALL fields (current + remaining)
+        # This allows users to Provide "Country" even if we asked for "City"
+        # We prioritize current_batch in matching implicitly by ordering or logic if needed,
+        # but for now, just matching everything is safer for "smart" feel.
+        all_candidate_fields = current_batch + [f for f in remaining_fields if f not in current_batch]
+        field_matchers = IntelligentFallbackExtractor._create_field_matchers(all_candidate_fields)
         
         # Step 3: Match segments to fields
         for segment in segments:
@@ -56,8 +60,11 @@ class IntelligentFallbackExtractor:
                 if field_info['name'] in extracted:
                     continue  # Already extracted
                 
-                # Check if segment mentions this field
-                if IntelligentFallbackExtractor._segment_mentions_field(segment_lower, field_info):
+                # Check if segment mentions this field OR if it's implicitly the current topic
+                is_mentioned = IntelligentFallbackExtractor._segment_mentions_field(segment_lower, field_info)
+                is_current = field_info['name'] in [f.get('name') for f in current_batch]
+                
+                if is_mentioned or is_current:
                     # Extract value from segment
                     value, conf = IntelligentFallbackExtractor._extract_value_from_segment(
                         segment, 
@@ -80,6 +87,10 @@ class IntelligentFallbackExtractor:
         text = re.sub(r'\s+and\s+', ' |AND| ', text, flags=re.IGNORECASE)
         text = re.sub(r'\s+also\s+', ' |AND| ', text, flags=re.IGNORECASE)
         text = re.sub(r'\s+plus\s+', ' |AND| ', text, flags=re.IGNORECASE)
+        text = re.sub(r'\s+then\s+', ' |AND| ', text, flags=re.IGNORECASE)
+        # Split on "in my X" or "for my X" to separate independent clauses
+        text = re.sub(r'\s+in\s+my\s+', ' |AND| my ', text, flags=re.IGNORECASE)
+        text = re.sub(r'\s+for\s+my\s+', ' |AND| my ', text, flags=re.IGNORECASE)
         
         # Smart comma handling (don't split within email addresses or names)
         text = re.sub(r',\s+(?=(?:my|the|and)\s)', ' |AND| ', text, flags=re.IGNORECASE)
@@ -142,7 +153,7 @@ class IntelligentFallbackExtractor:
         if 'name' in field_name_lower or 'name' in field_label_lower:
             return {
                 'type': 'name',
-                'pattern': r'\b[A-Z][a-z]+(?:\s+[A-Z]?[a-z]+){1,3}\b',
+                'pattern': r'\b[A-Z][a-z]+(?:\s+[A-Z]?[a-z]+){0,3}\b',
                 'normalizer': normalize_name_smart
             }
         
@@ -207,7 +218,24 @@ class IntelligentFallbackExtractor:
                 
                 if is_valid:
                     return value, confidence * 0.95
-
+        
+        if extractor['type'] == 'text':
+            # Create regex to find field name at start of segment + optional connectors
+            # e.g. ^(my|the)?\s*message(s)?\s*(is|that|about|:|was)\s*
+            # Allow optional 's' for plural labels (message -> messages)
+            label_part = re.escape(field_info["label"][:20])
+            prefix_pattern = rf'^(?:my|the)?\s*{label_part}s?\s*(?:is|that|about|:|was)\s*'
+            
+            match = re.search(prefix_pattern, segment, re.IGNORECASE)
+            if match:
+                # E.g. "my message that I was testing..." -> "I was testing..."
+                raw_value = segment[match.end():].strip()
+                if raw_value:
+                    normalized_val = extractor['normalizer'](raw_value)
+                    is_valid, confidence = IntelligentFallbackExtractor._validate_extraction(normalized_val, 'text')
+                    if is_valid:
+                        return normalized_val, confidence * 0.90
+        
         # 2. Apply normalizer to whole segment
         normalized_segment = extractor['normalizer'](segment)
         
@@ -229,6 +257,15 @@ class IntelligentFallbackExtractor:
                 
                 if is_valid:
                     return value, confidence
+        
+        # 4. For raw text fields (like Message/Comments), if no specific pattern matched, 
+        # just take the whole (normalized) segment!
+        # This handles cases where user just speaks the message without preamble or with complex preamble we missed.
+        if extractor['type'] == 'text' and normalized_segment:
+             is_valid, confidence = IntelligentFallbackExtractor._validate_extraction(normalized_segment, 'text')
+             if is_valid:
+                 # Lower confidence since it's a catch-all
+                 return normalized_segment, 0.70
         
         return None, 0.0
     
@@ -253,8 +290,9 @@ class IntelligentFallbackExtractor:
             words = value.split()
             if 2 <= len(words) <= 4 and all(w.isalpha() for w in words):
                 return True, 0.88
-            elif len(words) >= 2:
-                return True, 0.75
+            elif len(words) >= 1 and all(w.isalpha() for w in words):
+                 # Allow single names but with lower confidence
+                return True, 0.60
             return False, 0.0
         
         elif field_type == 'number':

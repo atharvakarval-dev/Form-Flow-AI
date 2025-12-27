@@ -130,8 +130,71 @@ class ValueRefiner:
         # Step 3: Use TextRefiner for AI-powered cleanup (optional)
         if self.use_text_refiner and field_type in ['text', 'textarea']:
             value = self._apply_text_refiner(value, field_info)
-        
+            
+        # Step 4: Validate against options if available (Select/Dropdown)
+        # This fixes "British Indian Ocean Territory" vs "India"
+        options = field_info.get('options', [])
+        if options and isinstance(options, list):
+            matched_option = self._refine_against_options(value, options)
+            if matched_option:
+                return matched_option
+
         return value.strip()
+        
+    def _refine_against_options(self, value: str, options: List[str]) -> Optional[str]:
+        """
+        Match value against a list of options using fuzzy logic using Python's difflib.
+        Prioritizes exact matches and word-boundary matches.
+        """
+        if not value or not options:
+            return None
+            
+        if not value or not options:
+            return None
+            
+        value_lower = value.lower().strip()
+        
+        # Normalize options to strings for matching
+        # If option is dict, use 'label' or 'value'
+        normalized_options = []
+        original_map = {} # Map lower->original
+        
+        for opt in options:
+            if isinstance(opt, dict):
+                # Prefer label for matching user speech
+                opt_str = opt.get('label') or opt.get('name') or opt.get('value') or str(opt)
+            else:
+                opt_str = str(opt)
+            
+            if opt_str:
+                normalized_options.append(opt_str)
+                # Store mapping to return the ORIGINAL option format (dict or string) 
+                # OR should we return just the string? 
+                # The Extractor generally returns the STRING value to be filled in the form.
+                # If the form expects the 'value' ID (e.g. "IN" for India), we might need that.
+                # But for now, let's stick to returning the label/string so the frontend can handle selection?
+                # Actually, if we return the label "India", frontend can select "India".
+                # If we return "IN", frontend select might fail if it matches by label text from user input.
+                # Let's return the MATCHED STRING for now to be safe with existing logic.
+                original_map[opt_str.lower().strip()] = opt_str
+        
+        # 1. Exact Match (Case Insensitive)
+        if value_lower in original_map:
+            return original_map[value_lower]
+                
+        # 2. Starts With Match
+        for opt_str in normalized_options:
+             if opt_str.lower().strip().startswith(value_lower):
+                 return original_map[opt_str.lower().strip()]
+
+        # 3. Fuzzy Match
+        import difflib
+        matches = difflib.get_close_matches(value, normalized_options, n=1, cutoff=0.6)
+        
+        if matches:
+            return original_map[matches[0].lower().strip()]
+            
+        return None
     
     def _strip_transitions(self, value: str) -> str:
         """

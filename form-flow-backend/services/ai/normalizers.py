@@ -55,7 +55,18 @@ def normalize_email_smart(text: str) -> str:
         
     text = text.lower().strip()
     
-    # Step 1: Replace voice keywords for punctuation
+    # Step 1: Remove conversational prefixes (NEW)
+    prefixes = [
+        r"^(?:my\s+)?(?:email\s+)?(?:address|addresses)?\s+(?:is\s+)?",
+        r"^(?:it'?s?\s+)",
+        r"^(?:my\s+)?email\s+(?:is\s+)?",
+    ]
+    for prefix in prefixes:
+        text = re.sub(prefix, '', text, flags=re.IGNORECASE)
+    
+    text = text.strip()
+
+    # Step 2: Replace voice keywords for punctuation
     text = text.replace(' dot ', '.')
     text = text.replace(' underscore ', '_')
     text = text.replace(' dash ', '-')
@@ -64,40 +75,13 @@ def normalize_email_smart(text: str) -> str:
     # Handle edge cases: "dot" at end
     text = text.replace(' dot', '.')
     
-    # Step 2: Normalize spaces around existing @ symbol
-    # "Atharva Karwal @ gmail.com" → "Atharva Karwal@gmail.com"
+    # Step 3: Normalize spaces around existing @ symbol
     text = re.sub(r'\s*@\s*', '@', text)
     
-    # Step 3: If already has @ and ends with TLD, treat entire input as email
-    if '@' in text and re.search(r'\.(com|org|net|edu|gov|io|co|in|info|biz|me)$', text):
-        parts = text.split('@')
-        if len(parts) == 2:
-            # Remove ALL spaces and non-email chars from local part
-            local_part = re.sub(r'[^\w.\-+]', '', parts[0])
-            domain = parts[1].strip()
-            return f"{local_part}@{domain}"
-    
     # Step 4: Context-aware "at" → "@" conversion
-    # Only convert when followed by known domain
     domain_pattern = '|'.join(KNOWN_DOMAINS)
-    
-    # Pattern 1: "at (known_domain)" → "@domain"
-    text = re.sub(
-        rf'\s+at\s+({domain_pattern})(\.\w+)?',
-        r'@\1\2',
-        text,
-        flags=re.IGNORECASE
-    )
-    
-    # Pattern 2: "at (word.tld)" where TLD is known
-    text = re.sub(
-        r'\s+at\s+(\w+\.(com|org|net|edu|gov|io|co|in|info|biz|me))',
-        r'@\1',
-        text,
-        flags=re.IGNORECASE
-    )
-    
-    # Pattern 3: Handle "at the rate" or "at sign" variations
+    text = re.sub(rf'\s+at\s+({domain_pattern})(\.\w+)?', r'@\1\2', text, flags=re.IGNORECASE)
+    text = re.sub(r'\s+at\s+(\w+\.(com|org|net|edu|gov|io|co|in|info|biz|me))', r'@\1', text, flags=re.IGNORECASE)
     text = re.sub(r'\s+at\s*the\s*rate\s*(of\s*)?', '@', text, flags=re.IGNORECASE)
     text = re.sub(r'\s+at\s*sign\s*', '@', text, flags=re.IGNORECASE)
     
@@ -105,36 +89,62 @@ def normalize_email_smart(text: str) -> str:
     text = re.sub(r'\s*@\s*', '@', text)
     text = re.sub(r'\s*\.\s*(com|org|net|edu|gov|io|co|in)\b', r'.\1', text)
     
-    # Step 6: If we now have @, extract and clean the email
+    # Step 6: Extract and clean email
     if '@' in text:
-        # Extract the email portion from mixed content
-        email_match = re.search(r'(\S*@\S+)', text)
-        if email_match:
-            potential_email = email_match.group(1)
-            parts = potential_email.split('@')
+        # 1. Try Look-back extraction first (handles spaces: "Atharva karwal@gmail.com")
+        at_index = text.find('@')
+        if at_index > 0:
+            before_at = text[:at_index]
+            after_at = text[at_index+1:]
+             
+            # Split before_at by spaces
+            candidates = before_at.split()
+            valid_parts = []
+            for part in reversed(candidates):
+                # Stop if we hit a keyword or invalid char
+                # Allow dots, underscores, dashes, plus in local part
+                if re.match(r'^[a-zA-Z0-9._\-+]+$', part) and part.lower() not in ['is', 'at', 'my', 'the', 'email', 'address']:
+                    valid_parts.insert(0, part)
+                else:
+                    break
+             
+            if valid_parts:
+                local = "".join(valid_parts)
+                # Get domain (first word after @)
+                domain_match = re.search(r'^[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}', after_at)
+                if domain_match:
+                    domain = domain_match.group(0)
+                    return f"{local}@{domain}"
+
+        # 2. Fallback to strict extraction (non-whitespace around @)
+        strict_match = re.search(r'(\S+@\S+\.\w+)', text)
+        if strict_match:
+             parts = strict_match.group(1).split('@')
+             if len(parts) == 2:
+                 return f"{parts[0]}@{parts[1]}"
+
+        # 3. Relaxed extraction (allow spaces in local part if it was split)
+        parts = text.split('@')
+        if len(parts) >= 2:
+            local_part = parts[0]
+            domain = parts[1].strip()
             
-            if len(parts) == 2:
-                local_part = re.sub(r'[^\w.\-+]', '', parts[0])
-                domain = parts[1].replace(' ', '').strip()
-                
-                # Auto-complete common domains
-                domain_completions = {
-                    'gmail': 'gmail.com',
-                    'geemail': 'gmail.com', 
-                    'gmal': 'gmail.com',
-                    'yahoo': 'yahoo.com',
-                    'yaho': 'yahoo.com',
-                    'hotmail': 'hotmail.com',
-                    'outlook': 'outlook.com',
-                    'icloud': 'icloud.com',
-                    'protonmail': 'protonmail.com',
-                }
-                
-                if domain in domain_completions:
-                    domain = domain_completions[domain]
-                
-                text = f"{local_part}@{domain}"
-    
+            # Clean local part
+            local_cleaned = re.sub(r'[^\w.\-+]', '', local_part)
+            domain = domain.replace(' ', '').strip()
+            
+            # Auto-complete common domains
+            domain_completions = {
+                'gmail': 'gmail.com', 'geemail': 'gmail.com', 'gmal': 'gmail.com',
+                'yahoo': 'yahoo.com', 'yaho': 'yahoo.com',
+                'hotmail': 'hotmail.com', 'outlook': 'outlook.com',
+                'icloud': 'icloud.com', 'protonmail': 'protonmail.com',
+            }
+            if domain in domain_completions:
+                domain = domain_completions[domain]
+            
+            return f"{local_cleaned}@{domain}"
+
     return text
 
 

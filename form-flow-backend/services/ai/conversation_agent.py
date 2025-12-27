@@ -336,6 +336,28 @@ class ConversationAgent:
         
         if intent == UserIntent.SKIP and current_batch:
             result = await IntentHandler.handle_skip(session, current_batch, remaining_fields)
+            
+            # IMPROVEMENT: Don't just stop there. Proactively ask the next question.
+            # Convert response message to include next question
+            new_remaining = session.get_remaining_fields()
+            if new_remaining:
+                next_batches = self.clusterer.create_batches(new_remaining)
+                if next_batches:
+                    next_batch = next_batches[0]
+                    next_labels = [f.get('label', f.get('name', '')) for f in next_batch[:3]]
+                    
+                    if len(next_labels) == 1:
+                        result.message += f" What's your {next_labels[0]}?"
+                    elif len(next_labels) == 2:
+                        result.message += f" What's your {next_labels[0]} and {next_labels[1]}?"
+                    else:
+                        result.message += f" What's your {', '.join(next_labels[:-1])}, and {next_labels[-1]}?"
+                    
+                    result.next_questions = [
+                        {'name': f.get('name'), 'label': f.get('label'), 'type': f.get('type')} 
+                        for f in next_batch
+                    ]
+            
             await self._save_session(session)
             return result
         

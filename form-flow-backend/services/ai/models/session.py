@@ -47,6 +47,14 @@ class ConversationSession:
         """Update last activity timestamp."""
         self.last_activity = datetime.now()
     
+    def get_all_fields(self) -> List[Dict[str, Any]]:
+        """Get all fields from the schema."""
+        fields = []
+        for form in self.form_schema:
+            for f in form.get('fields', []):
+                fields.append(f)
+        return fields
+
     def get_total_field_count(self) -> int:
         """Get total number of fillable fields."""
         count = 0
