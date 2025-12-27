@@ -545,7 +545,8 @@ async def validate_field(request: ValidationRequest):
             issues.append("Missing '@' symbol in email")
             confidence = 0.5
             if " at " in value.lower():
-                auto_corrected = value.lower().replace(" at ", "@")
+                from services.ai.normalizers import normalize_email_smart
+                auto_corrected = normalize_email_smart(value)
                 suggestions.append(auto_corrected)
         
         # Validate format

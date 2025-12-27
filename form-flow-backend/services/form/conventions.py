@@ -19,41 +19,13 @@ def strip_whitespace(value: str) -> str:
 
 def normalize_email(value: str) -> str:
     """
-    Convert voice email to proper format.
-    Handles: 'dot' → '.', 'at' → '@', spaces → dots in local part
+    Convert voice email to proper format using centralized smart normalizer.
+    
+    This prevents corruption of names like "Atharva" → "@harva".
+    See services/ai/normalizers.py for the implementation.
     """
-    email = value.strip().lower()
-    
-    # Voice keyword conversion
-    email = email.replace(' dot ', '.')
-    email = email.replace(' at ', '@')
-    email = email.replace(' underscore ', '_')
-    email = email.replace(' dash ', '-')
-    
-    # Edge cases
-    email = email.replace(' dot', '.')
-    email = email.replace(' at', '@')
-    email = email.replace(' underscore', '_')
-    
-    # Add .com if missing for common domains
-    if '@' in email and '.' not in email.split('@')[1]:
-        if any(domain in email for domain in ['gmail', 'yahoo', 'outlook']):
-            email += '.com'
-    
-    if '@' not in email:
-        return email
-    
-    # Normalize local part (replace spaces with dots)
-    parts = email.split('@', 1)
-    local = parts[0].strip().replace(' ', '.')
-    domain = parts[1].strip()
-    
-    # Clean up consecutive dots
-    while '..' in local:
-        local = local.replace('..', '.')
-    local = local.strip('.')
-    
-    return f"{local}@{domain}"
+    from services.ai.normalizers import normalize_email_smart
+    return normalize_email_smart(value)
 
 
 def strengthen_password(value: str) -> str:

@@ -67,7 +67,7 @@ LLM_RETRY_MAX_DELAY = 10.0
 LLM_TEMPERATURE = 0.3
 
 # Default model name
-DEFAULT_LLM_MODEL = "gemini-1.5-flash"
+DEFAULT_LLM_MODEL = "gemini-2.5-flash-lite"
 
 
 # =============================================================================

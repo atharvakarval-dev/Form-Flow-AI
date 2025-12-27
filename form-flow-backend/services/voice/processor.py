@@ -271,75 +271,14 @@ class VoiceProcessor:
         return {"needs_confirmation": False, "suggestion": transcript, "confidence": 0.9}
     
     def _format_email_from_voice(self, text: str) -> str:
-        """Convert voice input to proper email format with enhanced Gmail support"""
-        if not text:
-            return text
-            
-        # Convert common voice patterns to email symbols
-        email_text = text.lower().strip()
+        """
+        Convert voice input to proper email format using centralized smart normalizer.
         
-        # Handle common email provider variations
-        # "gmail" -> "gmail.com" if not already present
-        email_text = re.sub(r'\bgmail\b(?!\.com)', 'gmail.com', email_text)
-        email_text = re.sub(r'\byahoo\b(?!\.com)', 'yahoo.com', email_text)
-        email_text = re.sub(r'\boutlook\b(?!\.com)', 'outlook.com', email_text)
-        email_text = re.sub(r'\bhotmail\b(?!\.com)', 'hotmail.com', email_text)
-        
-        # Convert "at" to "@" (handle variations)
-        email_text = re.sub(r'\b(at|add|ampersand)\b', '@', email_text, flags=re.IGNORECASE)
-        
-        # Convert "dot" to "." (handle variations)
-        email_text = re.sub(r'\b(dot|period|point|full stop)\b', '.', email_text, flags=re.IGNORECASE)
-        
-        # Handle "underscore" or "under score"
-        email_text = re.sub(r'\b(underscore|under score|under_score)\b', '_', email_text, flags=re.IGNORECASE)
-        
-        # Handle "dash" or "hyphen" or "minus"
-        email_text = re.sub(r'\b(dash|hyphen|minus)\b', '-', email_text, flags=re.IGNORECASE)
-        
-        # Remove "space" mentions
-        email_text = re.sub(r'\bspace\b', '', email_text, flags=re.IGNORECASE)
-        
-        # Remove all actual spaces
-        email_text = email_text.replace(' ', '')
-        
-        # Clean up multiple consecutive dots (except in domain)
-        email_text = re.sub(r'\.{2,}', '.', email_text)
-        
-        # Ensure @ symbol exists (if not, try to infer from structure)
-        if '@' not in email_text and '.' in email_text:
-            # Try to find where @ should be (usually before the last dot sequence)
-            parts = email_text.split('.')
-            if len(parts) >= 2:
-                # Common pattern: "john dot smith at gmail dot com"
-                # After processing becomes: "john.smithgmail.com"
-                # Try to fix: look for common domain patterns
-                common_domains = ['gmail', 'yahoo', 'outlook', 'hotmail', 'icloud', 'protonmail']
-                for domain in common_domains:
-                    if domain in email_text:
-                        # Replace domain with domain.com
-                        email_text = re.sub(rf'\b{domain}\b', f'{domain}.com', email_text)
-                        # Try to insert @ before domain
-                        domain_pos = email_text.find(domain)
-                        if domain_pos > 0:
-                            # Check if there's already a @ nearby
-                            before_domain = email_text[:domain_pos]
-                            if '@' not in before_domain:
-                                # Insert @ before the domain
-                                email_text = before_domain.rstrip('.') + '@' + email_text[domain_pos:]
-                        break
-        
-        # Final cleanup: ensure proper email format
-        # Remove any remaining spaces
-        email_text = email_text.replace(' ', '').strip()
-        
-        # Validate basic email structure
-        if '@' in email_text and '.' in email_text.split('@')[1]:
-            # Basic validation passed
-            return email_text
-        
-        # If still no @, return as-is (let LLM handle it)
-        return email_text
+        This prevents corruption of names like "Atharva" → "@harva".
+        See services/ai/normalizers.py for the implementation.
+        """
+        from services.ai.normalizers import normalize_email_smart
+        return normalize_email_smart(text)
     
     def _format_checkbox_from_voice(self, text: str) -> str:
         """Convert voice input to checkbox boolean value"""
@@ -385,70 +324,13 @@ class VoiceProcessor:
     
     def _normalize_email(self, text: str) -> str:
         """
-        Normalize email by fixing STT spacing errors and converting voice keywords.
+        Normalize email using centralized smart normalizer.
         
-        Assumes user spoke email correctly, but STT inserted spaces or converted
-        spoken punctuation to words.
-        
-        Example 1: " Atharv shashikant.karwal@gmail.com" 
-                → "atharv.shashikant.karwal@gmail.com"
-        Example 2: "Atharv dot shashikant at gmail dot com"
-                → "atharv.shashikant@gmail.com"
-        
-        Logic:
-        1. Strip leading/trailing spaces
-        2. Convert to lowercase
-        3. Replace voice keywords (dot → ., at → @, underscore → _)
-        4. Split at @ symbol
-        5. In local part (before @): replace spaces with dots
-        6. Preserve domain part exactly
-        7. Don't insert dot if space is immediately before/after @
+        This prevents corruption of names like "Atharva" → "@harva".
+        See services/ai/normalizers.py for the implementation.
         """
-        email = text.strip().lower()
-        
-        # Convert voice keywords to punctuation
-        # "atharv dot shashikant at gmail dot com" → "atharv.shashikant@gmail.com"
-        email = email.replace(' dot ', '.')
-        email = email.replace(' at ', '@')
-        email = email.replace(' underscore ', '_')
-        email = email.replace(' dash ', '-')
-        
-        # Handle edge cases where dot/at are at the end
-        email = email.replace(' dot', '.')
-        email = email.replace(' at', '@')
-        email = email.replace(' underscore', '_')
-        
-        # Add common domain endings if missing
-        if '@' in email and '.' not in email.split('@')[1]:
-            # "user@gmail" → "user@gmail.com"
-            if email.endswith('gmail'):
-                email += '.com'
-            elif email.endswith('yahoo'):
-                email += '.com'
-            elif email.endswith('outlook'):
-                email += '.com'
-        
-        if '@' not in email:
-            # Not an email, return as-is
-            return email
-        
-        # Split into local and domain parts
-        parts = email.split('@', 1)
-        local_part = parts[0].strip()
-        domain_part = parts[1].strip() if len(parts) > 1 else ''
-        
-        # Replace remaining spaces with dots in local part
-        # "atharv shashikant.karwal" → "atharv.shashikant.karwal"
-        normalized_local = local_part.replace(' ', '.')
-        
-        # Remove consecutive dots (in case of multiple spaces)
-        while '..' in normalized_local:
-            normalized_local = normalized_local.replace('..', '.')
-        
-        # Remove leading/trailing dots
-        normalized_local = normalized_local.strip('.')
-        
-        return f"{normalized_local}@{domain_part}"
+        from services.ai.normalizers import normalize_email_smart
+        return normalize_email_smart(text)
     
     def _strengthen_password(self, password: str, requirements: dict) -> str:
         """
