@@ -224,7 +224,7 @@ class ConversationAgent:
         
         if self.session_manager:
             try:
-                await self.session_manager.save_session(session.id, session.to_dict())
+                await self.session_manager.save_session(session.to_dict())
             except Exception as e:
                 logger.error(f"Error saving session to Redis: {e}")
     
@@ -235,6 +235,11 @@ class ConversationAgent:
         
         if self.session_manager:
             await self.session_manager.delete_session(session_id)
+
+    async def cleanup_expired_sessions(self):
+        """Cleanup expired sessions from storage."""
+        if self.session_manager:
+            await self.session_manager.cleanup_local_cache()
     
     # =========================================================================
     # Greeting Generation

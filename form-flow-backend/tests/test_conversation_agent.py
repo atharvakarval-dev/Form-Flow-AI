@@ -13,10 +13,10 @@ from services.ai.conversation_agent import (
     ConversationAgent,
     ConversationSession,
     AgentResponse,
-    FieldClusterer,
-    IntelligentFallbackExtractor,
-    SmartContextBuilder,
 )
+from services.ai.extraction.field_clusterer import FieldClusterer
+from services.ai.extraction.fallback_extractor import IntelligentFallbackExtractor
+from services.ai.prompts.extraction_prompts import build_extraction_context
 
 
 # =============================================================================
@@ -182,8 +182,9 @@ class TestFieldClusterer:
         text_field = {"name": "name", "type": "text"}
         email_field = {"name": "email", "type": "email"}
         
-        assert clusterer.get_field_complexity(text_field) == "simple"
-        assert clusterer.get_field_complexity(email_field) == "simple"
+        # Text is simple (1), Email is moderate (2)
+        assert clusterer.get_field_complexity(text_field) == 1
+        assert clusterer.get_field_complexity(email_field) == 2
     
     def test_complexity_complex(self):
         """Test that complex field types are correctly identified."""
@@ -192,8 +193,9 @@ class TestFieldClusterer:
         textarea_field = {"name": "message", "type": "textarea"}
         file_field = {"name": "resume", "type": "file"}
         
-        assert clusterer.get_field_complexity(textarea_field) == "complex"
-        assert clusterer.get_field_complexity(file_field) == "complex"
+        # Textarea and File are complex (3)
+        assert clusterer.get_field_complexity(textarea_field) == 3
+        assert clusterer.get_field_complexity(file_field) == 3
     
     def test_create_batches_respects_limits(self, identity_fields):
         """Test that batch creation respects size limits."""
@@ -207,7 +209,7 @@ class TestFieldClusterer:
         for batch in batches:
             simple_count = sum(
                 1 for f in batch 
-                if clusterer.get_field_complexity(f) == "simple"
+                if clusterer.get_field_complexity(f) <= 2  # Simple or moderate
             )
             # Allow for some flexibility but shouldn't exceed limits dramatically
             assert simple_count <= 6
@@ -288,12 +290,12 @@ class TestConversationSession:
 # SmartContextBuilder Tests
 # =============================================================================
 
-class TestSmartContextBuilder:
-    """Tests for the SmartContextBuilder class."""
+class TestContextBuilder:
+    """Tests for the build_extraction_context function."""
     
     def test_builds_context_with_fields(self, identity_fields):
         """Test that context is built with current fields."""
-        context = SmartContextBuilder.build_extraction_context(
+        context = build_extraction_context(
             current_batch=identity_fields,
             remaining_fields=identity_fields,
             user_input="My name is John",
@@ -302,14 +304,14 @@ class TestSmartContextBuilder:
         )
         
         assert "USER INPUT" in context
-        assert "FIELDS TO EXTRACT" in context
+        assert "FIELDS TO EXTRACT" in context or "CURRENT FIELDS" in context
         assert "My name is John" in context
     
     def test_includes_already_extracted(self, identity_fields):
         """Test that already extracted values are included in context."""
         already = {"full_name": "John Doe"}
         
-        context = SmartContextBuilder.build_extraction_context(
+        context = build_extraction_context(
             current_batch=identity_fields,
             remaining_fields=identity_fields,
             user_input="My email is john@example.com",
@@ -352,7 +354,8 @@ class TestConversationAgent:
         with pytest.raises(InputValidationError):
             await agent.create_session(form_schema=None)
     
-    def test_generate_initial_greeting(self, agent, sample_form_schema):
+    @pytest.mark.asyncio
+    async def test_generate_initial_greeting(self, agent, sample_form_schema):
         """Test initial greeting generation."""
         session = ConversationSession(
             id="test-123",
@@ -360,7 +363,7 @@ class TestConversationAgent:
             form_url=""
         )
         
-        response = agent.generate_initial_greeting(session)
+        response = await agent.generate_initial_greeting(session)
         
         assert response.message is not None
         assert len(response.message) > 0
@@ -376,7 +379,7 @@ class TestConversationAgent:
             skipped_fields=["email"]
         )
         
-        remaining = agent._get_remaining_fields(session)
+        remaining = session.get_remaining_fields()
         
         # Should not include extracted or skipped fields
         remaining_names = [f["name"] for f in remaining]

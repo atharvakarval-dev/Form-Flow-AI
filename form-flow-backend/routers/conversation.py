@@ -126,7 +126,7 @@ async def create_session(
         )
         
         # Generate initial greeting
-        greeting_response = agent.generate_initial_greeting(session)
+        greeting_response = await agent.generate_initial_greeting(session)
         
         # Schedule cleanup of expired sessions
         background_tasks.add_task(agent.cleanup_expired_sessions)
