@@ -670,90 +670,26 @@
                 
                 .prompt-box.recording { border-color: rgba(239, 68, 68, 0.4); }
 
-                /* Central Mic */
-                .mic-container {
-                    position: relative;
-                    display: flex;
-                    justify-content: center;
-                    align-items: center;
-                    height: 100px;
-                    width: 100%;
-                }
-
-                .main-mic-btn {
-                    width: 80px;
-                    height: 80px;
+                /* Floating Trigger Button */
+                .trigger-btn {
+                    position: fixed;
+                    bottom: 24px;
+                    right: 24px;
+                    width: 60px;
+                    height: 60px;
                     border-radius: 50%;
-                    background: #262626;
-                    border: 1px solid var(--border-dark);
-                    color: var(--primary);
+                    background: var(--primary);
+                    border: none;
+                    box-shadow: 0 8px 24px rgba(0,0,0,0.2);
                     display: flex;
                     align-items: center;
                     justify-content: center;
                     cursor: pointer;
-                    z-index: 10;
-                    transition: all 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
-                    box-shadow: 0 10px 30px rgba(0,0,0,0.3);
+                    z-index: 10000;
+                    transition: transform 0.2s cubic-bezier(0.34, 1.56, 0.64, 1);
                 }
-
-                .main-mic-btn:hover {
-                    transform: scale(1.1);
-                    background: #333;
-                    box-shadow: 0 15px 40px rgba(0,0,0,0.4);
-                }
-
-                .main-mic-btn svg { width: 32px; height: 32px; }
-
-                /* Recording State - Crazy Animations */
-                .main-mic-btn.recording {
-                    background: linear-gradient(135deg, #ef4444, #dc2626);
-                    color: white;
-                    border-color: transparent;
-                    box-shadow: 0 0 0 4px rgba(239, 68, 68, 0.2);
-                    animation: pulseMic 2s infinite;
-                }
-
-                @keyframes pulseMic {
-                    0% { transform: scale(1); box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.7); }
-                    50% { transform: scale(1.05); box-shadow: 0 0 0 20px rgba(239, 68, 68, 0); }
-                    100% { transform: scale(1); box-shadow: 0 0 0 0 rgba(239, 68, 68, 0); }
-                }
-
-                .mic-ripple {
-                    position: absolute;
-                    top: 50%;
-                    left: 50%;
-                    transform: translate(-50%, -50%);
-                    width: 100%;
-                    height: 100%;
-                    border-radius: 50%;
-                    pointer-events: none;
-                    z-index: 0;
-                }
-
-                .mic-ripple span {
-                    position: absolute;
-                    top: 50%;
-                    left: 50%;
-                    transform: translate(-50%, -50%);
-                    width: 80px;
-                    height: 80px;
-                    border-radius: 50%;
-                    border: 2px solid #ef4444;
-                    opacity: 0;
-                }
-
-                .main-mic-btn.recording ~ .mic-ripple span {
-                    animation: ripple 2s infinite linear;
-                }
-                .main-mic-btn.recording ~ .mic-ripple span:nth-child(1) { animation-delay: 0s; }
-                .main-mic-btn.recording ~ .mic-ripple span:nth-child(2) { animation-delay: 0.6s; }
-                .main-mic-btn.recording ~ .mic-ripple span:nth-child(3) { animation-delay: 1.2s; }
-
-                @keyframes ripple {
-                    0% { width: 80px; height: 80px; opacity: 0.8; border-width: 2px; }
-                    100% { width: 240px; height: 240px; opacity: 0; border-width: 0px; }
-                }
+                .trigger-btn:hover { transform: scale(1.1) rotate(10deg); }
+                .trigger-btn svg { width: 32px; height: 32px; color: white; }
 
                 /* Transcription Display */
                 .transcription-display {
@@ -782,6 +718,112 @@
 
                 /* Actions Row Hidden but kept for any legacy references if needed */
                 .actions-row { display: none; }
+
+                /* New Voice Input Styling (Replica of React Component) */
+                .voice-input-container {
+                    width: 100%;
+                    padding: 16px 0;
+                    display: flex;
+                    flex-direction: column;
+                    align-items: center;
+                    gap: 8px;
+                }
+
+                .voice-trigger-btn {
+                    position: relative;
+                    width: 64px;
+                    height: 64px;
+                    border-radius: 12px;
+                    background: transparent;
+                    border: none;
+                    display: flex;
+                    align-items: center;
+                    justify-content: center;
+                    cursor: pointer;
+                    transition: all 0.2s;
+                }
+
+                .voice-trigger-btn:hover {
+                    background: rgba(255,255,255,0.1);
+                }
+
+                .mic-icon-wrapper {
+                    display: flex;
+                    align-items: center;
+                    justify-content: center;
+                    width: 24px;
+                    height: 24px;
+                    color: rgba(255,255,255,0.9);
+                    transition: opacity 0.3s;
+                }
+
+                .voice-trigger-btn.active .mic-icon-wrapper {
+                    opacity: 0;
+                    display: none;
+                }
+
+                .spinner-loader {
+                    display: none;
+                    width: 24px;
+                    height: 24px;
+                    background-color: #fff;
+                    border-radius: 2px;
+                    animation: spin 3s infinite linear;
+                }
+
+                .voice-trigger-btn.active .spinner-loader {
+                    display: block;
+                }
+
+                @keyframes spin {
+                    from { transform: rotate(0deg); }
+                    to { transform: rotate(360deg); }
+                }
+
+                .voice-timer {
+                    font-family: 'Geist Mono', monospace;
+                    font-size: 14px;
+                    color: rgba(255,255,255,0.4);
+                    transition: color 0.3s;
+                }
+
+                .voice-trigger-btn.active ~ .voice-timer {
+                    color: rgba(255,255,255,0.9);
+                }
+
+                .voice-visualizer {
+                    height: 16px;
+                    width: 256px;
+                    display: flex;
+                    align-items: center;
+                    justify-content: center;
+                    gap: 2px;
+                }
+
+                .bar {
+                    width: 2px;
+                    height: 4px;
+                    background: rgba(255,255,255,0.2);
+                    border-radius: 9999px;
+                    transition: all 0.3s;
+                }
+
+                .voice-trigger-btn.active ~ .voice-visualizer .bar {
+                    background: rgba(255,255,255,0.8);
+                    animation: pulseBar 0.5s infinite ease-in-out;
+                }
+                
+                @keyframes pulseBar {
+                    0%, 100% { height: 4px; }
+                    50% { height: 100%; }
+                }
+
+                .voice-status {
+                    height: 16px;
+                    font-size: 12px;
+                    color: rgba(255,255,255,0.6);
+                    margin: 0;
+                }
             `;
 
             const styleSheet = document.createElement('style');
@@ -805,15 +847,26 @@
 
                     <div class="prompt-box" id="promptBox">
                         <!-- Central Mic & Animation -->
-                        <div class="mic-container">
-                            <button class="main-mic-btn" id="micBtn" title="Tap to Speak">
-                                ${ICONS.MIC}
+                        <!-- New AI Voice Input -->
+                        <div class="voice-input-container">
+                            <!-- Mic Button -->
+                            <button class="voice-trigger-btn" id="micBtn" type="button">
+                                <div class="mic-icon-wrapper" id="micIconWrapper">
+                                    ${ICONS.MIC}
+                                </div>
+                                <div class="spinner-loader" id="spinnerLoader"></div>
                             </button>
-                            <div class="mic-ripple">
-                                <span></span>
-                                <span></span>
-                                <span></span>
+
+                            <!-- Timer -->
+                            <span class="voice-timer" id="voiceTimer">00:00</span>
+
+                            <!-- Visualizer -->
+                            <div class="voice-visualizer" id="visualizer">
+                                ${Array(48).fill(0).map(() => '<div class="bar"></div>').join('')}
                             </div>
+
+                            <!-- Status Text -->
+                            <p class="voice-status" id="voiceStatus">Click to speak</p>
                         </div>
 
                         <!-- Transcription Area (ReadOnly) -->
@@ -840,10 +893,20 @@
             this.triggerBtn = shadow.getElementById('triggerBtn');
             this.inputArea = shadow.getElementById('inputArea');
             this.micBtn = shadow.getElementById('micBtn');
+            this.micIconWrapper = shadow.getElementById('micIconWrapper');
+            this.spinnerLoader = shadow.getElementById('spinnerLoader');
+            this.voiceTimer = shadow.getElementById('voiceTimer');
+            this.visualizer = shadow.getElementById('visualizer');
+            this.voiceStatus = shadow.getElementById('voiceStatus');
+            this.visualizerBars = Array.from(this.visualizer.querySelectorAll('.bar'));
+
             this.sendBtn = shadow.getElementById('sendBtn');
             this.chatHistory = shadow.getElementById('chatHistory');
             this.promptBox = shadow.getElementById('promptBox');
             this.scrollBtn = shadow.getElementById('scrollBtn');
+
+            this.timerInterval = null;
+            this.startTime = 0;
 
             // Events
             this.triggerBtn.onclick = () => this.togglePanel();
@@ -947,8 +1010,10 @@
             const avatar = document.createElement('div');
             avatar.className = `avatar ${type}`;
             if (type === 'ai') {
+                // Use the constant LOGO_URL
                 avatar.innerHTML = `<img src="${LOGO_URL}" alt="AI" />`;
             } else {
+                // Consistent User Avatar
                 avatar.textContent = 'U';
             }
 
@@ -1012,18 +1077,48 @@
 
         updateMicButtonState() {
             if (this.isListening) {
-                this.micBtn.classList.add('recording');
-                this.micBtn.innerHTML = ICONS.STOP;
-                this.inputArea.placeholder = "Listening...";
-                this.inputArea.value = "Listening...";
-                this.promptBox.classList.add('recording');
+                this.micBtn.classList.add('active');
+                this.voiceStatus.textContent = "Listening...";
+                this.startTimer();
+                this.startVisualizer();
             } else {
-                this.micBtn.classList.remove('recording');
-                this.micBtn.innerHTML = ICONS.MIC;
-                this.inputArea.placeholder = "Tap the mic to start...";
-                this.inputArea.value = "";
-                this.promptBox.classList.remove('recording');
+                this.micBtn.classList.remove('active');
+                this.voiceStatus.textContent = "Click to speak";
+                this.stopTimer();
+                this.stopVisualizer();
             }
+        }
+
+        startTimer() {
+            this.startTime = Date.now();
+            this.voiceTimer.textContent = "00:00";
+            clearInterval(this.timerInterval);
+
+            this.timerInterval = setInterval(() => {
+                const elapsed = Math.floor((Date.now() - this.startTime) / 1000);
+                const mins = Math.floor(elapsed / 60).toString().padStart(2, '0');
+                const secs = (elapsed % 60).toString().padStart(2, '0');
+                this.voiceTimer.textContent = `${mins}:${secs} `;
+            }, 1000);
+        }
+
+        stopTimer() {
+            clearInterval(this.timerInterval);
+            this.voiceTimer.textContent = "00:00";
+        }
+
+        startVisualizer() {
+            this.visualizerBars.forEach((bar, i) => {
+                bar.style.animationDelay = `${i * 0.05} s`;
+                bar.style.height = `${20 + Math.random() * 80}% `;
+            });
+        }
+
+        stopVisualizer() {
+            this.visualizerBars.forEach(bar => {
+                bar.style.animationDelay = '0s';
+                bar.style.height = '4px';
+            });
         }
 
         updateTranscription(text, isFinal) {
@@ -1083,15 +1178,15 @@
                         const actionBubble = document.createElement('div');
                         actionBubble.className = 'chat-bubble ai';
                         actionBubble.innerHTML = `
-                            <div class="avatar ai">AI</div>
-                            <div class="msg-content">
-                                <span>Form data ready!</span>
-                                <button class="fill-btn-inline">
-                                    ${ICONS.SEND}
-                                    Fill Form
-                                </button>
-                            </div>
-                        `;
+                < div class="avatar ai" > AI</div >
+                    <div class="msg-content">
+                        <span>Form data ready!</span>
+                        <button class="fill-btn-inline">
+                            ${ICONS.SEND}
+                            Fill Form
+                        </button>
+                    </div>
+            `;
                         this.chatHistory.appendChild(actionBubble);
                         actionBubble.querySelector('button').onclick = () => {
                             this.autoFill(response.extractedValues);

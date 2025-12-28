@@ -375,6 +375,15 @@ class ConversationSession:
     
     def to_dict(self) -> Dict[str, Any]:
         """Serialize session to dictionary for persistence."""
+        
+        def safe_to_dict(obj):
+            """Helper to safely serialize objects that might accidentally be dicts."""
+            if isinstance(obj, dict):
+                return obj
+            if hasattr(obj, 'to_dict'):
+                return obj.to_dict()
+            return obj
+
         return {
             'id': self.id,
             'form_schema': self.form_schema,
@@ -383,7 +392,7 @@ class ConversationSession:
             'current_question_batch': self.current_question_batch,
             'created_at': self.created_at.isoformat(),
             'last_activity': self.last_activity.isoformat(),
-            'conversation_context': self.conversation_context.to_dict(),
+            'conversation_context': safe_to_dict(self.conversation_context),
             'undo_stack': self.undo_stack,
             'correction_history': self.correction_history,
             'field_attempt_counts': self.field_attempt_counts,
@@ -391,9 +400,9 @@ class ConversationSession:
             'turns_per_field': self.turns_per_field,
             # Enhanced state (v2.0)
             'session_version': self.session_version,
-            'form_data': self.form_data_manager.to_dict(),
-            'inference_cache': self.inference_cache.to_dict(),
-            'context_window': self.context_window.to_dict(),
+            'form_data': safe_to_dict(self.form_data_manager),
+            'inference_cache': safe_to_dict(self.inference_cache),
+            'context_window': safe_to_dict(self.context_window),
             # Backward compatible fields (for older code reading this)
             'extracted_fields': self.extracted_fields,
             'confidence_scores': self.confidence_scores,
