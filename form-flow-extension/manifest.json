@@ -47,7 +47,8 @@
         {
             "resources": [
                 "overlay.css",
-                "icons/*"
+                "icons/*",
+                "logo_black.jpg"
             ],
             "matches": [
                 "<all_urls>"

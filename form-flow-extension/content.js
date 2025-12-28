@@ -273,12 +273,10 @@
 
 
     // =============================================================================
-    // Voice Overlay (Modern Redesign)
+    // Voice Overlay (Premium Design with Live Transcription)
     // =============================================================================
 
-    // =============================================================================
-    // Voice Overlay (Premium Design)
-    // =============================================================================
+    const LOGO_URL = chrome.runtime.getURL('logo_black.jpg');
 
     const ICONS = {
         BOT: `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 8V4H8"/><rect width="16" height="12" x="4" y="8" rx="2"/><path d="M2 14h2"/><path d="M20 14h2"/><path d="M15 13v2"/><path d="M9 13v2"/></svg>`,
@@ -481,6 +479,90 @@
                     object-fit: cover;
                 }
 
+                /* Live Transcription Banner */
+                .transcription-banner {
+                    background: linear-gradient(135deg, rgba(239, 68, 68, 0.95), rgba(220, 38, 38, 0.95));
+                    padding: 12px 16px;
+                    display: none;
+                    align-items: center;
+                    gap: 12px;
+                    border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+                    animation: slideDown 0.3s ease;
+                }
+                .transcription-banner.active { display: flex; }
+
+                .transcription-icon {
+                    width: 24px;
+                    height: 24px;
+                    display: flex;
+                    align-items: center;
+                    justify-content: center;
+                    animation: micPulse 1.5s ease-in-out infinite;
+                }
+
+                @keyframes micPulse {
+                    0%, 100% { transform: scale(1); opacity: 1; }
+                    50% { transform: scale(1.1); opacity: 0.8; }
+                }
+
+                @keyframes slideDown {
+                    from { transform: translateY(-100%); opacity: 0; }
+                    to { transform: translateY(0); opacity: 1; }
+                }
+
+                .transcription-content {
+                    flex: 1;
+                    min-width: 0;
+                }
+
+                .transcription-label {
+                    font-size: 11px;
+                    font-weight: 600;
+                    text-transform: uppercase;
+                    letter-spacing: 0.5px;
+                    color: rgba(255, 255, 255, 0.9);
+                    margin-bottom: 4px;
+                }
+
+                .transcription-text {
+                    font-size: 14px;
+                    color: white;
+                    line-height: 1.4;
+                    overflow: hidden;
+                    text-overflow: ellipsis;
+                    white-space: nowrap;
+                }
+
+                .transcription-text.interim {
+                    opacity: 0.7;
+                    font-style: italic;
+                }
+
+                .waveform {
+                    display: flex;
+                    align-items: center;
+                    gap: 3px;
+                    height: 24px;
+                }
+
+                .waveform-bar {
+                    width: 3px;
+                    background: white;
+                    border-radius: 2px;
+                    animation: waveAnimation 1.2s ease-in-out infinite;
+                }
+
+                .waveform-bar:nth-child(1) { animation-delay: 0s; }
+                .waveform-bar:nth-child(2) { animation-delay: 0.1s; }
+                .waveform-bar:nth-child(3) { animation-delay: 0.2s; }
+                .waveform-bar:nth-child(4) { animation-delay: 0.3s; }
+                .waveform-bar:nth-child(5) { animation-delay: 0.4s; }
+
+                @keyframes waveAnimation {
+                    0%, 100% { height: 8px; }
+                    50% { height: 20px; }
+                }
+
                 .avatar.ai { 
                     background: linear-gradient(135deg, #ff6b6b, #ee5a24);
                     color: white;
@@ -636,8 +718,25 @@
 
                 /* Mic Button Recording State */
                 .icon-only-btn.recording { 
-                    color: var(--danger); 
-                    animation: pulse 1.5s infinite;
+                    color: white;
+                    background: var(--danger);
+                    position: relative;
+                    overflow: visible;
+                }
+
+                .icon-only-btn.recording::before {
+                    content: '';
+                    position: absolute;
+                    inset: -4px;
+                    border-radius: 10px;
+                    background: var(--danger);
+                    opacity: 0.3;
+                    animation: ripple 1.5s ease-out infinite;
+                }
+
+                @keyframes ripple {
+                    0% { transform: scale(1); opacity: 0.3; }
+                    100% { transform: scale(1.5); opacity: 0; }
                 }
 
                 @keyframes pulse {
@@ -653,10 +752,30 @@
             const template = `
                 <!-- Panel -->
                 <div class="panel" id="panel">
+                    <!-- Live Transcription Banner -->
+                    <div class="transcription-banner" id="transcriptionBanner">
+                        <div class="transcription-icon">
+                            ${ICONS.MIC}
+                        </div>
+                        <div class="transcription-content">
+                            <div class="transcription-label">Listening...</div>
+                            <div class="transcription-text" id="transcriptionText">Speak now...</div>
+                        </div>
+                        <div class="waveform">
+                            <div class="waveform-bar"></div>
+                            <div class="waveform-bar"></div>
+                            <div class="waveform-bar"></div>
+                            <div class="waveform-bar"></div>
+                            <div class="waveform-bar"></div>
+                        </div>
+                    </div>
+
                     <div class="chat-container">
                         <div class="chat-history" id="chatHistory">
                             <div class="chat-bubble ai">
-                                <div class="avatar ai">AI</div>
+                                <div class="avatar ai">
+                                    <img src="${LOGO_URL}" alt="AI" />
+                                </div>
                                 <div class="msg-content">Hello! I'm ready to help you fill this form. Just speak or type your information.</div>
                             </div>
                         </div>
@@ -698,6 +817,8 @@
             this.chatHistory = shadow.getElementById('chatHistory');
             this.promptBox = shadow.getElementById('promptBox');
             this.scrollBtn = shadow.getElementById('scrollBtn');
+            this.transcriptionBanner = shadow.getElementById('transcriptionBanner');
+            this.transcriptionText = shadow.getElementById('transcriptionText');
 
             // Events
             this.triggerBtn.onclick = () => this.togglePanel();
@@ -800,7 +921,11 @@
 
             const avatar = document.createElement('div');
             avatar.className = `avatar ${type}`;
-            avatar.textContent = type === 'ai' ? 'AI' : 'U';
+            if (type === 'ai') {
+                avatar.innerHTML = `<img src="${LOGO_URL}" alt="AI" />`;
+            } else {
+                avatar.textContent = 'U';
+            }
 
             const content = document.createElement('div');
             content.className = 'msg-content';
@@ -829,13 +954,25 @@
             this.recognition.lang = 'en-US';
 
             this.recognition.onresult = (event) => {
+                let interimTranscript = '';
                 let finalTranscript = '';
+                
                 for (let i = event.resultIndex; i < event.results.length; i++) {
+                    const transcript = event.results[i][0].transcript;
                     if (event.results[i].isFinal) {
-                        finalTranscript += event.results[i][0].transcript;
+                        finalTranscript += transcript;
+                    } else {
+                        interimTranscript += transcript;
                     }
                 }
+
+                // Update live transcription display
+                if (interimTranscript) {
+                    this.updateTranscription(interimTranscript, false);
+                }
+
                 if (finalTranscript) {
+                    this.updateTranscription(finalTranscript, true);
                     this.addMessage(finalTranscript, 'user');
                     this.processUserSpeech(finalTranscript);
                     this.stopListening();
@@ -853,10 +990,25 @@
                 this.micBtn.classList.add('recording');
                 this.micBtn.innerHTML = ICONS.STOP;
                 this.inputArea.placeholder = "Listening...";
+                this.promptBox.classList.add('recording');
+                this.transcriptionBanner.classList.add('active');
             } else {
                 this.micBtn.classList.remove('recording');
                 this.micBtn.innerHTML = ICONS.MIC;
                 this.inputArea.placeholder = "Type your message...";
+                this.promptBox.classList.remove('recording');
+                this.transcriptionBanner.classList.remove('active');
+            }
+        }
+
+        updateTranscription(text, isFinal) {
+            if (this.transcriptionText) {
+                this.transcriptionText.textContent = text || 'Speak now...';
+                if (isFinal) {
+                    this.transcriptionText.classList.remove('interim');
+                } else {
+                    this.transcriptionText.classList.add('interim');
+                }
             }
         }
 
