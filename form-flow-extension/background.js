@@ -12,12 +12,96 @@ const CONFIG = {
     RECONNECT_DELAY: 1000,
     MAX_RECONNECT_DELAY: 30000,
     MAX_RECONNECT_ATTEMPTS: 5,
-    HEALTH_CHECK_TIMEOUT: 5000
+    HEALTH_CHECK_TIMEOUT: 5000,
+    KEEPALIVE_INTERVAL: 20000
 };
 
 // State
-// State
 let activeSessions = new Map(); // tab_id -> session_data
+let ws = null;
+let wsReconnectAttempts = 0;
+let keepAliveInterval = null;
+
+// =============================================================================
+// WebSocket Management
+// =============================================================================
+
+function connectWebSocket() {
+    if (ws && (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING)) {
+        return;
+    }
+
+    console.log('Connecting to WebSocket:', CONFIG.WS_URL);
+
+    try {
+        ws = new WebSocket(CONFIG.WS_URL);
+
+        ws.onopen = () => {
+            console.log('WebSocket connected');
+            wsReconnectAttempts = 0;
+            broadcastToContentScripts({ type: 'WS_STATUS', connected: true });
+        };
+
+        ws.onmessage = (event) => {
+            try {
+                // Handle WebSocket messages from backend
+                // For now, we just log. Future: dispatch to specific sessions
+                console.log('WS Message:', event.data);
+            } catch (e) {
+                console.error('WS Message parsing error:', e);
+            }
+        };
+
+        ws.onclose = () => {
+            console.log('WebSocket closed');
+            broadcastToContentScripts({ type: 'WS_STATUS', connected: false });
+            ws = null;
+            scheduleReconnect();
+        };
+
+        ws.onerror = (error) => {
+            console.error('WebSocket error:', error);
+            // Close will trigger onclose
+        };
+
+    } catch (e) {
+        console.error('WebSocket connection failed:', e);
+        scheduleReconnect();
+    }
+}
+
+function scheduleReconnect() {
+    wsReconnectAttempts++;
+    const delay = Math.min(CONFIG.RECONNECT_DELAY * Math.pow(1.5, wsReconnectAttempts), CONFIG.MAX_RECONNECT_DELAY);
+    console.log(`Scheduling reconnect in ${delay}ms (Attempt ${wsReconnectAttempts})`);
+    setTimeout(connectWebSocket, delay);
+}
+
+function broadcastToContentScripts(message) {
+    for (const tabId of activeSessions.keys()) {
+        chrome.tabs.sendMessage(tabId, message).catch(() => {
+            // Tab might be gone
+        });
+    }
+}
+
+// Keep Service Worker Alive
+function startKeepAlive() {
+    if (keepAliveInterval) clearInterval(keepAliveInterval);
+    keepAliveInterval = setInterval(() => {
+        // Accessing timestamp prevents sleep (basic keepalive)
+        const timestamp = Date.now();
+
+        // Also ensure WS is alive
+        if (!ws || ws.readyState === WebSocket.CLOSED) {
+            connectWebSocket();
+        }
+    }, CONFIG.KEEPALIVE_INTERVAL);
+}
+
+// Initialize
+connectWebSocket();
+startKeepAlive();
 
 // Restore sessions from storage on startup
 restoreSessions().then(() => {
@@ -30,7 +114,6 @@ async function restoreSessions() {
         if (result.activeSessions) {
             activeSessions = new Map(Object.entries(JSON.parse(result.activeSessions)));
             // Convert string keys back to numbers if needed (tabIds are numbers)
-            // JSON object keys are always strings
             const map = new Map();
             for (const [key, value] of activeSessions) {
                 map.set(Number(key), value);
@@ -52,17 +135,26 @@ async function persistSessions() {
 }
 
 // =============================================================================
-// Message Handling
+// Message Handling (HTTP-based for now, future migration to WS)
 // =============================================================================
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+    // Return true immediately to indicate we will respond asynchronously
     handleMessage(message, sender)
-        .then(sendResponse)
+        .then(response => {
+            try {
+                sendResponse(response);
+            } catch (e) {
+                console.warn('Response channel closed');
+            }
+        })
         .catch(error => {
             console.error('Message handling error:', error);
-            sendResponse({ success: false, error: error.message });
+            try {
+                sendResponse({ success: false, error: error.message });
+            } catch (e) { }
         });
-    return true; // Indicates async response
+    return true;
 });
 
 async function handleMessage(message, sender) {
@@ -105,6 +197,11 @@ async function handleMessage(message, sender) {
 async function startSession(tabId, formSchema, formUrl) {
     try {
         console.log('Starting session for tab:', tabId);
+
+        // Ensure WS connected
+        if (!ws || ws.readyState !== WebSocket.OPEN) {
+            connectWebSocket();
+        }
 
         // Create session via API
         const response = await fetch(`${CONFIG.BACKEND_URL}/conversation/session`, {

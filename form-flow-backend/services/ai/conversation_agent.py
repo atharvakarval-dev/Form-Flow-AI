@@ -127,7 +127,7 @@ class ConversationAgent:
     def __init__(
         self, 
         api_key: Optional[str] = None, 
-        model: str = "gemini-2.5-flash-lite",
+        model: str = "gemini-1.5-flash",
         session_manager = None
     ):
         """
@@ -417,12 +417,12 @@ class ConversationAgent:
             
             # Use FormDataManager for atomic field update with metadata
             confidence = confidence_scores.get(field_name, 0.8)
-            session.form_data.update_field(
+            session.form_data_manager.update_field(
                 field_name=field_name,
                 value=value,
                 confidence=confidence,
                 intent=StateUserIntent.DIRECT_ANSWER,
-                turn_number=session.context_window.current_turn
+                turn=session.context_window.current_turn
             )
             
             # Detect patterns from this field for suggestion engine

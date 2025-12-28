@@ -36,7 +36,7 @@ from utils.exceptions import FormFlowError
 from utils.rate_limit import limiter, rate_limit_exceeded_handler
 
 # Import Routers
-from routers import auth, forms, speech, conversation, advanced_voice, analytics
+from routers import auth, forms, speech, conversation, advanced_voice, analytics, websocket
 
 # Initialize logging
 setup_logging()
@@ -102,13 +102,13 @@ app.state.limiter = limiter
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
-        "chrome-extension://*",  # Chrome extensions
-        "http://localhost:5173",  # Vite dev server
-        "http://localhost:3000",  # React dev server
+        *settings.cors_origins_list,
+        "http://localhost:5173",
+        "http://localhost:3000",
         "http://127.0.0.1:5173",
         "http://127.0.0.1:3000",
-        "*",  # Allow all for development - restrict in production
     ],
+    allow_origin_regex='chrome-extension://.*',  # Allow all Chrome extensions
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -120,14 +120,7 @@ app.add_middleware(
 # Middleware
 # =============================================================================
 
-# CORS Configuration
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=settings.cors_origins_list,
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+
 
 # GZip Compression (reduces response size by ~70%)
 from fastapi.middleware.gzip import GZipMiddleware
@@ -166,6 +159,7 @@ app.include_router(speech.router)
 app.include_router(conversation.router)
 app.include_router(advanced_voice.router)
 app.include_router(analytics.router)
+app.include_router(websocket.router)
 
 
 # =============================================================================
