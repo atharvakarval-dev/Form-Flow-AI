@@ -96,6 +96,13 @@ try:
 except ImportError:
     TEXT_REFINER_AVAILABLE = False
 
+# Try to import Local LLM
+try:
+    from services.ai.local_llm import get_local_llm_service, is_local_llm_available
+    LOCAL_LLM_AVAILABLE = True
+except ImportError:
+    LOCAL_LLM_AVAILABLE = False
+
 # Constants
 LLM_MAX_RETRIES = 3
 LLM_RETRY_BASE_DELAY = 1.0
@@ -145,6 +152,7 @@ class ConversationAgent:
         # Initialize LLM
         self.llm = None
         self.llm_extractor = None
+        self.local_llm = None
         
         if LANGCHAIN_AVAILABLE and self.api_key:
             try:
@@ -161,6 +169,15 @@ class ConversationAgent:
                 self.llm = None
         else:
             logger.warning("LangChain not available - using fallback mode")
+        
+        # Initialize local LLM as primary (with Gemini fallback)
+        if LOCAL_LLM_AVAILABLE:
+            try:
+                self.local_llm = get_local_llm_service(gemini_api_key=self.api_key)
+                if self.local_llm:
+                    logger.info("Local LLM initialized as primary with Gemini fallback")
+            except Exception as e:
+                logger.warning(f"Local LLM initialization failed: {e}")
         
         # Initialize components
         self.fallback_extractor = FallbackExtractor
@@ -452,6 +469,14 @@ class ConversationAgent:
         batches = self.clusterer.create_batches(remaining_fields)
         next_batch = batches[0] if batches else []
         
+        # Check if form is complete (all required fields filled)
+        required_remaining = [f for f in remaining_fields if f.get('required', False)]
+        is_complete = len(required_remaining) == 0
+        
+        # If complete, add completion message
+        if is_complete and not next_batch:
+            message += " \n\n🎉 All required fields completed! You can now submit the form."
+        
         # Update context window with current/next field tracking
         if next_batch:
             session.context_window.active_field = next_batch[0].get('name')
@@ -503,7 +528,7 @@ class ConversationAgent:
             confidence_scores=confidence_scores,
             needs_confirmation=[],
             remaining_fields=remaining_fields,
-            is_complete=len(remaining_fields) == 0,
+            is_complete=is_complete,  # Use the corrected completion check
             next_questions=[
                 {'name': f.get('name'), 'label': f.get('label'), 'type': f.get('type')} 
                 for f in next_batch
@@ -529,10 +554,38 @@ class ConversationAgent:
         Returns:
             Tuple of (extracted_values, confidence_scores, message)
         """
-        # Try LLM extraction first
+        # Try local LLM first (primary path - fast & free)
+        if self.local_llm:
+            try:
+                logger.info("Using Local LLM (primary)...")
+                extracted = {}
+                confidence = {}
+                
+                for field in current_batch[:2]:  # Limit to 2 fields for performance
+                    field_name = field.get('name')
+                    field_label = field.get('label', field_name)
+                    
+                    result = self.local_llm.extract_field_value(user_input, field_label)
+                    if result.get('value') and result.get('confidence', 0) > 0.3:
+                        extracted[field_name] = result['value']
+                        confidence[field_name] = result['confidence']
+                
+                if extracted:
+                    logger.info(f"Local LLM extracted: {list(extracted.keys())}")
+                    
+                    # Generate simple message
+                    field_labels = [current_batch[0].get('label', 'information') for _ in extracted]
+                    message = f"Got your {field_labels[0]}!" if len(field_labels) == 1 else "Got that information!"
+                    
+                    return extracted, confidence, message
+                    
+            except Exception as e:
+                logger.warning(f"Local LLM extraction failed, trying Gemini: {e}")
+        
+        # Try Gemini for complex reasoning (secondary)
         if self.llm and self.llm_extractor:
             try:
-                logger.info("Using LLM for extraction...")
+                logger.info("Using Gemini for complex extraction...")
                 extracted, confidence, message = await self.llm_extractor.extract(
                     user_input=user_input,
                     current_batch=current_batch,
@@ -543,11 +596,11 @@ class ConversationAgent:
                 )
                 
                 if extracted:
-                    logger.info(f"LLM extracted: {list(extracted.keys())}")
+                    logger.info(f"Gemini extracted: {list(extracted.keys())}")
                     return extracted, confidence, message
                     
             except Exception as e:
-                logger.warning(f"LLM extraction failed, using fallback: {e}")
+                logger.warning(f"Gemini extraction failed, using rule-based fallback: {e}")
         
         # Fallback to rule-based extraction
         logger.info("Using FALLBACK extraction...")

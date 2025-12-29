@@ -1,0 +1,9 @@
+# Ignore model files (too large for git)
+*.safetensors
+*.bin
+*.onnx
+*.pt
+*.pth
+
+# Keep directory structure
+!.gitkeep
