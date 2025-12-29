@@ -172,11 +172,12 @@ class ConversationAgent:
             logger.warning("LangChain not available - using fallback mode")
         
         # Initialize local LLM as primary (with Gemini fallback)
-        if LOCAL_LLM_AVAILABLE:
+        # Only if USE_LOCAL_LLM is enabled in settings
+        if LOCAL_LLM_AVAILABLE and getattr(settings, 'USE_LOCAL_LLM', True):
             try:
                 self.local_llm = get_local_llm_service(gemini_api_key=self.api_key)
                 if self.local_llm:
-                    logger.info("Local LLM initialized as primary with Gemini fallback")
+                    logger.info("✅ Local LLM initialized as PRIMARY (Gemini as fallback)")
             except Exception as e:
                 logger.warning(f"Local LLM initialization failed: {e}")
         

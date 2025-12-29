@@ -53,4 +53,5 @@ langchain-community>=0.2.0
 # Local LLM Support
 torch>=2.0.0
 transformers>=4.35.0
+accelerate>=0.24.0
 bitsandbytes>=0.41.0

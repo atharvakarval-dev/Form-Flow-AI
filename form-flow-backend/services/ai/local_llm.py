@@ -36,13 +36,27 @@ class LocalLLMService:
     def __init__(self, model_id: str = "microsoft/phi-2", gemini_api_key: str = None):
         # Use local model path if available, fallback to HuggingFace
         import os
-        local_model_path = os.path.join(os.path.dirname(__file__), "..", "..", "..", "models", "phi-2")
+        
+        # Calculate project root (Form-Flow-AI directory)
+        # Path: services/ai/local_llm.py -> services/ai -> services -> form-flow-backend -> Form-Flow-AI
+        backend_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+        project_root = os.path.dirname(backend_root)
+        local_model_path = os.path.join(project_root, "models", "phi-2")
+        
+        # Also check settings for custom path
+        try:
+            from config.settings import settings
+            if hasattr(settings, 'LOCAL_MODEL_PATH') and settings.LOCAL_MODEL_PATH:
+                local_model_path = settings.LOCAL_MODEL_PATH
+        except Exception:
+            pass
+        
         if os.path.exists(local_model_path):
             self.model_id = os.path.abspath(local_model_path)
-            logger.info(f"Using local model: {self.model_id}")
+            logger.info(f"✅ Using LOCAL model: {self.model_id}")
         else:
             self.model_id = model_id
-            logger.info(f"Using HuggingFace model: {self.model_id}")
+            logger.info(f"🌐 Using HuggingFace model: {self.model_id}")
             
         self.gemini_api_key = gemini_api_key
         self.model = None

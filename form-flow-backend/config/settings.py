@@ -119,6 +119,18 @@ class Settings(BaseSettings):
     )
     
     # ==========================================================================
+    # Local LLM Configuration
+    # ==========================================================================
+    USE_LOCAL_LLM: bool = Field(
+        default=True,
+        description="Use local Phi-2 model as primary LLM (faster, free)"
+    )
+    LOCAL_MODEL_PATH: Optional[str] = Field(
+        default=None,
+        description="Custom path to local model (defaults to models/phi-2)"
+    )
+    
+    # ==========================================================================
     # Voice/Speech Configuration
     # ==========================================================================
     ELEVENLABS_VOICE_ID: str = Field(
