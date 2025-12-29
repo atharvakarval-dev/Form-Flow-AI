@@ -11,13 +11,9 @@ const Navigation = () => {
     const location = useLocation();
     const [showSettings, setShowSettings] = useState(false);
 
-    // Theme controls (optional - graceful fallback if not in provider)
-    let themeContext = null;
-    try {
-        themeContext = useTheme();
-    } catch (e) {
-        // Not wrapped in ThemeProvider, that's okay
-    }
+    // Theme controls - always call the hook (React rules)
+    // useTheme returns null if not in provider context
+    const themeContext = useTheme();
 
     return (
         <>

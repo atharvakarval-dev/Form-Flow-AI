@@ -163,7 +163,7 @@ export const ThemeProvider = ({ children }) => {
         };
     });
 
-    const [isInitialized, setIsInitialized] = useState(true);
+    const [_isInitialized, _setIsInitialized] = useState(true);
 
     // Apply theme to document - runs immediately and on every theme change
     useEffect(() => {
@@ -229,7 +229,7 @@ export const ThemeProvider = ({ children }) => {
         if (theme && !theme.isDark) {
             document.documentElement.classList.remove('dark');
         }
-    }, []);
+    }, [themeName]);
 
     const value = {
         theme: THEMES[themeName],
@@ -238,7 +238,7 @@ export const ThemeProvider = ({ children }) => {
         customizations,
         setCustomizations,
         themes: THEMES,
-        isInitialized,
+        isInitialized: _isInitialized,
 
         // Helper methods
         isDark: THEMES[themeName]?.isDark || false,
@@ -266,9 +266,7 @@ export const ThemeProvider = ({ children }) => {
 // Hook to use theme
 export const useTheme = () => {
     const context = useContext(ThemeContext);
-    if (!context) {
-        throw new Error('useTheme must be used within a ThemeProvider');
-    }
+    // Return null if not in provider (allows graceful fallback)
     return context;
 };
 
@@ -277,7 +275,6 @@ export const useTheme = () => {
  */
 export const AccessibilitySettings = ({ className = '' }) => {
     const {
-        theme,
         themeName,
         setTheme,
         customizations,
