@@ -319,6 +319,10 @@
             this.recognition = null;
             this.isListening = false;
             this.currentFormSchema = null;
+            // Track all extracted values across the session
+            this.allExtractedValues = {};
+            this.isFormComplete = false;
+            this.fillFormBtn = null;
         }
 
         create() {
@@ -652,7 +656,69 @@
                 .fill-btn-inline:hover { opacity: 0.9; transform: scale(1.02); }
                 .fill-btn-inline svg { width: 14px; height: 14px; }
 
+                /* Sticky Fill Form Button */
+                .fill-form-container {
+                    padding: 12px 16px;
+                    background: linear-gradient(180deg, transparent 0%, rgba(13, 13, 13, 0.95) 20%);
+                    opacity: 0;
+                    transform: translateY(20px);
+                    transition: all 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+                }
+                .fill-form-container.visible {
+                    opacity: 1;
+                    transform: translateY(0);
+                }
+                
+                .fill-form-btn {
+                    width: 100%;
+                    padding: 14px 24px;
+                    border-radius: 12px;
+                    background: linear-gradient(135deg, var(--primary) 0%, #059669 100%);
+                    color: white;
+                    border: none;
+                    cursor: pointer;
+                    font-weight: 600;
+                    font-size: 15px;
+                    display: flex;
+                    align-items: center;
+                    justify-content: center;
+                    gap: 10px;
+                    transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+                    box-shadow: 0 4px 20px rgba(16, 185, 129, 0.3);
+                }
+                .fill-form-btn:hover:not(:disabled) { 
+                    transform: translateY(-2px); 
+                    box-shadow: 0 8px 30px rgba(16, 185, 129, 0.4);
+                }
+                .fill-form-btn:active:not(:disabled) { 
+                    transform: translateY(0); 
+                }
+                .fill-form-btn:disabled {
+                    opacity: 0.7;
+                    cursor: not-allowed;
+                }
+                .fill-form-btn svg { width: 20px; height: 20px; }
+
+                /* Toast Notification */
+                .notification {
+                    background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+                    color: white;
+                    padding: 10px 16px;
+                    font-size: 13px;
+                    font-weight: 500;
+                    text-align: center;
+                    opacity: 0;
+                    transform: translateY(-100%);
+                    transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+                    border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+                }
+                .notification.visible {
+                    opacity: 1;
+                    transform: translateY(0);
+                }
+
                 @keyframes fadeIn { from { opacity: 0; transform: translateY(5px); } to { opacity: 1; transform: translateY(0); } }
+
 
                 /* Prompt Input Box (Redesigned) */
                 .prompt-box {
@@ -1216,27 +1282,23 @@
                 if (response.success) {
                     this.addMessage(response.response, 'ai');
 
-                    if (Object.keys(response.extractedValues || {}).length > 0) {
-                        // Create a fill form button inside a chat bubble
-                        const actionBubble = document.createElement('div');
-                        actionBubble.className = 'chat-bubble ai';
-                        actionBubble.innerHTML = `
-                < div class="avatar ai" > AI</div >
-                    <div class="msg-content">
-                        <span>Form data ready!</span>
-                        <button class="fill-btn-inline">
-                            ${ICONS.SEND}
-                            Fill Form
-                        </button>
-                    </div>
-            `;
-                        this.chatHistory.appendChild(actionBubble);
-                        actionBubble.querySelector('button').onclick = () => {
-                            this.autoFill(response.extractedValues);
-                            actionBubble.remove();
-                        };
-                        this.scrollToBottom();
+                    // Accumulate extracted values across the session
+                    if (response.extractedValues && Object.keys(response.extractedValues).length > 0) {
+                        Object.assign(this.allExtractedValues, response.extractedValues);
+                        console.log('FormFlow: Accumulated values:', this.allExtractedValues);
+
+                        // Show extraction notification
+                        const extractedCount = Object.keys(this.allExtractedValues).length;
+                        this.showNotification(`✓ ${extractedCount} field${extractedCount > 1 ? 's' : ''} collected`);
                     }
+
+                    // Check if form is complete - show sticky Fill Form button
+                    if (response.isComplete) {
+                        this.isFormComplete = true;
+                        this.showFillFormButton();
+                        this.showNotification('🎉 All fields collected! Ready to fill form.');
+                    }
+
 
                 } else {
                     this.addMessage("Error: " + response.error, 'ai');
@@ -1248,10 +1310,79 @@
             }
         }
 
+        showFillFormButton() {
+            // Only create if not already present
+            if (this.fillFormBtn) return;
+
+            // Get the shadow root
+            const shadow = this.container.shadowRoot;
+            if (!shadow) return;
+
+            // Create sticky button container
+            const btnContainer = document.createElement('div');
+            btnContainer.className = 'fill-form-container';
+            btnContainer.innerHTML = `
+                <button class="fill-form-btn">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M12 5v14"/><path d="m19 12-7 7-7-7"/>
+                    </svg>
+                    <span>Fill Form (${Object.keys(this.allExtractedValues).length} fields)</span>
+                </button>
+            `;
+
+            // Insert before the prompt box
+            const promptBox = shadow.querySelector('.prompt-box');
+            if (promptBox) {
+                promptBox.parentNode.insertBefore(btnContainer, promptBox);
+            }
+
+            this.fillFormBtn = btnContainer;
+
+            // Add click handler
+            btnContainer.querySelector('button').onclick = async () => {
+                btnContainer.querySelector('button').disabled = true;
+                btnContainer.querySelector('span').textContent = 'Filling...';
+                await this.autoFill(this.allExtractedValues);
+                btnContainer.querySelector('span').textContent = '✓ Done!';
+                setTimeout(() => {
+                    btnContainer.remove();
+                    this.fillFormBtn = null;
+                }, 1500);
+            };
+
+            // Add animation
+            setTimeout(() => btnContainer.classList.add('visible'), 50);
+        }
+
+        showNotification(message) {
+            const shadow = this.container?.shadowRoot;
+            if (!shadow) return;
+
+            // Create notification element
+            const notification = document.createElement('div');
+            notification.className = 'notification';
+            notification.textContent = message;
+
+            // Insert at top of panel
+            const panel = shadow.querySelector('.panel');
+            if (panel) {
+                panel.insertBefore(notification, panel.firstChild);
+
+                // Animate in
+                setTimeout(() => notification.classList.add('visible'), 10);
+
+                // Remove after delay
+                setTimeout(() => {
+                    notification.classList.remove('visible');
+                    setTimeout(() => notification.remove(), 300);
+                }, 2500);
+            }
+        }
+
         async autoFill(data) {
             const formFiller = new FormFiller();
-            await formFiller.fillFields(data, this.currentFormSchema);
-            this.addMessage("✅ Form updated.", 'ai');
+            const filledCount = await formFiller.fillFields(data, this.currentFormSchema);
+            this.addMessage(`✅ Form filled! (${filledCount} fields updated)`, 'ai');
         }
 
         hide() {
