@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { Mic, MicOff, ChevronLeft, ChevronRight, SkipForward, Send, Volume2, Keyboard, Terminal, Activity, CheckCircle, Sparkles, X } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { SiriWave } from '@/components/ui';
-import api, { API_BASE_URL, refineText } from '@/services/api';
+import api, { API_BASE_URL, refineText, startConversationSession, sendConversationMessage } from '@/services/api';
 
 const VoiceFormFiller = ({ formSchema, formContext, onComplete, onClose }) => {
     const [isListening, setIsListening] = useState(false);
@@ -147,7 +147,7 @@ const VoiceFormFiller = ({ formSchema, formContext, onComplete, onClose }) => {
             if (!sessionId) {
                 try {
                     console.log('💬 Starting Conversation Session...');
-                    const sessionRes = await api.startConversationSession(formSchema, window.location.href, currentData);
+                    const sessionRes = await startConversationSession(formSchema, window.location.href, currentData);
                     console.log('💬 Session Started:', sessionRes);
                     setSessionId(sessionRes.session_id);
                     if (sessionRes.greeting) {
@@ -239,7 +239,7 @@ const VoiceFormFiller = ({ formSchema, formContext, onComplete, onClose }) => {
         if (sessionId) {
             try {
                 console.log(`💬 Sending to Agent: "${text}"`);
-                const result = await api.sendConversationMessage(sessionId, text);
+                const result = await sendConversationMessage(sessionId, text);
                 console.log('💬 Agent Response:', result);
 
                 // Update extracted values
