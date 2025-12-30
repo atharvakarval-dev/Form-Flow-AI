@@ -65,12 +65,12 @@ Modern **React 18** app with **Vite**.
 
 ```mermaid
 graph TD
-    subgraph Frontend "Frontend & Extension"
+    subgraph Frontend["Frontend & Extension"]
         SPA[React SPA]
         Ext[Browser Extension]
     end
 
-    subgraph Backend "Form Flow Backend (FastAPI)"
+    subgraph Backend["Form Flow Backend (FastAPI)"]
         API[API Gateway]
         Orch[Orchestrator]
         AI[AI Service]
@@ -80,7 +80,7 @@ graph TD
         DB[(Database)]
     end
 
-    subgraph External "External Services"
+    subgraph External["External Services"]
         LLM[Gemini LLM]
         STT[Deepgram/Vosk]
         TTS[ElevenLabs]
