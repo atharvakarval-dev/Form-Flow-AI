@@ -618,6 +618,7 @@ def _parse_visual_form(pdf_path: Union[str, Path, bytes]) -> List[PdfField]:
                 lines.append(current_line)
             
             page_height = float(page.height)
+            page_width = float(page.width)
 
             for line_words in lines:
                 # Reconstruct text line
@@ -635,19 +636,18 @@ def _parse_visual_form(pdf_path: Union[str, Path, bytes]) -> List[PdfField]:
                         label = label.rstrip('.').strip()
                         
                         # Basic Validations
-                        if len(label) < 2 or len(label) > 80: continue
-                        if len(label.split()) > 10: continue
+                        if len(label) < 2 or len(label) > 100: continue # Increased max length slightly
+                        if len(label.split()) > 15: continue # Increased max words
                         if label.lower() in seen_labels: continue
                         
-                        # Skip Patterns
+                        # Skip Patterns - simplified to common non-field items
                         skip_patterns = [
                             'page of', 'page :', 'terms and conditions', 'instructions:', 
-                            'form no', 'version:', 'revised:', 'office use only',
-                            'please print', 'signature of', 'date:', 'place:' 
+                            'form no', 'version:', 'revised:', 'office use only'
                         ]
                         is_skip = False
                         for sp in skip_patterns:
-                            if label.lower() == sp or label.lower().startswith(sp):
+                            if label.lower().startswith(sp):
                                 is_skip = True; break
                         if is_skip: continue
                         
@@ -669,52 +669,38 @@ def _parse_visual_form(pdf_path: Union[str, Path, bytes]) -> List[PdfField]:
                         underscore_word = next((w for w in line_words if '_' in w['text']), None)
                         colon_word = next((w for w in reversed(line_words) if ':' in w['text']), None)
 
-                        # Precise Baseline Alignment Strategy:
-                        # 1. We want the text to sit on the line (underscore) or align with label baseline.
-                        # 2. pdfplumber 'bottom' is the distance from page top to the bottom of the character.
-                        # 3. This 'bottom' represents the visual baseline for text/lines.
-                        
-                        # Find the lowest point (max bottom) of the relevant tokens to establish baseline
-                        # If underscores exist, they define the line. If not, use label text baseline.
+                        # Precise Baseline Alignment
                         if underscore_word:
-                             # Use the bottom of underscores as the hard baseline
                              max_bottom = float(underscore_word['bottom'])
                         else:
-                             # Use the bottom of the label text
-                             # We use the max bottom of the line to catch descending characters, 
-                             # but we really want the baseline.
-                             # Using the average bottom of words is usually safer for labels to avoid outliers 
-                             # (like 'g' or 'y' pushing it down too far if we just took max)
+                             # Average bottom of line words
                              max_bottom = float(sum(float(w['bottom']) for w in line_words) / len(line_words))
                         
-                        # Set standard field height (approx font size + padding)
-                        field_height = 14.0
+                        # Dynamic field height based on approximate font height
+                        # height = bottom - top
+                        # We avg the heights of words in the line
+                        avg_line_height = sum(float(w['bottom']) - float(w['top']) for w in line_words) / len(line_words)
+                        field_height = max(14.0, avg_line_height + 2) # At least 14, or line height + padding
                         
                         # Calculate 'y' (top) such that 'y + height' equals the baseline 'bottom'
-                        # This ensures: page_height - (y + height) = page_height - bottom = baseline_y_from_bottom
                         pdf_y = max_bottom - field_height
                         
                         # X: Try to find start of input area.
-                        # Strategy: 
-                        # 1. If line has underscores, start at first underscore.
-                        # 2. If line has colon, start after colon.
-                        # 3. Else default to right of label text approx.
-                        
-                        start_x = 150.0 # Default fallback
-                        
-                        colon_word = next((w for w in reversed(line_words) if ':' in w['text']), None)
-                        
                         if underscore_word:
                              start_x = float(underscore_word['x0'])
                         elif colon_word:
-                             start_x = float(colon_word['x1']) + 5
+                             start_x = float(colon_word['x1']) + 5 # Small padding after colon
                         else:
-                             # Just use end of last word + gap?
-                             # Or fixed offset if short label?
-                             start_x = float(line_words[-1]['x1']) + 5
+                             # Use end of last word + gap
+                             start_x = float(line_words[-1]['x1']) + 10
                         
-                        # Ensure X is not too far right
-                        if start_x > 400: start_x = 400
+                        # Ensure X is within page bounds
+                        if start_x > page_width - 20: 
+                            start_x = page_width - 100 # Fallback if calculated X is off-page
+                            
+                        # Calculate available width
+                        available_width = page_width - start_x - 40 # 40px right margin
+                        field_width = max(100.0, available_width) # Min 100px
                         
                         logger.info(f"Field '{label}' detected at Page {page_num+1} Baseline={max_bottom:.2f} X={start_x:.2f}")
 
@@ -726,8 +712,8 @@ def _parse_visual_form(pdf_path: Union[str, Path, bytes]) -> List[PdfField]:
                             position=FieldPosition(
                                 page=page_num,
                                 x=start_x,
-                                y=pdf_y, # Top calculated from baseline
-                                width=300,
+                                y=pdf_y, 
+                                width=field_width,
                                 height=field_height,
                             ),
                             constraints=FieldConstraints(),

@@ -272,39 +272,40 @@ class PdfFormWriter:
                 
                 has_content = False
                 for field in page_fields:
-                    val = data.get(field.display_name) or data.get(field.name) or data.get(field.label) or data.get(field.name.split('_')[-1])
+                    # Strategy: Exact Match > Display Name > Label > Fuzzy Match
+                    val = data.get(field.name) or data.get(field.display_name) or data.get(field.label)
                     
-                    # Fuzzy match data keys to field names
                     if not val:
-                        field_clean = field.label.lower().replace(':', '').strip()
-                        field_name_clean = field.name.lower().replace('_', ' ').strip()
-                        display_clean = field.display_name.lower().replace(':', '').strip() if field.display_name else ""
+                        # Clean matching
+                        field_clean = re.sub(r'[^a-zA-Z0-9]', '', field.label.lower())
                         
                         for k, v in data.items():
-                            k_clean = k.lower().replace('_', ' ').replace(':', '').strip()
-                            # Try multiple matching strategies
-                            if (k_clean == field_clean or 
-                                k_clean == field_name_clean or
-                                k_clean == display_clean or
-                                k_clean in field_clean or 
-                                field_clean in k_clean or
-                                k_clean in display_clean or
-                                display_clean in k_clean):
+                            k_clean = re.sub(r'[^a-zA-Z0-9]', '', k.lower())
+                            if field_clean and k_clean and (field_clean == k_clean or field_clean in k_clean or k_clean in field_clean):
                                 val = v
-                                logger.info(f"Fuzzy matched '{k}' -> '{field.name}' (via '{field_clean}')") 
+                                logger.info(f"Fuzzy matched '{k}' -> '{field.label}'")
                                 break
-
+                    
                     if val:
-                        # Convert top-left (pdfplumber) to bottom-left (reportlab)
+                        # Use field height to estimate font size if dynamic
+                        # Simple heuristic: 70% of field height
+                        font_size_to_use = self.default_font_size
+                        if field.position.height > 5:
+                            estimated_size = field.position.height * 0.7
+                            font_size_to_use = max(self.min_font_size, min(estimated_size, 14.0))
+
+                        # Coordinates
                         x = field.position.x
-                        # Field Y in parser is from top. ReportLab needs from bottom.
-                        # With new parser logic: field.position.y + field.position.height = visual_baseline_from_top
-                        # ReportLab Y = PageHeight - visual_baseline_from_top
-                        y = float(page.mediabox.height) - (field.position.y + field.position.height) + 1 # +1 for visual clearance
+                        
+                        # ReportLab Y is from bottom.
+                        # Field Y from parser is from top to top-of-field.
+                        # To align baseline: PageHeight - (y_from_top + height)
+                        # We add a small padding for visual lift off the underline
+                        y = float(page.mediabox.height) - (field.position.y + field.position.height) + 2.0
                         
                         try:
-                            can.setFont("Helvetica", 10)
-                            can.drawString(x + 5, y, str(val)) # Add small x offset
+                            can.setFont("Helvetica", font_size_to_use)
+                            can.drawString(x, y, str(val))
                             has_content = True
                             
                             result.field_results.append(FieldFillResult(
