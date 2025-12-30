@@ -55,3 +55,16 @@ torch>=2.0.0
 transformers>=4.35.0
 accelerate>=0.24.0
 bitsandbytes>=0.41.0
+
+# PDF Processing
+pypdf>=4.0.0
+pdfplumber>=0.10.0
+reportlab>=4.0.0
+
+# OCR (for scanned PDFs)
+pytesseract>=0.3.10
+pdf2image>=1.16.0
+
+# RAG / Vector DB
+chromadb>=0.4.0
+sentence-transformers>=2.2.0
