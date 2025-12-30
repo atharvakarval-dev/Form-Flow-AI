@@ -5,7 +5,7 @@ import { Aurora } from "@/components/ui";
 import { HERO_AURORA_COLORS, HERO_AURORA_COLORS_DARK, HERO_TITLES } from "@/constants";
 import { useTheme } from "@/context/ThemeProvider";
 
-function Hero({ url, setUrl, handleSubmit, loading }) {
+function Hero({ url, setUrl, handleSubmit, handleFileUpload, loading }) {
     const [titleNumber, setTitleNumber] = useState(0);
     const { isDark } = useTheme();
 
@@ -54,7 +54,7 @@ function Hero({ url, setUrl, handleSubmit, loading }) {
                         </h1>
 
                         <p className={`text-lg md:text-xl leading-relaxed tracking-tight max-w-2xl text-center font-medium ${isDark ? 'text-zinc-400' : 'text-zinc-600'}`}>
-                            Revolutionizing online form completion with voice AI. Simply paste any form URL and let our intelligent assistant guide you through with natural conversation.
+                            Revolutionizing online form completion with voice AI. Paste any form URL or upload a PDF/Word document and let our intelligent assistant guide you through with natural conversation.
                         </p>
                     </div>
 
@@ -64,8 +64,9 @@ function Hero({ url, setUrl, handleSubmit, loading }) {
                                 setUrl(message);
                                 handleSubmit({ preventDefault: () => { } }, message);
                             }}
+                            onFileUpload={handleFileUpload}
                             isLoading={loading}
-                            placeholder="Paste your form URL here..."
+                            placeholder="Paste your form URL here or attach a PDF..."
                         />
                     </div>
                 </div>
@@ -77,3 +78,4 @@ function Hero({ url, setUrl, handleSubmit, loading }) {
 
 export { Hero };
 export default Hero;
+

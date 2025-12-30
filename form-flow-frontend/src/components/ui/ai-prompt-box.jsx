@@ -179,24 +179,72 @@ const Button = React.forwardRef(({ className, variant = "default", size = "defau
 Button.displayName = "Button";
 
 export const PromptInputBox = React.forwardRef((props, ref) => {
-  const { onSend = () => { }, isLoading = false, placeholder = "Paste form URL here...", className } = props;
+  const {
+    onSend = () => { },
+    onFileUpload = null,
+    isLoading = false,
+    placeholder = "Paste form URL here...",
+    className,
+    acceptedFileTypes = ".pdf,.docx,.doc",
+  } = props;
   const [input, setInput] = React.useState("");
+  const [attachedFile, setAttachedFile] = React.useState(null);
   const uploadInputRef = React.useRef(null);
   const { isDark } = useTheme();
 
   const handleSubmit = () => {
-    if (input.trim()) {
+    if (attachedFile && onFileUpload) {
+      onFileUpload(attachedFile);
+      setAttachedFile(null);
+      setInput("");
+    } else if (input.trim()) {
       onSend(input);
       setInput("");
     }
   };
 
-  const hasContent = input.trim() !== "";
+  const handleFileChange = (e) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      // Validate file type
+      const validTypes = ['.pdf', '.docx', '.doc'];
+      const fileExt = file.name.toLowerCase().slice(file.name.lastIndexOf('.'));
+
+      if (validTypes.includes(fileExt)) {
+        setAttachedFile(file);
+        setInput(`📎 ${file.name}`);
+      } else {
+        alert('Please upload a PDF or Word document');
+      }
+    }
+    // Reset input so same file can be selected again
+    e.target.value = '';
+  };
+
+  const removeAttachment = () => {
+    setAttachedFile(null);
+    setInput("");
+  };
+
+  const hasContent = input.trim() !== "" || attachedFile !== null;
+
+  // Determine button tooltip
+  const getTooltip = () => {
+    if (isLoading) return "Analyzing...";
+    if (attachedFile) return `Upload ${attachedFile.name.split('.').pop().toUpperCase()}`;
+    if (input.trim()) return "Analyze form";
+    return "Enter URL or attach file";
+  };
 
   return (
     <PromptInput
       value={input}
-      onValueChange={setInput}
+      onValueChange={(val) => {
+        // Don't allow editing when file is attached
+        if (!attachedFile) {
+          setInput(val);
+        }
+      }}
       isLoading={isLoading}
       onSubmit={handleSubmit}
       className={cn("w-full border-zinc-700 dark:border-zinc-300", className)}
@@ -204,27 +252,67 @@ export const PromptInputBox = React.forwardRef((props, ref) => {
       disabled={isLoading}
       ref={ref}
     >
-      <PromptInputTextarea placeholder={placeholder} className="text-base" />
+      {/* File attachment preview */}
+      {attachedFile && (
+        <div className="flex items-center gap-2 px-3 py-2 mb-2 rounded-lg bg-zinc-800/50 dark:bg-zinc-100/50">
+          <div className="flex items-center gap-2 flex-1">
+            <span className="text-lg">
+              {attachedFile.name.endsWith('.pdf') ? '📄' : '📝'}
+            </span>
+            <span className={cn(
+              "text-sm font-medium truncate",
+              isDark ? "text-zinc-800" : "text-zinc-200"
+            )}>
+              {attachedFile.name}
+            </span>
+            <span className={cn(
+              "text-xs",
+              isDark ? "text-zinc-500" : "text-zinc-400"
+            )}>
+              ({(attachedFile.size / 1024).toFixed(1)} KB)
+            </span>
+          </div>
+          <button
+            onClick={removeAttachment}
+            className="p-1 rounded-full hover:bg-zinc-700 dark:hover:bg-zinc-300 transition-colors"
+          >
+            <svg className={cn("w-4 h-4", isDark ? "text-zinc-600" : "text-zinc-400")} fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+            </svg>
+          </button>
+        </div>
+      )}
+
+      <PromptInputTextarea
+        placeholder={attachedFile ? "File attached - click send to upload" : placeholder}
+        className="text-base"
+      />
 
       <PromptInputActions className="flex items-center justify-between gap-2 p-0 pt-2">
         <div className="flex items-center gap-1">
-          <PromptInputAction tooltip="Upload image">
+          <PromptInputAction tooltip="Attach PDF or Word document">
             <button
               onClick={() => uploadInputRef.current?.click()}
-              className="flex h-8 w-8 text-zinc-400 dark:text-zinc-500 cursor-pointer items-center justify-center rounded-full transition-colors hover:bg-zinc-800 dark:hover:bg-zinc-200 hover:text-white dark:hover:text-zinc-900"
+              className={cn(
+                "flex h-8 w-8 cursor-pointer items-center justify-center rounded-full transition-colors",
+                attachedFile
+                  ? "bg-green-500/20 text-green-500"
+                  : "text-zinc-400 dark:text-zinc-500 hover:bg-zinc-800 dark:hover:bg-zinc-200 hover:text-white dark:hover:text-zinc-900"
+              )}
             >
               <Paperclip className="h-5 w-5 transition-colors" />
               <input
                 ref={uploadInputRef}
                 type="file"
                 className="hidden"
-                accept="image/*"
+                accept={acceptedFileTypes}
+                onChange={handleFileChange}
               />
             </button>
           </PromptInputAction>
         </div>
 
-        <PromptInputAction tooltip={isLoading ? "Analyzing..." : hasContent ? "Analyze form" : "Enter URL"}>
+        <PromptInputAction tooltip={getTooltip()}>
           <Button
             variant="default"
             size="icon"
@@ -245,3 +333,4 @@ export const PromptInputBox = React.forwardRef((props, ref) => {
   );
 });
 PromptInputBox.displayName = "PromptInputBox";
+

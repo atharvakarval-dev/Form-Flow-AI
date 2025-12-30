@@ -48,13 +48,99 @@ api.interceptors.response.use(
     }
 );
 
-// ============ Form APIs ============
-
 /**
  * Scrape and parse a form URL (no timeout - can take time)
  */
 export const scrapeForm = async (url) => {
     const response = await api.post('/scrape', { url });
+    return response.data;
+};
+
+// ============ PDF/Document APIs ============
+
+/**
+ * Upload and parse a PDF form
+ * @param {File} file - PDF file to upload
+ * @returns {Promise<{success, pdf_id, file_name, total_pages, total_fields, fields}>}
+ */
+export const uploadPdf = async (file) => {
+    const formData = new FormData();
+    formData.append('file', file);
+
+    const response = await api.post('/pdf/upload', formData, {
+        headers: {
+            'Content-Type': 'multipart/form-data',
+        },
+    });
+    return response.data;
+};
+
+/**
+ * Get parsed schema from an uploaded PDF
+ * @param {string} pdfId - PDF ID from upload response
+ * @returns {Promise<{pdf_id, file_name, fields, source}>}
+ */
+export const getPdfSchema = async (pdfId) => {
+    const response = await api.get(`/pdf/schema/${pdfId}`);
+    return response.data;
+};
+
+/**
+ * Preview how data would be filled into PDF fields
+ * @param {string} pdfId - PDF ID
+ * @param {Object} data - Field name to value mapping
+ * @returns {Promise<{success, preview}>}
+ */
+export const previewPdfFill = async (pdfId, data) => {
+    const response = await api.post('/pdf/preview', {
+        pdf_id: pdfId,
+        data,
+    });
+    return response.data;
+};
+
+/**
+ * Fill a PDF form with collected data
+ * @param {string} pdfId - PDF ID
+ * @param {Object} data - Field name to value mapping
+ * @param {boolean} flatten - Make form fields non-editable
+ * @returns {Promise<{success, download_id, fields_filled}>}
+ */
+export const fillPdf = async (pdfId, data, flatten = false) => {
+    const response = await api.post('/pdf/fill', {
+        pdf_id: pdfId,
+        data,
+        flatten,
+    });
+    return response.data;
+};
+
+/**
+ * Get download URL for a filled PDF
+ * @param {string} downloadId - Download ID from fill response
+ * @returns {string} Full download URL
+ */
+export const getPdfDownloadUrl = (downloadId) => {
+    return `${API_BASE_URL}/pdf/download/${downloadId}`;
+};
+
+/**
+ * Parse Word document (converts to form fields)
+ * Note: Word support requires additional backend processing
+ * @param {File} file - Word document (.docx)
+ * @returns {Promise<{success, fields}>}
+ */
+export const uploadWordDocument = async (file) => {
+    const formData = new FormData();
+    formData.append('file', file);
+
+    // For now, Word documents use a generic document endpoint
+    // This could be expanded with docx parsing
+    const response = await api.post('/pdf/upload', formData, {
+        headers: {
+            'Content-Type': 'multipart/form-data',
+        },
+    });
     return response.data;
 };
 

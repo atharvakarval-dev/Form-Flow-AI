@@ -2,10 +2,15 @@ import React, { useState } from 'react';
 import { VoiceFormFiller, FormCompletion } from '@/features/form-filler';
 import { Hero, TransformationTimeline, EditorialTeam, FeaturesGrid } from '@/features/landing';
 import { TerminalLoader } from '@/components/ui';
-import { scrapeForm } from '@/services/api';
+import { scrapeForm, uploadPdf } from '@/services/api';
 
 /**
  * HomePage - Main landing page with form URL input and voice form filling flow
+ * 
+ * Supports:
+ * - URL-based form scraping
+ * - PDF form upload
+ * - Word document upload (limited support)
  */
 const HomePage = () => {
     const [url, setUrl] = useState('');
@@ -15,6 +20,7 @@ const HomePage = () => {
     const [showVoiceForm, setShowVoiceForm] = useState(false);
     const [completedData, setCompletedData] = useState(null);
     const [showCompletion, setShowCompletion] = useState(false);
+    const [pdfId, setPdfId] = useState(null); // For PDF form filling
 
     const handleSubmit = async (e, submittedUrl = null) => {
         if (e && e.preventDefault) e.preventDefault();
@@ -24,10 +30,62 @@ const HomePage = () => {
             const response = await scrapeForm(urlToUse);
             setResult(response);
             setScrapedUrl(urlToUse);
+            setPdfId(null); // Not a PDF
             setUrl('');
         } catch (error) {
             console.log("Error submitting URL:", error);
             alert("Failed to submit URL. Please try again.");
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    /**
+     * Handle PDF or Word document upload
+     * @param {File} file - The uploaded file
+     */
+    const handleFileUpload = async (file) => {
+        setLoading(true);
+        try {
+            // Upload and parse the PDF
+            const response = await uploadPdf(file);
+
+            if (!response.success) {
+                throw new Error(response.message || 'Failed to parse document');
+            }
+
+            // Convert PDF schema to form filler compatible format
+            const formSchema = response.fields.map(field => ({
+                name: field.name || field.id,
+                id: field.id || field.name,
+                type: field.type || 'text',
+                label: field.display_name || field.label || field.name,
+                required: field.constraints?.required || false,
+                options: field.options || [],
+                max_length: field.constraints?.max_length || field.text_capacity,
+                purpose: field.purpose,
+                page: field.page,
+            }));
+
+            // Set result in the same format as web form scraping
+            setResult({
+                form_schema: formSchema,
+                form_context: {
+                    source: 'pdf',
+                    fileName: response.file_name,
+                    totalPages: response.total_pages,
+                    totalFields: response.total_fields,
+                    isScanned: response.is_scanned,
+                },
+            });
+
+            setPdfId(response.pdf_id); // Store for later filling
+            setScrapedUrl(`PDF: ${response.file_name}`);
+            setUrl('');
+
+        } catch (error) {
+            console.log("Error uploading file:", error);
+            alert(`Failed to process ${file.name}. ${error.message || 'Please try again.'}`);
         } finally {
             setLoading(false);
         }
@@ -56,6 +114,7 @@ const HomePage = () => {
         setShowVoiceForm(false);
         setUrl('');
         setScrapedUrl('');
+        setPdfId(null);
     };
 
     if (showCompletion && completedData && result) {
@@ -64,6 +123,7 @@ const HomePage = () => {
                 formData={completedData}
                 formSchema={result.form_schema}
                 originalUrl={scrapedUrl}
+                pdfId={pdfId}
                 onReset={handleReset}
             />
         );
@@ -74,6 +134,7 @@ const HomePage = () => {
             <VoiceFormFiller
                 formSchema={result.form_schema}
                 formContext={result.form_context}
+                pdfId={pdfId}
                 onComplete={handleVoiceComplete}
             />
         );
@@ -81,11 +142,17 @@ const HomePage = () => {
 
     return (
         <div>
-            {loading && <TerminalLoader url={url} />}
+            {loading && <TerminalLoader url={url || 'Processing document...'} />}
 
             {!result && !loading && (
                 <>
-                    <Hero url={url} setUrl={setUrl} handleSubmit={handleSubmit} loading={loading} />
+                    <Hero
+                        url={url}
+                        setUrl={setUrl}
+                        handleSubmit={handleSubmit}
+                        handleFileUpload={handleFileUpload}
+                        loading={loading}
+                    />
                     <FeaturesGrid />
                     <TransformationTimeline />
                     <EditorialTeam />
@@ -96,3 +163,4 @@ const HomePage = () => {
 };
 
 export default HomePage;
+
