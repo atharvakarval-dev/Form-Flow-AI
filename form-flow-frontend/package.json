@@ -3,6 +3,20 @@
   "private": true,
   "version": "0.0.0",
   "type": "module",
+  "description": "The Ultimate AI Form Filler and Voice Automation Agent. Auto-fill web forms and PDFs using Local LLMs, Gemini, and Playwright.",
+  "keywords": [
+    "ai-form-filler",
+    "form-filling-ai",
+    "automated-form-filling",
+    "voice-form-filler",
+    "autofill-extension",
+    "ai-agent",
+    "playwright",
+    "gemini-ai",
+    "voice-to-text",
+    "pdf-filler",
+    "form-automation"
+  ],
   "scripts": {
     "dev": "vite",
     "build": "vite build",
