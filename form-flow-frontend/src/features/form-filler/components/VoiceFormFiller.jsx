@@ -109,16 +109,18 @@ const VoiceFormFiller = ({ formSchema, formContext, onComplete, onClose }) => {
     // 🪄 MAGIC FILL & CONVERSATION START
     useEffect(() => {
         const init = async () => {
-            // Wait for user profile to be loaded first (or confirmed null)
             if (!formSchema?.length) return;
-            if (magicFillLoading && userProfile === null) return; // Wait strictly for profile attempt
+            // Only wait for profile if we are actually intending to use it for magic fill
+            if (magicFillLoading && userProfile === null) return;
 
             let currentData = { ...formDataRef.current };
 
-            // 1. Run Magic Fill
-            if (userProfile && !sessionId) {
+            // -- 1. Trigger Magic Fill (SEQUENTIAL: Wait for it) --
+            if (userProfile && !sessionId && magicFillLoading) {
                 try {
-                    console.log('✨ Starting Magic Fill...');
+                    console.log('✨ Starting Magic Fill (Sequential)...');
+                    // We AWAIT this now, per user request, to ensure Agent knows about filled data
+                    // With 1.5-flash, this should only take ~3-4 seconds.
                     const response = await api.post('/magic-fill', {
                         form_schema: formSchema,
                         user_profile: userProfile
@@ -126,12 +128,21 @@ const VoiceFormFiller = ({ formSchema, formContext, onComplete, onClose }) => {
 
                     if (response.data?.success && response.data.filled) {
                         const filled = response.data.filled;
+                        console.log('✨ Magic Fill Completed:', Object.keys(filled).length);
+
                         setAutoFilledFields(prev => ({ ...prev, ...filled }));
                         setFormData(prev => ({ ...prev, ...filled }));
                         formDataRef.current = { ...formDataRef.current, ...filled };
                         currentData = { ...currentData, ...filled };
+
+                        // Smart jump
                         const firstUnfilled = allFields.findIndex(f => !filled[f.name] && !formDataRef.current[f.name]);
-                        if (firstUnfilled > 0) setCurrentFieldIndex(firstUnfilled);
+                        if (firstUnfilled > 0 && currentFieldIndex === 0) {
+                            setCurrentFieldIndex(firstUnfilled);
+                            // Update ref for session start
+                            indexRef.current = firstUnfilled;
+                        }
+
                         setMagicFillSummary(response.data.summary || `Filled ${Object.keys(filled).length} fields`);
                     }
                 } catch (e) {
@@ -143,10 +154,11 @@ const VoiceFormFiller = ({ formSchema, formContext, onComplete, onClose }) => {
                 setMagicFillLoading(false);
             }
 
-            // 2. Start Conversation Session (once, after magic fill)
+            // -- 2. Start Conversation Session (After Magic Fill) --
             if (!sessionId) {
                 try {
                     console.log('💬 Starting Conversation Session...');
+                    // Pass the FULLY FILLED data to the agent so it doesn't ask redundant questions
                     const sessionRes = await startConversationSession(formSchema, window.location.href, currentData);
                     console.log('💬 Session Started:', sessionRes);
                     setSessionId(sessionRes.session_id);
@@ -161,7 +173,9 @@ const VoiceFormFiller = ({ formSchema, formContext, onComplete, onClose }) => {
             }
         };
 
-        init();
+        if (!sessionId) {
+            init();
+        }
     }, [formSchema, userProfile]);
 
     // Fallback: Simple profile mapping (runs if Magic Fill doesn't cover everything)
@@ -437,6 +451,23 @@ const VoiceFormFiller = ({ formSchema, formContext, onComplete, onClose }) => {
                         )}
                     </div>
                 </div>
+
+                {/* Magic Fill Loading Indicator */}
+                <AnimatePresence>
+                    {magicFillLoading && (
+                        <motion.div
+                            initial={{ opacity: 0, y: -20 }}
+                            animate={{ opacity: 1, y: 0 }}
+                            exit={{ opacity: 0, y: -20 }}
+                            className="absolute top-16 left-0 w-full flex justify-center z-50 pointer-events-none"
+                        >
+                            <div className="bg-emerald-500/10 backdrop-blur-md border border-emerald-500/20 text-emerald-400 px-4 py-1.5 rounded-full text-xs font-mono flex items-center gap-2 shadow-lg">
+                                <Sparkles size={12} className="animate-spin-slow" />
+                                <span>AI MAGIC FILL RUNNING...</span>
+                            </div>
+                        </motion.div>
+                    )}
+                </AnimatePresence>
 
                 {/* 2. Main Content Area */}
                 <div className="flex-1 flex overflow-hidden">

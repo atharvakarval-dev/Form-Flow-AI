@@ -74,7 +74,30 @@ class VoiceProcessor:
         return base_prompt
 
     def process_voice_input(self, transcript: str, field_info: Dict, form_context: str) -> Dict:
-        """Process voice input using LLM to improve clarity and accuracy"""
+        """Process voice input using Local LLM (speed) with Gemini fallback (accuracy)"""
+        
+        # 1. Try Local LLM first (Fastest Response)
+        try:
+            from services.ai.local_llm import get_local_llm_service
+            local_llm = get_local_llm_service()
+            
+            if local_llm:
+                field_name = field_info.get('label', field_info.get('name', 'field'))
+                local_result = local_llm.extract_field_value(transcript, field_name)
+                
+                # If Local LLM is confident, return immediately!
+                if local_result.get('confidence', 0) > 0.6:
+                    print(f"⚡ Local LLM Hit: {local_result['value']} (conf: {local_result['confidence']})")
+                    return {
+                        "processed_text": local_result['value'],
+                        "confidence": local_result['confidence'],
+                        "suggestions": [],
+                        "source": "local_phi2"
+                    }
+        except Exception as e:
+            print(f"⚠️ Local LLM skipped: {e}")
+
+        # 2. Fallback to Gemini (Cloud)
         if not self.client:
             processed_text = self._format_field_input(transcript, field_info)
             return {"processed_text": processed_text, "confidence": 0.5, "suggestions": []}
@@ -187,8 +210,9 @@ class VoiceProcessor:
         """
         
         try:
+            # Switch to 1.5-flash for speed (was 1.5-pro)
             response = self.client.models.generate_content(
-                model='gemini-1.5-pro',
+                model='gemini-1.5-flash',
                 contents=prompt
             )
             result = json.loads(response.text)

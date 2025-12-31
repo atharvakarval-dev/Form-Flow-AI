@@ -181,7 +181,8 @@ async def upload_pdf(
     # Parse PDF
     try:
         logger.info(f"Parsing PDF: {file.filename}")
-        schema = parse_pdf(content)
+        loop = asyncio.get_event_loop()
+        schema = await loop.run_in_executor(None, lambda: parse_pdf(content, use_ocr=False))
         logger.info(f"Parsed {schema.total_fields} fields from {file.filename}")
     except ImportError as e:
         logger.error(f"Import error: {e}")
