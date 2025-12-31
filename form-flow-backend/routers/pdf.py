@@ -345,7 +345,9 @@ async def fill_pdf_endpoint(
             detail="PDF not found. Upload again."
         )
     
-    pdf_bytes, _ = upload_data
+    pdf_bytes, metadata = upload_data
+    logger.info(f"📄 Filling PDF: {metadata.get('file_name', 'unknown')}, template size: {len(pdf_bytes)} bytes")
+    logger.info(f"📝 Data fields: {list(request.data.keys())}")
     
     try:
         result = fill_pdf(
@@ -353,6 +355,12 @@ async def fill_pdf_endpoint(
             data=request.data,
             flatten=request.flatten,
         )
+        
+        # DEBUG: Log result details
+        logger.info(f"✅ Fill result: success={result.success}, warnings={len(result.warnings)}")
+        logger.info(f"📊 Field results: {len(result.field_results)} total, {sum(1 for r in result.field_results if r.success)} successful")
+        logger.info(f"📦 Output bytes: {len(result.output_bytes) if result.output_bytes else 0} bytes")
+        
     except Exception as e:
         logger.error(f"Error filling PDF: {e}")
         logger.error(traceback.format_exc())
@@ -369,6 +377,7 @@ async def fill_pdf_endpoint(
     
     # Store filled PDF
     download_id = str(uuid.uuid4())
+    logger.info(f"💾 Saving filled PDF as {download_id}, size: {len(result.output_bytes)} bytes")
     _save_filled(download_id, result.output_bytes)
     
     # Cleanup after 30 minutes
