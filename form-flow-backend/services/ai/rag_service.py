@@ -304,6 +304,7 @@ class RagService:
         user_id: str,
         field_pattern: str,
         n_results: int = 3,
+        partial_value: Optional[str] = None,
     ) -> List[str]:
         """
         Get suggested values for a field based on user history.
@@ -312,6 +313,7 @@ class RagService:
             user_id: User identifier
             field_pattern: Type of field
             n_results: Maximum suggestions
+            partial_value: Optional partial value to filter suggestions (for autocomplete)
             
         Returns:
             List of suggested values
@@ -322,7 +324,7 @@ class RagService:
         try:
             results = self.responses_collection.query(
                 query_texts=[field_pattern],
-                n_results=n_results,
+                n_results=n_results * 3 if partial_value else n_results,  # Get more to filter
                 where={"user_id": user_id},
             )
             
@@ -330,9 +332,16 @@ class RagService:
             for metadata in results.get("metadatas", [[]])[0]:
                 value = metadata.get("value", "")
                 if value and value not in values:
-                    values.append(value)
+                    # Filter by partial_value if provided
+                    if partial_value:
+                        # Case-insensitive prefix match
+                        if value.lower().startswith(partial_value.lower()):
+                            values.append(value)
+                    else:
+                        values.append(value)
             
-            return values
+            # Limit to n_results
+            return values[:n_results]
             
         except Exception as e:
             logger.error(f"Error getting suggestions: {e}")

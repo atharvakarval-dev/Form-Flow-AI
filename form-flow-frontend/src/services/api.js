@@ -445,5 +445,40 @@ export const confirmConversationValue = async (sessionId, fieldName, confirmedVa
     return response.data;
 };
 
+// ============ Suggestion APIs ============
+
+/**
+ * Get real-time suggestions for a form field
+ * 
+ * @param {string} fieldName - Field name
+ * @param {string} fieldLabel - Field label (optional)
+ * @param {string} fieldType - Field type (optional)
+ * @param {string} currentValue - Partial value for autocomplete (optional)
+ * @param {number} nResults - Max suggestions to return
+ * @returns {Promise<{suggestions: string[], field_name: string}>}
+ */
+export const getSuggestions = async (
+    fieldName,
+    fieldLabel = null,
+    fieldType = 'text',
+    currentValue = null,
+    nResults = 5
+) => {
+    try {
+        const response = await api.post('/suggestions', {
+            field_name: fieldName,
+            field_label: fieldLabel,
+            field_type: fieldType,
+            current_value: currentValue,
+            n_results: nResults
+        });
+        return response.data;
+    } catch (error) {
+        console.warn('[getSuggestions] Failed:', error.message);
+        return { suggestions: [], field_name: fieldName };
+    }
+};
+
 export default api;
+
 

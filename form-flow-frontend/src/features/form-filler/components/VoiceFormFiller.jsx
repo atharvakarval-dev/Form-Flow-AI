@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { Mic, MicOff, ChevronLeft, ChevronRight, SkipForward, Send, Volume2, Keyboard, Terminal, Activity, CheckCircle, Sparkles, X } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { SiriWave } from '@/components/ui';
-import api, { API_BASE_URL, refineText, startConversationSession, sendConversationMessage, confirmConversationValue } from '@/services/api';
+import api, { API_BASE_URL, refineText, startConversationSession, sendConversationMessage, confirmConversationValue, getSuggestions } from '@/services/api';
 
 const VoiceFormFiller = ({ formSchema, formContext, onComplete, onClose }) => {
     const [isListening, setIsListening] = useState(false);
@@ -12,6 +12,9 @@ const VoiceFormFiller = ({ formSchema, formContext, onComplete, onClose }) => {
     const [processing, setProcessing] = useState(false);
     const [showTextInput, setShowTextInput] = useState(false);
     const [textInputValue, setTextInputValue] = useState('');
+    const [suggestions, setSuggestions] = useState([]);
+    const [loadingSuggestions, setLoadingSuggestions] = useState(false);
+    const fetchTimeoutRef = useRef(null);
 
     // Magic Fill State
     const [magicFillLoading, setMagicFillLoading] = useState(true);
@@ -466,6 +469,52 @@ const VoiceFormFiller = ({ formSchema, formContext, onComplete, onClose }) => {
         }
     };
 
+    // Fetch suggestions with debouncing
+    const fetchSuggestions = async (field, partialValue = null) => {
+        try {
+            setLoadingSuggestions(true);
+            const result = await getSuggestions(
+                field.name,
+                field.label || field.display_name,
+                inferFieldType(field),
+                partialValue,
+                5
+            );
+            setSuggestions(result.suggestions || []);
+        } catch (e) {
+            console.error('Failed to fetch suggestions:', e);
+            setSuggestions([]);
+        } finally {
+            setLoadingSuggestions(false);
+        }
+    };
+
+    // Debounced suggestions on text input change
+    useEffect(() => {
+        if (!showTextInput || !currentField) return;
+
+        clearTimeout(fetchTimeoutRef.current);
+
+        if (textInputValue && textInputValue.length >= 1) {
+            fetchTimeoutRef.current = setTimeout(() => {
+                fetchSuggestions(currentField, textInputValue);
+            }, 300); // 300ms debounce
+        } else {
+            // Show history suggestions when field is empty or just opened
+            fetchSuggestions(currentField, null);
+        }
+
+        return () => clearTimeout(fetchTimeoutRef.current);
+    }, [textInputValue, showTextInput, currentField]);
+
+    // Fetch initial suggestions when landing on a new field in voice mode
+    useEffect(() => {
+        if (!showTextInput && currentField) {
+            fetchSuggestions(currentField, null);
+        }
+    }, [currentFieldIndex, showTextInput]);
+
+
     // Audio Analysis
     const toggleListening = async () => {
         if (isListening) {
@@ -769,6 +818,28 @@ const VoiceFormFiller = ({ formSchema, formContext, onComplete, onClose }) => {
                                                     )}
                                                 </AnimatePresence>
                                             </div>
+
+                                            {/* Suggestion chips for Voice Mode */}
+                                            {!showTextInput && suggestions.length > 0 && (
+                                                <div className="w-full mt-4 px-4">
+                                                    <div className="text-xs font-mono text-white/30 uppercase tracking-widest mb-2 text-center">Suggestions from history</div>
+                                                    <div className="flex flex-wrap gap-2 justify-center">
+                                                        {suggestions.map((suggestion, idx) => (
+                                                            <button
+                                                                key={idx}
+                                                                onClick={() => {
+                                                                    setTranscript(suggestion);
+                                                                    processVoiceInput(suggestion, currentFieldIndex, false);
+                                                                }}
+                                                                className="px-4 py-2 bg-white/5 hover:bg-emerald-500/20 border border-white/10 hover:border-emerald-500/30 rounded-xl text-sm text-white/70 hover:text-white transition-all backdrop-blur-sm flex items-center gap-2"
+                                                            >
+                                                                <Sparkles size={12} className="text-emerald-400" />
+                                                                {suggestion}
+                                                            </button>
+                                                        ))}
+                                                    </div>
+                                                </div>
+                                            )}
                                         </div>
                                     )}
 
@@ -811,6 +882,25 @@ const VoiceFormFiller = ({ formSchema, formContext, onComplete, onClose }) => {
                                             >
                                                 <Send size={18} />
                                             </button>
+
+                                            {/* Suggestions chips */}
+                                            {suggestions.length > 0 && (
+                                                <div className="mt-3 flex flex-wrap gap-2">
+                                                    {suggestions.map((suggestion, idx) => (
+                                                        <button
+                                                            key={idx}
+                                                            onClick={() => {
+                                                                setTextInputValue(suggestion);
+                                                                processVoiceInput(suggestion, currentFieldIndex, true);
+                                                            }}
+                                                            className="px-3 py-1.5 bg-white/5 hover:bg-emerald-500/20 border border-white/10 hover:border-emerald-500/30 rounded-full text-sm text-white/70 hover:text-white transition-all backdrop-blur-sm flex items-center gap-1.5"
+                                                        >
+                                                            <Sparkles size={12} className="text-emerald-400" />
+                                                            {suggestion}
+                                                        </button>
+                                                    ))}
+                                                </div>
+                                            )}
 
                                             <button
                                                 onClick={() => setShowTextInput(false)}

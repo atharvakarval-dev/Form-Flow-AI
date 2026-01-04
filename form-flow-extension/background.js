@@ -184,6 +184,9 @@ async function handleMessage(message, sender) {
         case 'GET_EXTRACTED_DATA':
             return getExtractedData(tabId);
 
+        case 'GET_SUGGESTIONS':
+            return await getSuggestions(message.fieldName, message.fieldLabel, message.fieldType, message.currentValue);
+
         default:
             console.warn('Unknown message type:', message.type);
             return { success: false, error: 'Unknown message type' };
@@ -378,6 +381,45 @@ async function checkBackendHealth() {
     } catch (error) {
         console.error('Health check error:', error.message);
         return { success: false, healthy: false, error: error.message };
+    }
+}
+
+// =============================================================================
+// Suggestions API
+// =============================================================================
+
+async function getSuggestions(fieldName, fieldLabel = null, fieldType = 'text', currentValue = null) {
+    try {
+        const response = await fetch(`${CONFIG.BACKEND_URL}/suggestions`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                field_name: fieldName,
+                field_label: fieldLabel,
+                field_type: fieldType,
+                current_value: currentValue,
+                n_results: 5
+            })
+        });
+
+        if (!response.ok) {
+            throw new Error(`Backend error: ${response.status}`);
+        }
+
+        const data = await response.json();
+        return {
+            success: true,
+            suggestions: data.suggestions || [],
+            fieldName: data.field_name
+        };
+
+    } catch (error) {
+        console.error('Failed to fetch suggestions:', error);
+        return {
+            success: false,
+            suggestions: [],
+            fieldName: fieldName
+        };
     }
 }
 
