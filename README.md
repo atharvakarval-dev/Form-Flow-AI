@@ -1,6 +1,6 @@
 # Form Flow AI | The Ultimate AI Form Filler & Automation Agent
 <div align="center">
-  <img src="assets/Form Flow AI.gif" alt="Form Flow AI Demo" width="100%" />
+  <img src="assets/hero-banner.png" alt="Form Flow AI Demo" width="100%" />
 
   <h3>🚀 Intelligent AI Form Filler & Voice-Driven Automation Agent</h3>
 
