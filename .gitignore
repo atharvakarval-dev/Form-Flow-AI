@@ -62,6 +62,7 @@ dev-dist/
 vosk-model-*/
 *.onnx
 *.bin
+*.mp3
 
 # Project Specific (Debug artifacts)
 debug_*.png
