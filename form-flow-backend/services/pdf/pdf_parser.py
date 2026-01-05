@@ -523,10 +523,12 @@ def _is_technical_id(label: str) -> bool:
         r'^Group\d+$',
         r'^TextField\d+$',
         r'^CheckBox\d+$',
+        r'^[Ff]\d+\s\d+(\[\d+\])?$',        # F1 01[0] or f1 01
+        r'^[A-Za-z]+\d+(\[\d+\])?$',        # Generic Alphanumeric + Number
     ]
     
     for pattern in technical_patterns:
-        if re.match(pattern, label):
+        if re.match(pattern, label, re.IGNORECASE):
             return True
             
     return False

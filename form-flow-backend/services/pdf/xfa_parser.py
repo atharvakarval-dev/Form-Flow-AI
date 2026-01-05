@@ -36,6 +36,12 @@ class XfaParser:
     
     def __init__(self, pdf_path):
         self.pdf_path = pdf_path
+        if isinstance(pdf_path, bytes):
+            import io
+            self.pdf_source = io.BytesIO(pdf_path)
+        else:
+            self.pdf_source = pdf_path
+            
         self.xfa_parts: Dict[str, str] = {}
         self.fields: List[XfaField] = []
         
@@ -53,7 +59,7 @@ class XfaParser:
     
     def _extract_xfa_parts(self):
         """Extract XFA parts from PDF."""
-        reader = PdfReader(self.pdf_path)
+        reader = PdfReader(self.pdf_source)
         
         try:
             root = reader.trailer["/Root"]
