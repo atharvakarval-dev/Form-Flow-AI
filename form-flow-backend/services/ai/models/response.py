@@ -26,6 +26,11 @@ class AgentResponse:
     fallback_options: List[Dict[str, Any]] = field(default_factory=list)
     suggestions: List[Dict[str, Any]] = field(default_factory=list)  # Contextual suggestions
     
+    # Smart Grouping: Partial response fields
+    status: str = "complete"  # "complete", "partial_extraction", "failed"
+    missing_from_group: List[str] = field(default_factory=list)  # Field names not extracted
+    requires_followup: bool = False  # True if user should provide more info for current group
+    
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary for JSON serialization."""
         return {
@@ -38,4 +43,8 @@ class AgentResponse:
             'next_questions': self.next_questions,
             'fallback_options': self.fallback_options,
             'suggestions': self.suggestions,
+            # Smart Grouping fields
+            'status': self.status,
+            'missing_from_group': self.missing_from_group,
+            'requires_followup': self.requires_followup,
         }

@@ -327,10 +327,15 @@ class ConversationAgent:
         # Get remaining fields and current batch
         remaining_fields = session.get_remaining_fields()
         
-        # Determine max fields based on client type
-        # Web frontend needs 1 field at a time to focus UI correctly
+        # Determine max fields based on client type and feature flag
+        # Web frontend gets grouped questions when SMART_GROUPING_ENABLED is True
         is_web_client = getattr(session, 'client_type', 'extension') == 'web'
-        max_fields = 1 if is_web_client else None
+        
+        # Smart Grouping: Allow batching for web clients when enabled
+        if is_web_client and not settings.SMART_GROUPING_ENABLED:
+            max_fields = 1  # Legacy: Linear single-field flow
+        else:
+            max_fields = None  # Smart Grouping: Allow natural batching
         
         batches = self.clusterer.create_batches(remaining_fields, max_fields=max_fields)
         current_batch = batches[0] if batches else []
@@ -589,9 +594,14 @@ class ConversationAgent:
         # 9. Generate response
         remaining_fields = session.get_remaining_fields()
         
-        # Determine max fields based on client type
+        # Determine max fields based on client type and feature flag
         is_web_client = getattr(session, 'client_type', 'extension') == 'web'
-        max_fields = 1 if is_web_client else None
+        
+        # Smart Grouping: Allow batching for web clients when enabled
+        if is_web_client and not settings.SMART_GROUPING_ENABLED:
+            max_fields = 1  # Legacy: Linear single-field flow
+        else:
+            max_fields = None  # Smart Grouping: Allow natural batching
         
         batches = self.clusterer.create_batches(remaining_fields, max_fields=max_fields)
         next_batch = batches[0] if batches else []
@@ -649,18 +659,55 @@ class ConversationAgent:
             for s in suggestions
         ]
         
+        # Smart Grouping: Detect partial extraction for current batch
+        # Check what fields from current_batch were actually filled
+        batch_field_names = [f.get('name') for f in current_batch]
+        filled_in_batch = [name for name in batch_field_names if name in refined]
+        missing_from_batch = [name for name in batch_field_names if name not in refined]
+        
+        # Calculate fill ratio
+        fill_ratio = len(filled_in_batch) / len(batch_field_names) if batch_field_names else 1.0
+        min_fill_ratio = settings.SMART_GROUPING_MIN_FILL_RATIO
+        
+        # Determine extraction status and follow-up needs
+        if not refined:
+            extraction_status = "failed"
+            requires_followup = True
+        elif fill_ratio < min_fill_ratio and missing_from_batch:
+            extraction_status = "partial_extraction"
+            requires_followup = True
+            # Generate targeted follow-up message
+            missing_labels = []
+            for field_name in missing_from_batch:
+                field_info = next((f for f in current_batch if f.get('name') == field_name), {})
+                missing_labels.append(field_info.get('label', field_name))
+            
+            if len(missing_labels) == 1:
+                message += f" I still need your {missing_labels[0]}."
+            elif len(missing_labels) == 2:
+                message += f" I still need your {missing_labels[0]} and {missing_labels[1]}."
+            else:
+                message += f" I still need your {', '.join(missing_labels[:-1])}, and {missing_labels[-1]}."
+        else:
+            extraction_status = "complete"
+            requires_followup = False
+        
         return AgentResponse(
             message=message,
             extracted_values=refined,
             confidence_scores=confidence_scores,
             needs_confirmation=[],
             remaining_fields=remaining_fields,
-            is_complete=is_complete,  # Use the corrected completion check
+            is_complete=is_complete,
             next_questions=[
                 {'name': f.get('name'), 'label': f.get('label'), 'type': f.get('type')} 
                 for f in next_batch
             ],
-            suggestions=suggestions_data  # New field for contextual suggestions
+            suggestions=suggestions_data,
+            # Smart Grouping fields
+            status=extraction_status,
+            missing_from_group=missing_from_batch,
+            requires_followup=requires_followup
         )
     
     # =========================================================================

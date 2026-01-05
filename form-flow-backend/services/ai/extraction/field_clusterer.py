@@ -7,6 +7,9 @@ Groups related fields together for efficient form filling.
 
 import re
 from typing import Dict, List, Any
+from utils.logging import get_logger
+
+logger = get_logger(__name__)
 
 
 class FieldClusterer:
@@ -51,8 +54,8 @@ class FieldClusterer:
     }
     
     # Maximum complexity budget per batch
-    MAX_BATCH_COMPLEXITY = 6
-    MAX_FIELDS_PER_BATCH = 3
+    MAX_BATCH_COMPLEXITY = 8
+    MAX_FIELDS_PER_BATCH = 4
     
     def __init__(self):
         """Initialize clusterer with compiled regex patterns."""
@@ -114,6 +117,34 @@ class FieldClusterer:
         
         return base
     
+    def get_optimal_batch_size(self, fields: List[Dict[str, Any]]) -> int:
+        """
+        Determine optimal batch size based on field complexity.
+        
+        Simple fields (text, checkbox) can be grouped into larger batches,
+        while complex fields (dates, addresses) need smaller batches.
+        
+        Args:
+            fields: List of fields to batch
+            
+        Returns:
+            Optimal batch size (3-5)
+        """
+        if not fields:
+            return self.MAX_FIELDS_PER_BATCH
+        
+        # Calculate average complexity
+        total_complexity = sum(self.get_field_complexity(f) for f in fields)
+        avg_complexity = total_complexity / len(fields)
+        
+        # Low avg complexity (mostly simple) -> larger batches
+        if avg_complexity < 1.5:
+            return 5
+        elif avg_complexity < 2.0:
+            return 4
+        else:
+            return 3
+    
     def create_batches(
         self, 
         fields: List[Dict[str, Any]],
@@ -138,6 +169,8 @@ class FieldClusterer:
         
         max_complexity = max_complexity or self.MAX_BATCH_COMPLEXITY
         max_fields = max_fields or self.MAX_FIELDS_PER_BATCH
+        
+        logger.info(f"[CLUSTERER] create_batches called: {len(fields)} fields, max_fields={max_fields}, max_complexity={max_complexity}")
         
         # Group by cluster
         clustered = {}
@@ -176,6 +209,7 @@ class FieldClusterer:
             if current_batch:
                 batches.append(current_batch)
         
+        logger.info(f"[CLUSTERER] Created {len(batches)} batches. First batch has {len(batches[0]) if batches else 0} fields")
         return batches
     
     def format_batch_question(self, batch: List[Dict[str, Any]]) -> str:

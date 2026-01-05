@@ -8,6 +8,9 @@ from typing import Dict, List, Any
 
 from services.ai.models import AgentResponse
 from services.ai.extraction import FieldClusterer
+from utils.logging import get_logger
+
+logger = get_logger(__name__)
 
 
 class GreetingHandler:
@@ -47,9 +50,20 @@ class GreetingHandler:
             )
         
         # Create batches
-        # Determine max fields based on client type
+        # Determine max fields based on client type and feature flag
+        from config.settings import settings
         is_web_client = getattr(session, 'client_type', 'extension') == 'web'
-        max_fields = 1 if is_web_client else None
+        
+        # DEBUG: Log the values
+        logger.info(f"[SMART_GROUPING] client_type={getattr(session, 'client_type', 'N/A')}, is_web={is_web_client}, flag={settings.SMART_GROUPING_ENABLED}")
+        
+        # Smart Grouping: Allow batching for web clients when enabled
+        if is_web_client and not settings.SMART_GROUPING_ENABLED:
+            max_fields = 1  # Legacy: Linear single-field flow
+        else:
+            max_fields = None  # Smart Grouping: Allow natural batching
+        
+        logger.info(f"[SMART_GROUPING] max_fields={max_fields}")
         
         batches = clusterer.create_batches(remaining_fields, max_fields=max_fields)
         first_batch = batches[0] if batches else [remaining_fields[0]]

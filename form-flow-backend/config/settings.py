@@ -131,6 +131,18 @@ class Settings(BaseSettings):
     )
     
     # ==========================================================================
+    # Smart Question Engine Configuration
+    # ==========================================================================
+    SMART_GROUPING_ENABLED: bool = Field(
+        default=False,
+        description="Enable Smart Question Grouping (reduces 159 fields to ~30 groups)"
+    )
+    SMART_GROUPING_MIN_FILL_RATIO: float = Field(
+        default=0.7,
+        description="Minimum field fill ratio to consider a group complete"
+    )
+    
+    # ==========================================================================
     # Voice/Speech Configuration
     # ==========================================================================
     ELEVENLABS_VOICE_ID: str = Field(
