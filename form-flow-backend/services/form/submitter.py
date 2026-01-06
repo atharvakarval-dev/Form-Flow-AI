@@ -13,6 +13,9 @@ from .browser_pool import get_browser_context
 from .detectors.captcha import detect_captcha
 from .utils.constants import CAPTCHA_SELECTORS
 from services.captcha.solver import CaptchaSolverService, get_captcha_solver
+from utils.logging import get_logger
+
+logger = get_logger(__name__)
 
 
 
@@ -175,6 +178,7 @@ class FormSubmitter:
                     if el and await el.is_visible():
                         return el
         except:
+            logger.debug(f"Label search failed for '{label_text}'", exc_info=True)
             pass
         return None
 
@@ -237,6 +241,7 @@ class FormSubmitter:
                 await element.select_option(value=best_match[3])
                 return True
         except:
+            logger.debug(f"Smart text match failed for '{value}'")
             pass
         
         # Strategy 4: Ant Design / React Select / Custom dropdowns
@@ -314,6 +319,7 @@ class FormSubmitter:
                     await opt.click()
                     return True
         except:
+            logger.warning(f"All dropdown strategies failed for '{value}'")
             pass
         
         return False
@@ -666,6 +672,7 @@ class FormSubmitter:
                 await asyncio.sleep(2)
                 return True
         except:
+            logger.warning("Form submit fallback (Enter key) failed", exc_info=True)
             pass
         return False
 
@@ -692,6 +699,7 @@ class FormSubmitter:
                     await asyncio.sleep(3)
                     return True
         except:
+            logger.warning("Google Form submit fallback failed", exc_info=True)
             pass
         return False
 
@@ -837,6 +845,7 @@ class FormSubmitter:
             if checked:
                 print(f"✅ Auto-checked {checked} Terms/Privacy checkbox(es)")
         except:
+            logger.warning("Error auto-checking terms", exc_info=True)
             pass
         
         await asyncio.sleep(0.5)
@@ -893,6 +902,7 @@ class FormSubmitter:
                 is_checked = await el.is_checked()
                 return is_checked == (str(expected).lower() in ['true', 'yes', '1', 'checked'])
         except:
+            logger.debug("Verification error", exc_info=True)
             pass
         return True
 
@@ -915,6 +925,7 @@ class FormSubmitter:
                             error_found, success_found = True, False
                             break
                 except:
+                    logger.debug("Error checking validation UI", exc_info=True)
                     pass
             
             # URL change detection
@@ -923,6 +934,7 @@ class FormSubmitter:
                 try:
                     url_changed = urlparse(initial_url).path != urlparse(current_url).path
                 except:
+                    logger.debug("Error checking URL change", exc_info=True)
                     url_changed = initial_url != current_url
             
             url_success = any(w in current_url for w in ['thank', 'success', 'confirmation', 'complete', 'submitted', 'login', 'dashboard', 'verify'])
@@ -1002,11 +1014,13 @@ class FormSubmitter:
                     page.wait_for_selector('[role="listitem"], .freebirdFormviewerViewItemsItemItem', timeout=20000)
                     time.sleep(2)
                 except:
+                    logger.debug("Google form selector wait timeout/error")
                     pass
             else:
                 try:
                     page.wait_for_load_state("networkidle", timeout=15000)
                 except:
+                    logger.debug("Network idle wait error")
                     pass
                 time.sleep(1)
             
@@ -1221,11 +1235,13 @@ class FormSubmitter:
                     await page.wait_for_selector('[role="listitem"], .freebirdFormviewerViewItemsItemItem', timeout=20000)
                     await asyncio.sleep(2)
                 except:
+                    logger.debug("Google form selector wait timeout/error")
                     pass
             else:
                 try:
                     await page.wait_for_load_state("networkidle", timeout=15000)
                 except:
+                    logger.debug("Network idle wait error")
                     pass
                 await asyncio.sleep(1)
             
@@ -1365,6 +1381,7 @@ class FormSubmitter:
             if checked:
                 print(f"✅ Auto-checked {checked} Terms/Privacy checkbox(es)")
         except:
+            logger.warning("Error auto-checking terms", exc_info=True)
             pass
         
         return {
