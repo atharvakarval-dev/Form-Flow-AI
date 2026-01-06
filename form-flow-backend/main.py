@@ -72,6 +72,14 @@ async def lifespan(app: FastAPI):
         await conn.run_sync(models.Base.metadata.create_all)
         logger.info("Database tables initialized")
     
+    # Validate AI dependencies and warn if degraded
+    try:
+        from services.ai.dependency_checker import validate_ai_dependencies
+        ai_mode = validate_ai_dependencies()
+        logger.info(f"AI mode: {ai_mode}")
+    except Exception as e:
+        logger.warning(f"AI dependency check failed: {e}")
+    
     yield
     
     # Shutdown
@@ -226,6 +234,27 @@ async def health_check():
         "task_queue": get_queue_stats(),
         "version": settings.APP_VERSION
     }
+
+
+@app.get("/health/ai", tags=["Health"])
+async def ai_health_check():
+    """
+    AI subsystem health check.
+    
+    Returns:
+        dict: AI mode and dependency status
+    """
+    try:
+        from services.ai.dependency_checker import get_dependency_checker
+        checker = get_dependency_checker()
+        if not checker.results:
+            checker.check_all()
+        return checker.to_dict()
+    except Exception as e:
+        return {
+            "mode": "unknown",
+            "error": str(e)
+        }
 
 
 @app.get("/metrics", tags=["Health"])
