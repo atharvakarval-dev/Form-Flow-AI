@@ -54,7 +54,7 @@ UPDATE_FORM_INTERVAL = 3  # Update profile every N forms
 UPDATE_DAYS_INTERVAL = 30  # Update if not updated in N days
 
 # LLM Configuration
-PROFILE_MODEL = "gemini-1.5-pro"  # Deeper analysis for profiles
+PROFILE_MODEL = "gemini-2.5-pro"  # Deeper analysis for profiles
 PROFILE_TEMPERATURE = 0.3  # Consistent outputs
 MAX_PROFILE_WORDS = 500
 

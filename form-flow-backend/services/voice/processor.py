@@ -212,7 +212,7 @@ class VoiceProcessor:
         try:
             # Switch to 1.5-flash for speed (was 1.5-pro)
             response = self.client.models.generate_content(
-                model='gemini-1.5-flash',
+                model='gemini-2.0-flash',
                 contents=prompt
             )
             result = json.loads(response.text)
@@ -281,7 +281,7 @@ class VoiceProcessor:
             
             try:
                 response = self.client.models.generate_content(
-                    model='gemini-1.5-pro',
+                    model='gemini-2.5-pro',
                     contents=prompt
                 )
                 result = json.loads(response.text)
