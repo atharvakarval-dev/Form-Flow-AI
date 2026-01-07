@@ -567,6 +567,54 @@ export const getSmartSuggestions = async (
     }
 };
 
+// ============ Profile Management APIs ============
+
+/**
+ * Get current user's behavioral profile
+ */
+export const getProfile = async () => {
+    const response = await api.get('/profile/me');
+    return response.data;
+};
+
+/**
+ * Update (edit) profile text
+ */
+export const updateProfile = async (profileText) => {
+    const response = await api.patch('/profile/me', { profile_text: profileText });
+    return response.data;
+};
+
+/**
+ * Delete profile completely
+ */
+export const deleteProfile = async () => {
+    const response = await api.delete('/profile/me');
+    return response.data;
+};
+
+/**
+ * Get profile status (enabled/disabled, exists/not)
+ */
+export const getProfileStatus = async () => {
+    const response = await api.get('/profile/status');
+    return response.data;
+};
+
+/**
+ * Opt-in to profiling
+ */
+export const optInProfiling = async () => {
+    const response = await api.post('/profile/opt-in');
+    return response.data;
+};
+
+/**
+ * Opt-out of profiling
+ */
+export const optOutProfiling = async () => {
+    const response = await api.post('/profile/opt-out');
+    return response.data;
+};
+
 export default api;
-
-

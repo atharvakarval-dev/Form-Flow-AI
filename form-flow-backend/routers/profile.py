@@ -61,6 +61,11 @@ class ProfileGenerateRequest(BaseModel):
     form_purpose: str = "Data collection"
 
 
+class ProfileUpdateRequest(BaseModel):
+    """Request model for profile editing."""
+    profile_text: str
+
+
 class MessageResponse(BaseModel):
     """Simple message response."""
     message: str
@@ -205,6 +210,69 @@ async def delete_my_profile(
     return MessageResponse(
         message="Your behavioral profile has been deleted successfully",
         success=True
+    )
+
+
+@router.patch("/me", response_model=ProfileResponse)
+async def update_my_profile(
+    data: ProfileUpdateRequest,
+    request: Request,
+    db: AsyncSession = Depends(database.get_db),
+    profile_service: ProfileService = Depends(get_profile_service)
+):
+    """
+    Update current user's behavioral profile text.
+    
+    Allows the user to manually edit their profile for corrections
+    or privacy preferences. The system will respect manual edits
+    in future profile updates.
+    
+    Args:
+        profile_text: New profile text (max 500 words)
+    
+    Requires: Bearer token authentication
+    """
+    user = await get_current_user(request, db)
+    
+    # Get existing profile
+    profile = await profile_service.get_profile(db, user.id)
+    
+    if not profile:
+        raise HTTPException(
+            status_code=404,
+            detail="No profile found to update. Complete some forms first."
+        )
+    
+    # Validate word count
+    word_count = len(data.profile_text.split())
+    if word_count > 500:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Profile text exceeds 500 word limit ({word_count} words)"
+        )
+    
+    # Update profile text
+    updated = await profile_service.update_profile_text(
+        db, user.id, data.profile_text
+    )
+    
+    if not updated:
+        raise HTTPException(
+            status_code=500,
+            detail="Failed to update profile"
+        )
+    
+    logger.info(f"Profile manually edited by user {user.id}")
+    
+    return ProfileResponse(
+        user_id=updated.user_id,
+        profile_text=updated.profile_text,
+        confidence_score=updated.confidence_score,
+        confidence_level=updated.confidence_level,
+        form_count=updated.form_count,
+        version=updated.version,
+        created_at=updated.created_at.isoformat() if updated.created_at else None,
+        updated_at=updated.updated_at.isoformat() if updated.updated_at else None,
     )
 
 

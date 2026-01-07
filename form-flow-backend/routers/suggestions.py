@@ -3,7 +3,7 @@ from pydantic import BaseModel
 from typing import Optional, List, Dict, Any
 import logging
 
-from services.ai.rag_service import get_rag_service, RagService
+from services.ai.suggestion_engine import SuggestionEngine, Suggestion
 from services.ai.profile_suggestions import (
     get_intelligent_suggestions,
     IntelligentSuggestion,
@@ -14,6 +14,16 @@ from sqlalchemy.ext.asyncio import AsyncSession
 import auth
 
 logger = logging.getLogger(__name__)
+
+# Singleton suggestion engine
+_suggestion_engine = None
+
+def get_suggestion_engine() -> SuggestionEngine:
+    """Get singleton SuggestionEngine instance."""
+    global _suggestion_engine
+    if _suggestion_engine is None:
+        _suggestion_engine = SuggestionEngine()
+    return _suggestion_engine
 
 router = APIRouter(tags=["Suggestions"])
 
@@ -72,39 +82,45 @@ async def get_suggestions(
     data: SuggestionRequest,
     request: Request,
     db: AsyncSession = Depends(database.get_db),
-    rag_service: RagService = Depends(get_rag_service),
 ):
     """
-    Get real-time suggestions for a form field based on user history.
+    Get real-time suggestions for a form field based on pattern detection.
     
-    Uses RAG database for pattern-based suggestions.
+    Uses SuggestionEngine for pattern-based suggestions from completed fields.
     For intelligent profile-based suggestions, use /smart-suggestions instead.
     """
     try:
-        user_id = data.user_id
-        if not user_id:
-            try:
-                token = request.headers.get("Authorization", "").replace("Bearer ", "")
-                user = await auth.get_current_user(token, db)
-                user_id = str(user.id)
-            except:
-                user_id = "anonymous"
+        engine = get_suggestion_engine()
         
-        field_pattern = _infer_field_pattern(
-            data.field_name, 
-            data.field_label or "",
-            data.field_type
+        # Build target field info
+        target_field = {
+            "name": data.field_name,
+            "label": data.field_label or data.field_name,
+            "type": data.field_type or "text",
+        }
+        
+        # Detect patterns from current value if provided
+        detected_patterns = {}
+        if data.current_value:
+            detected_patterns = engine.detect_patterns(
+                field_name=data.field_name,
+                field_value=data.current_value,
+                field_type=data.field_type or "text",
+                field_label=data.field_label or ""
+            )
+        
+        # Generate suggestions based on patterns
+        suggestions = engine.generate_suggestions(
+            target_fields=[target_field],
+            extracted_fields={data.field_name: data.current_value or ""},
+            detected_patterns=detected_patterns,
         )
         
-        suggestions = rag_service.get_suggested_values(
-            user_id=user_id,
-            field_pattern=field_pattern,
-            n_results=data.n_results,
-            partial_value=data.current_value if data.current_value and len(data.current_value) > 0 else None,
-        )
+        # Extract suggestion values
+        suggestion_values = [s.suggested_value for s in suggestions if s.target_field == data.field_name]
         
         return SuggestionResponse(
-            suggestions=suggestions,
+            suggestions=suggestion_values[:data.n_results],
             field_name=data.field_name
         )
         

@@ -394,6 +394,42 @@ class ProfileService:
         
         return profile
     
+    async def update_profile_text(
+        self,
+        db: AsyncSession,
+        user_id: int,
+        new_text: str
+    ) -> Optional[UserProfile]:
+        """
+        Update profile text from user edit (manual correction).
+        
+        Marks the profile as user-edited and preserves form count.
+        """
+        profile = await self._get_profile_from_db(db, user_id)
+        
+        if not profile:
+            return None
+        
+        profile.profile_text = new_text
+        profile.version += 1
+        
+        # Mark as user-edited in metadata
+        try:
+            metadata = json.loads(profile.metadata_json or '{}')
+            metadata['user_edited'] = True
+            metadata['last_edit'] = datetime.now(timezone.utc).isoformat()
+            profile.metadata_json = json.dumps(metadata)
+        except json.JSONDecodeError:
+            pass
+        
+        await db.commit()
+        await db.refresh(profile)
+        
+        # Update cache
+        await self._cache_profile(user_id, profile)
+        
+        return profile
+    
     # -------------------------------------------------------------------------
     # Cache Operations
     # -------------------------------------------------------------------------

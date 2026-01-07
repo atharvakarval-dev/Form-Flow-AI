@@ -2,12 +2,13 @@
 
 import { useState, useEffect } from "react"
 import { motion } from "framer-motion"
-import { Clock, ExternalLink, FileText, CheckCircle2, XCircle, TrendingUp, PieChart, BarChart3 } from "lucide-react"
+import { Clock, ExternalLink, FileText, CheckCircle2, XCircle, TrendingUp, PieChart, BarChart3, User } from "lucide-react"
 import api, { getAnalytics } from '@/services/api'
 import { ROUTES } from '@/constants'
 import { useTheme } from '@/context/ThemeProvider'
 import { SubmissionTrendChart, SuccessRateChart, FieldTypesChart, FormTypeChart, TopDomainsChart, ActivityHourlyChart } from './AnalyticsCharts'
 import { AIInsights } from './AIInsights'
+import { ProfileSettings } from './ProfileSettings'
 
 const ITEMS_PER_PAGE = 5;
 
@@ -217,6 +218,16 @@ export function Dashboard() {
                             >
                                 <TrendingUp className="w-3.5 h-3.5" />
                                 analytics.log
+                            </button>
+                            <button
+                                onClick={() => setActiveTab('profile')}
+                                className={`px-3 py-1.5 rounded-md text-xs font-medium transition-all flex items-center gap-2 ${activeTab === 'profile'
+                                    ? `${isDark ? 'bg-white/10 text-white shadow-sm' : 'bg-white text-zinc-900 shadow-sm border border-black/5'}`
+                                    : `${isDark ? 'text-white/40 hover:bg-white/5 hover:text-white/60' : 'text-zinc-400 hover:bg-zinc-200/50 hover:text-zinc-600'}`
+                                    }`}
+                            >
+                                <User className="w-3.5 h-3.5" />
+                                profile.config
                             </button>
                         </div>
                     </div>
@@ -431,6 +442,11 @@ export function Dashboard() {
                                 </div>
 
                             </div>
+                        )}
+
+                        {/* Tab Content: PROFILE */}
+                        {activeTab === 'profile' && (
+                            <ProfileSettings />
                         )}
 
                     </div>

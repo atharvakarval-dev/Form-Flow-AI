@@ -557,15 +557,26 @@ const VoiceFormFiller = ({ formSchema, formContext, onComplete, onClose }) => {
                 formDataRef.current  // Pass already answered fields
             );
 
-            if (result.suggestions && result.suggestions.length > 0) {
+            if (result.suggestions && result.suggestions.length > 0 && result.tier_used !== 'error') {
                 setSmartSuggestions(result.suggestions);
                 setSuggestionTier(result.tier_used);
                 setProfileConfidence(result.profile_confidence);
                 setShowSmartSuggestions(true);
                 console.log(`🧠 Smart suggestions received (Tier: ${result.tier_used}):`, result.suggestions.length);
+            } else {
+                // Graceful fallback: fetch regular suggestions instead
+                console.log('⚠️ Smart suggestions empty/error, falling back to regular suggestions');
+                await fetchSuggestions(field, formDataRef.current[field.name] || null);
             }
         } catch (e) {
-            console.error('Smart suggestions failed:', e);
+            console.warn('Smart suggestions failed, falling back:', e.message);
+            // Graceful degradation: try regular suggestions or show nothing
+            try {
+                await fetchSuggestions(field, formDataRef.current[field.name] || null);
+            } catch (fallbackErr) {
+                console.error('Fallback suggestions also failed:', fallbackErr);
+                // Silent fail - user can still type manually
+            }
         }
     };
 
@@ -775,10 +786,10 @@ const VoiceFormFiller = ({ formSchema, formContext, onComplete, onClose }) => {
                                                 Need help with this field?
                                                 {suggestionTier && (
                                                     <span className={`text-[10px] px-1.5 py-0.5 rounded-full uppercase tracking-wider ${suggestionTier === 'profile_based'
-                                                            ? 'bg-purple-500/30 text-purple-200'
-                                                            : suggestionTier === 'profile_blended'
-                                                                ? 'bg-blue-500/30 text-blue-200'
-                                                                : 'bg-gray-500/30 text-gray-200'
+                                                        ? 'bg-purple-500/30 text-purple-200'
+                                                        : suggestionTier === 'profile_blended'
+                                                            ? 'bg-blue-500/30 text-blue-200'
+                                                            : 'bg-gray-500/30 text-gray-200'
                                                         }`}>
                                                         {suggestionTier === 'profile_based' ? '🧠 Personalized' :
                                                             suggestionTier === 'profile_blended' ? '🎯 Smart' : '⚡ Quick'}
