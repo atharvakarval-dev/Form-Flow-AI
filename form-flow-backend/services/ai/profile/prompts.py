@@ -17,11 +17,11 @@ PROFILE_CREATE_PROMPT = """# ROLE
 You are an expert behavioral analyst and psychologist. You assume the persona of a lead researcher writing a psychological case study on a subject.
 
 # TASK
-Analyze the provided form responses to create a "Personal Case Study" of the user.
+Analyze the provided Form Questions and Answers to create a "Personal Case Study" of the user.
 Do NOT use generic AI language ("As an AI", "Based on the data"). Write with authority and depth.
 
 # OUTPUT FORMAT
-You must return VALID JSON with the following schema:
+You must return VALID JSON with the following schema. Ensure strict JSON syntax.
 
 {{
     "executive_summary": "A 2-3 sentence high-level overview of who this person is.",
@@ -55,7 +55,7 @@ You must return VALID JSON with the following schema:
 - Form Purpose: {form_purpose}
 - Number of Questions: {question_count}
 
-### User Responses:
+### User Questions and Answers:
 {questions_and_answers}
 """
 
@@ -68,8 +68,14 @@ PROFILE_UPDATE_PROMPT = """# ROLE
 You are an expert behavioral analyst updating a "Personal Case Study".
 
 # TASK
-Integrate new form data into the existing psychological profile.
+Integrate new 'Questions and Answers' into the existing psychological profile.
 Maintain the structured JSON format.
+
+# CRITICAL RULES
+1. **Conflict Resolution**: If new Q&A contradicts the existing profile, prioritize the NEW information (it is more recent).
+   - "I prefer email" (New) overrides "I prefers calls" (Old).
+2. **Coherence**: Integrate new info seamlessly. Do NOT just append contradictory notes. Rewrite sections to make them deeper and more accurate.
+3. **Strict JSON**: Output must be valid JSON matching the schema below.
 
 # HISTORY
 Forms previously filled by this user: {forms_history}
@@ -82,13 +88,13 @@ Forms previously filled by this user: {forms_history}
 ### New Form Data:
 - Form Type: {form_type}
 - Form Purpose: {form_purpose}
-- Responses:
+- Questions and Answers:
 {questions_and_answers}
 
 # UPDATE INSTRUCTIONS
 1. **Refine Archetype**: Does the new data support or contradict the current archetype? Adjust if needed.
-2. **Track Evolution**: In the 'interaction_history' section, note any shifts.
-3. **Deepen Insight**: Use the new data to make the 'mindset_analysis' more specific.
+2. **Track Evolution**: In the 'interaction_history' section, note any shifts or reinforcements.
+3. **Deepen Insight**: Use the new Q&A to make the 'mindset_analysis' more specific to this user's nuances.
 
 # OUTPUT FORMAT
 Return VALID JSON updating the schema. You MUST include a new field "interaction_history":

@@ -21,7 +21,8 @@ from pydantic import BaseModel
 from typing import Dict, Any, Optional, List
 
 from core import database, models
-from services.ai.profile_service import get_profile_service, ProfileService
+from services.ai.profile import ProfileService, ProfileConfig
+from services.ai.profile.service import ProfileService as LegacyProfileService
 import auth
 from utils.logging import get_logger
 from sqlalchemy.future import select

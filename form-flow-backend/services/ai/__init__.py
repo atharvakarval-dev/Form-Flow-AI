@@ -7,8 +7,8 @@ from .text_refiner import TextRefiner, get_text_refiner, RefineStyle, RefinedTex
 from .smart_autofill import SmartAutofill, get_smart_autofill
 from .analytics import FormAnalytics, get_form_analytics
 from .multilingual import MultilingualProcessor, get_multilingual_processor, Language
-from .profile_service import ProfileService, get_profile_service, generate_profile_background
-from .profile_suggestions import (
+from services.ai.profile import ProfileService, get_profile_service, generate_profile_background
+from services.ai.profile.suggestions import (
     ProfileSuggestionEngine,
     get_profile_suggestion_engine,
     get_intelligent_suggestions,

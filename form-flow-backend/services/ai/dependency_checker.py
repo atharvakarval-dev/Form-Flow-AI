@@ -101,7 +101,7 @@ class DependencyChecker:
         self.results = {
             'langchain': self.check_langchain(),
             'openai': self.check_openai(),
-            'google-genai': self.check_google_genai(),
+            "Profile Service": "services.ai.profile.service",
         }
         
         # Determine mode

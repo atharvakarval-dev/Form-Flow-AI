@@ -12,9 +12,9 @@ Features:
     - Privacy-compliant operations
 
 Usage:
-    from services.ai.profile_service import get_profile_service
+    from services.ai.profile import ProfileService
     
-    service = get_profile_service()
+    service = ProfileService()
     await service.generate_profile(user_id, form_data)
 """
 
@@ -33,13 +33,16 @@ from core.models import User, UserProfile
 from config.settings import settings
 from utils.logging import get_logger
 from utils.cache import get_cached, set_cached, delete_cached
+from utils.cache import get_cached, set_cached, delete_cached
 from services.ai.local_llm import get_local_llm_service
+import time
 
-from .prompts.profile_prompts import (
-    build_create_prompt,
-    build_update_prompt,
-    build_condense_prompt,
-)
+from . import prompts as profile_prompts
+from .config import profile_config
+from .validator import ProfileValidator
+from .evaluation import evaluator
+from .safeguards import rate_limiter, circuit_breaker
+from .prompt_manager import prompt_manager
 
 logger = get_logger(__name__)
 
@@ -48,16 +51,13 @@ logger = get_logger(__name__)
 # Configuration Constants
 # =============================================================================
 
-# Profile Update Trigger Thresholds
-MIN_COMPLETION_RATE = 0.8  # 80% form completion required
-MIN_QUESTIONS_FOR_PROFILE = 5  # Minimum questions needed
-UPDATE_FORM_INTERVAL = 3  # Update profile every N forms
-UPDATE_DAYS_INTERVAL = 30  # Update if not updated in N days
+# All configuration is now centralized in profile_config.py
+# Constants are kept here as aliases if needed, or we rely directly on profile_config
 
 # LLM Configuration
 PROFILE_MODEL = "gemini-2.5-pro"  # Deeper analysis for profiles
 PROFILE_TEMPERATURE = 0.3  # Consistent outputs
-MAX_PROFILE_WORDS = 1000
+MAX_PROFILE_WORDS = profile_config.MAX_PROFILE_WORDS
 
 # Cache Configuration
 PROFILE_CACHE_TTL = 3600  # 1 hour
@@ -119,12 +119,10 @@ class ProfileService:
         Determine if profile should be updated based on smart triggers.
         
         Triggers:
-            1. New user (no profile exists)
-            2. Form completion rate >= 80%
-            3. Minimum 5 questions answered
-            4. Every 3 forms for existing users
-            5. More than 30 days since last update
-        
+            1. Form Quality Check (via Validator)
+            2. Update Interval (Variable, default every form)
+            3. Stale Profile (30+ days)
+            
         Args:
             form_data: Completed form responses
             user_profile: Existing profile (None for new users)
@@ -133,36 +131,26 @@ class ProfileService:
         Returns:
             True if profile should be updated
         """
-        # Count answered questions
-        answered = sum(1 for v in form_data.values() if v and str(v).strip())
-        
-        # Calculate completion rate
-        completion_rate = answered / total_questions if total_questions > 0 else 0
-        
-        # Rule 1: Too few questions answered
-        if answered < MIN_QUESTIONS_FOR_PROFILE:
-            logger.debug(f"Profile update skipped: only {answered} questions answered")
+        # Rule 1: Form Quality Check
+        is_valid, reason = ProfileValidator.validate_form_quality(form_data)
+        if not is_valid:
+            logger.debug(f"Profile update skipped: {reason}")
             return False
         
-        # Rule 2: Poor completion rate
-        if completion_rate < MIN_COMPLETION_RATE:
-            logger.debug(f"Profile update skipped: completion rate {completion_rate:.0%}")
-            return False
-        
-        # Rule 3: New user - always create profile
+        # Rule 2: New user - always create profile
         if user_profile is None:
             logger.info("Profile update triggered: new user")
             return True
         
-        # Rule 4: Update every N forms
-        if user_profile.form_count % UPDATE_FORM_INTERVAL == 0:
-            logger.info(f"Profile update triggered: {user_profile.form_count} forms analyzed")
+        # Rule 3: Update Interval
+        if user_profile.form_count % profile_config.UPDATE_FORM_INTERVAL == 0:
+            logger.info(f"Profile update triggered: {user_profile.form_count} forms analyzed (Interval: {profile_config.UPDATE_FORM_INTERVAL})")
             return True
         
-        # Rule 5: Update if stale (30+ days)
+        # Rule 4: Update if stale
         if user_profile.updated_at:
             days_since_update = (datetime.now(timezone.utc) - user_profile.updated_at.replace(tzinfo=timezone.utc)).days
-            if days_since_update >= UPDATE_DAYS_INTERVAL:
+            if days_since_update >= profile_config.UPDATE_DAYS_INTERVAL:
                 logger.info(f"Profile update triggered: {days_since_update} days stale")
                 return True
         
@@ -196,9 +184,20 @@ class ProfileService:
         Returns:
             Updated UserProfile or None if skipped/failed
         """
+        # SAFEGUARD: Circuit Breaker
+        if not circuit_breaker.can_proceed():
+            logger.warning("Profile update blocked by Circuit Breaker (LLM unstable)")
+            return None
+
+        # SAFEGUARD: Rate Limiter
+        # Note: We check this early to avoid unnecessary DB calls if possible,
+        # but user check is needed first. moving check inside.
+
         if not self.llm and not self.local_llm:
             logger.warning("Profile generation skipped: No LLM available")
             return None
+        
+        start_time = time.time()
         
         try:
             # Fetch user and check profiling enabled
@@ -214,6 +213,12 @@ class ProfileService:
             # Fetch existing profile
             existing_profile = await self._get_profile_from_db(db, user_id)
             
+            # SAFEGUARD: Rate Limiter Check
+            is_allowed, limit_reason = rate_limiter.check_limit(user_id)
+            if not is_allowed and not force:
+                logger.warning(f"Profile update skipped for user {user_id}: {limit_reason}")
+                return existing_profile
+
             # Check if update should happen
             if not force and not self.should_update_profile(
                 form_data, existing_profile, len(form_data)
@@ -225,6 +230,7 @@ class ProfileService:
                 return existing_profile
             
             # Generate profile text via LLM
+            raw_response = None
             if existing_profile:
                 # Extract history
                 try:
@@ -232,30 +238,51 @@ class ProfileService:
                     forms_history = metadata.get('forms_analyzed', [])
                 except Exception:
                     forms_history = []
-                    
-                profile_text = await self._update_profile_text(
-                    existing_profile.profile_text,
-                    form_data,
-                    existing_profile.form_count,
-                    form_type,
-                    form_purpose,
-                    forms_history
+                
+                # Use PromptManager for versioned prompts
+                raw_response = await self._call_llm(
+                    prompt_manager.build_update_prompt(
+                        existing_profile.profile_text,
+                        form_data,
+                        existing_profile.form_count,
+                        form_type,
+                        form_purpose,
+                        forms_history
+                    )
                 )
             else:
-                profile_text = await self._create_profile_text(
-                    form_data, form_type, form_purpose
+                raw_response = await self._call_llm(
+                    prompt_manager.build_create_prompt(
+                        form_data, form_type, form_purpose
+                    )
                 )
             
-            if not profile_text:
-                logger.error("Profile generation: LLM returned empty response")
+            # SAFEGUARD: Rate Limiter Record
+            rate_limiter.record_request(user_id)
+            
+            # Validate LLM Output
+            is_valid_output, parsed_profile, validation_error = ProfileValidator.validate_llm_output(raw_response)
+            
+            if not is_valid_output:
+                logger.error(f"Profile generation: LLM output invalid: {validation_error}")
                 return None
             
-            # Enforce 500-word limit
-            profile_text = await self._enforce_word_limit(profile_text)
+            # Re-serialize to Ensure Clean JSON string for storage
+            profile_text = json.dumps(parsed_profile)
             
             # Calculate confidence score
-            form_count = (existing_profile.form_count + 1) if existing_profile else 1
-            confidence = self._calculate_confidence(form_count, len(form_data))
+            existing_profile_dict = None
+            if existing_profile and existing_profile.profile_text:
+                 try:
+                     existing_profile_dict = json.loads(existing_profile.profile_text)
+                 except: 
+                     existing_profile_dict = None
+
+            # Calculate quality score of input form (simple proxy)
+            valid_ans_count = sum(1 for v in form_data.values() if v and len(str(v)) >= 2)
+            quality_score = min(valid_ans_count / (profile_config.MIN_QUESTIONS_FOR_PROFILE * 2), 1.0)
+            
+            confidence = ProfileValidator.calculate_confidence(existing_profile_dict, parsed_profile, quality_score)
             
             # Save to database
             if existing_profile:
@@ -267,14 +294,46 @@ class ProfileService:
                     db, user_id, profile_text, confidence, form_type
                 )
             
-            # Update cache
             await self._cache_profile(user_id, profile)
             
             logger.info(f"Profile generated for user {user_id}: confidence={confidence:.2f}")
+            
+            # SAFEGUARD: Circuit Breaker Success
+            circuit_breaker.record_success()
+            
+            # Metrics: Success
+            # Estimate input chars roughly from form data + prompt template
+            input_chars = len(str(form_data)) + 500 
+            output_chars = len(profile_text)
+            
+            evaluator.track_update(
+                user_id=user_id,
+                start_time=start_time,
+                success=True,
+                profile_data={"confidence_score": confidence, "version": profile.version},
+                metadata={
+                    "form_type": form_type,
+                    "input_chars": input_chars,
+                    "output_chars": output_chars
+                }
+            )
+            
             return profile
             
         except Exception as e:
             logger.error(f"Profile generation failed for user {user_id}: {e}")
+            
+            # SAFEGUARD: Circuit Breaker Failure
+            circuit_breaker.record_failure()
+            
+            # Metrics: Failure
+            evaluator.track_update(
+                user_id=user_id,
+                start_time=time.time(), # We'll just capture end time near enough
+                success=False,
+                error=e,
+                metadata={"form_type": form_type}
+            )
             return None
     
     async def _create_profile_text(
