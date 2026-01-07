@@ -1,13 +1,31 @@
 import React, { useState } from 'react';
-import { CheckCircle, Send, AlertTriangle, Download, FileText, Copy, RotateCcw, Loader2 } from 'lucide-react';
+import { CheckCircle, Send, AlertTriangle, Download, FileText, Copy, RotateCcw, Loader2, Sparkles, Brain } from 'lucide-react';
 import { motion } from 'framer-motion';
-import { submitForm, fillPdf, getPdfDownloadUrl } from '@/services/api';
+import { submitForm, fillPdf, getPdfDownloadUrl, generateProfile } from '@/services/api';
 import { RatingInteraction } from '@/components/ui/RatingInteraction';
 
 const FormCompletion = ({ formData, formSchema, originalUrl, pdfId, onReset }) => {
     const [isSubmitting, setIsSubmitting] = useState(false);
     const [submissionResult, setSubmissionResult] = useState(null);
     const [isDownloading, setIsDownloading] = useState(false);
+    const [profileUpdateStatus, setProfileUpdateStatus] = useState('idle'); // idle, updating, success, error
+
+    // Auto-generate profile on completion
+    React.useEffect(() => {
+        const updateProfile = async () => {
+            if (formData && Object.keys(formData).length > 0) {
+                setProfileUpdateStatus('updating');
+                try {
+                    await generateProfile(formData, "Web Form", "Form Completion");
+                    setProfileUpdateStatus('success');
+                } catch (error) {
+                    console.error("Profile update failed:", error);
+                    setProfileUpdateStatus('error');
+                }
+            }
+        };
+        updateProfile();
+    }, []);
 
     // Save rating to localStorage
     const handleRatingChange = (rating) => {
@@ -132,6 +150,20 @@ const FormCompletion = ({ formData, formSchema, originalUrl, pdfId, onReset }) =
                         <p className="text-white/60 mb-8">
                             All required information has been collected successfully.
                         </p>
+
+                        {/* Profile Update Status */}
+                        {profileUpdateStatus === 'updating' && (
+                            <div className="flex items-center justify-center gap-2 text-xs text-blue-200/70 mb-6 bg-blue-500/10 py-1.5 px-3 rounded-full border border-blue-500/10 w-fit mx-auto">
+                                <Loader2 size={12} className="animate-spin" />
+                                Analyzing patterns & updating profile...
+                            </div>
+                        )}
+                        {profileUpdateStatus === 'success' && (
+                            <div className="flex items-center justify-center gap-2 text-xs text-purple-200/80 mb-6 bg-purple-500/10 py-1.5 px-3 rounded-full border border-purple-500/10 w-fit mx-auto">
+                                <Brain size={12} />
+                                Behavioral profile extracted & saved
+                            </div>
+                        )}
 
                         {/* Feedback Rating */}
                         <div className="bg-white/5 rounded-2xl p-6 border border-white/10 inline-block w-full max-w-md">

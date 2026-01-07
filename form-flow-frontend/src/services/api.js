@@ -610,6 +610,18 @@ export const optInProfiling = async () => {
 };
 
 /**
+ * Manually trigger profile generation from form data
+ */
+export const generateProfile = async (formData, formType = 'General', formPurpose = 'Form Submission') => {
+    const response = await api.post('/profile/generate', {
+        form_data: formData,
+        form_type: formType,
+        form_purpose: formPurpose
+    });
+    return response.data;
+};
+
+/**
  * Opt-out of profiling
  */
 export const optOutProfiling = async () => {
