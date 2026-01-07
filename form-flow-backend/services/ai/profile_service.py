@@ -33,6 +33,7 @@ from core.models import User, UserProfile
 from config.settings import settings
 from utils.logging import get_logger
 from utils.cache import get_cached, set_cached, delete_cached
+from services.ai.local_llm import get_local_llm_service
 
 from .prompts.profile_prompts import (
     build_create_prompt,
@@ -54,9 +55,9 @@ UPDATE_FORM_INTERVAL = 3  # Update profile every N forms
 UPDATE_DAYS_INTERVAL = 30  # Update if not updated in N days
 
 # LLM Configuration
-PROFILE_MODEL = "gemini-1.5-pro"  # Deeper analysis for profiles
+PROFILE_MODEL = "gemini-2.5-pro"  # Deeper analysis for profiles
 PROFILE_TEMPERATURE = 0.3  # Consistent outputs
-MAX_PROFILE_WORDS = 500
+MAX_PROFILE_WORDS = 1000
 
 # Cache Configuration
 PROFILE_CACHE_TTL = 3600  # 1 hour
@@ -87,8 +88,10 @@ class ProfileService:
         
         if self.api_key:
             logger.info("ProfileService initialized with Gemini API")
-        else:
-            logger.warning("ProfileService: No API key - profile generation disabled")
+        
+        self.local_llm = get_local_llm_service()
+        if self.local_llm:
+            logger.info("ProfileService: Local LLM available")
     
     @property
     def llm(self) -> Optional[ChatGoogleGenerativeAI]:
@@ -193,8 +196,8 @@ class ProfileService:
         Returns:
             Updated UserProfile or None if skipped/failed
         """
-        if not self.llm:
-            logger.warning("Profile generation skipped: LLM not available")
+        if not self.llm and not self.local_llm:
+            logger.warning("Profile generation skipped: No LLM available")
             return None
         
         try:
@@ -223,12 +226,20 @@ class ProfileService:
             
             # Generate profile text via LLM
             if existing_profile:
+                # Extract history
+                try:
+                    metadata = json.loads(existing_profile.metadata_json or '{}')
+                    forms_history = metadata.get('forms_analyzed', [])
+                except Exception:
+                    forms_history = []
+                    
                 profile_text = await self._update_profile_text(
                     existing_profile.profile_text,
                     form_data,
                     existing_profile.form_count,
                     form_type,
-                    form_purpose
+                    form_purpose,
+                    forms_history
                 )
             else:
                 profile_text = await self._create_profile_text(
@@ -249,7 +260,7 @@ class ProfileService:
             # Save to database
             if existing_profile:
                 profile = await self._update_profile_in_db(
-                    db, existing_profile, profile_text, confidence
+                    db, existing_profile, profile_text, confidence, form_type
                 )
             else:
                 profile = await self._create_profile_in_db(
@@ -282,11 +293,12 @@ class ProfileService:
         form_data: Dict[str, Any],
         previous_form_count: int,
         form_type: str,
-        form_purpose: str
+        form_purpose: str,
+        forms_history: List[str]
     ) -> Optional[str]:
         """Update existing profile text via LLM."""
         prompt = build_update_prompt(
-            existing_text, form_data, previous_form_count, form_type, form_purpose
+            existing_text, form_data, previous_form_count, form_type, form_purpose, forms_history
         )
         return await self._call_llm(prompt)
     
@@ -305,6 +317,45 @@ class ProfileService:
     
     async def _call_llm(self, prompt: str) -> Optional[str]:
         """Make LLM call with error handling."""
+        # Try Local LLM first if available
+        if self.local_llm:
+            try:
+                # Add context about being a behavioral analyst
+                system_instruction = "You are an expert behavioral analyst. Analyze the user's form data to create a detailed behavioral profile."
+                
+                # 10 second timeout for Local LLM
+                result = await asyncio.wait_for(
+                    asyncio.to_thread(
+                        self.local_llm.generate_response, 
+                        system_instruction, 
+                        prompt
+                    ),
+                    timeout=10.0
+                )
+                
+                if result and len(result) > 20:  # Basic validation
+                    return result.strip()
+            
+            except asyncio.TimeoutError:
+                logger.warning("Local LLM profile generation timed out (10s). Switching to OpenRouter fallback...")
+                # Fallback to OpenRouter (Gemma 3)
+                or_result = await self._call_openrouter(prompt)
+                if or_result:
+                    return or_result
+                    
+            except Exception as e:
+                logger.warning(f"Local LLM profile generation failed: {e}, attempting fallback")
+
+        # Fallback to OpenRouter if Local LLM failed/timed out and didn't return
+        if settings.OPENROUTER_API_KEY:
+             or_result = await self._call_openrouter(prompt)
+             if or_result:
+                 return or_result
+
+        # Final Fallback to Gemini
+        if not self.llm:
+            return None
+
         try:
             chain = ChatPromptTemplate.from_messages([
                 ("human", "{prompt}")
@@ -321,6 +372,53 @@ class ProfileService:
             return None
         except Exception as e:
             logger.error(f"LLM call failed: {e}")
+            return None
+
+    async def _call_openrouter(self, prompt: str) -> Optional[str]:
+        """Call OpenRouter API (Gemma 3) as fallback."""
+        import os
+        api_key = settings.OPENROUTER_API_KEY or os.getenv("OPENROUTER_API_KEY")
+        
+        if not api_key:
+            logger.warning("OpenRouter API call skipped: OPENROUTER_API_KEY not found")
+            return None
+            
+        try:
+            import httpx
+            
+            logger.info("Calling OpenRouter API (Gemma 3)...")
+            async with httpx.AsyncClient() as client:
+                response = await client.post(
+                    "https://openrouter.ai/api/v1/chat/completions",
+                    headers={
+                        "Authorization": f"Bearer {api_key}",
+                        "Content-Type": "application/json",
+                        "HTTP-Referer": "https://formflow.ai", # Optional but good practice
+                        "X-Title": "Form Flow AI"
+                    },
+                    json={
+                        "model": "google/gemma-3-27b-it",
+                        "messages": [
+                            {"role": "system", "content": "You are an expert behavioral analyst."},
+                            {"role": "user", "content": prompt}
+                        ],
+                        "stream": False,
+                        "temperature": 0.3
+                    },
+                    timeout=30.0
+                )
+                
+                if response.status_code == 200:
+                    data = response.json()
+                    # OpenRouter response format mimics OpenAI
+                    content = data['choices'][0]['message']['content'].strip()
+                    logger.info("OpenRouter API call successful")
+                    return content
+                else:
+                    logger.warning(f"OpenRouter API error {response.status_code}: {response.text}")
+                    return None
+        except Exception as e:
+            logger.error(f"OpenRouter API call failed: {e}")
             return None
     
     def _calculate_confidence(self, form_count: int, question_count: int) -> float:
@@ -381,13 +479,30 @@ class ProfileService:
         db: AsyncSession,
         profile: UserProfile,
         new_text: str,
-        new_confidence: float
+        new_confidence: float,
+        form_type: str
     ) -> UserProfile:
         """Update existing profile in database."""
         profile.profile_text = new_text
         profile.confidence_score = new_confidence
         profile.form_count += 1
         profile.version += 1
+        
+        # Update metadata with new form type
+        try:
+            metadata = json.loads(profile.metadata_json or '{}')
+            forms_analyzed = metadata.get('forms_analyzed', [])
+            forms_analyzed.append(form_type)
+            metadata['forms_analyzed'] = forms_analyzed
+            metadata['last_form_type'] = form_type
+            profile.metadata_json = json.dumps(metadata)
+        except Exception:
+            # Fallback if metadata is corrupt
+            metadata = {
+                "forms_analyzed": [form_type],
+                "last_form_type": form_type
+            }
+            profile.metadata_json = json.dumps(metadata)
         
         await db.commit()
         await db.refresh(profile)

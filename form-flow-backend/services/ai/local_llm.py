@@ -78,6 +78,15 @@ class LocalLLMService:
             except Exception as e:
                 logger.warning(f"Gemini fallback failed: {e}")
         
+    async def initialize_async(self):
+        """Async initialization to be called during startup."""
+        try:
+            import asyncio
+            # Run blocking initialization in thread
+            await asyncio.to_thread(self._initialize)
+        except Exception as e:
+            logger.error(f"Async LLM initialization failed: {e}")
+
     def _initialize(self):
         """Lazy initialization of model and tokenizer."""
         if self._initialized:
@@ -173,6 +182,9 @@ class LocalLLMService:
         prompt = f"Instruct: Extract the {field_name} from the user input.\nUser Input: {cleaned_input}\nOutput:"
         inputs = self.tokenizer(prompt, return_tensors="pt")
         
+        if self.model.device.type == "cuda":
+            inputs = inputs.to("cuda")
+        
         with torch.no_grad():
             outputs = self.model.generate(
                 **inputs,
@@ -202,6 +214,39 @@ class LocalLLMService:
             "confidence": min(0.9, len(extracted) / 10) if extracted else 0.1,
             "source": "local_llm"
         }
+
+    def generate_response(self, system_instruction: str, user_input: str) -> str:
+        """
+        Generate a response using the local LLM.
+        Useful for suggestions and chat-like interactions.
+        """
+        # Ensure initialization
+        self._initialize()
+        
+        # Phi-2 instruct format
+        prompt = f"Instruct: {system_instruction}\n\nUser: {user_input}\nOutput:"
+        
+        inputs = self.tokenizer(prompt, return_tensors="pt")
+        if self.model.device.type == "cuda":
+            inputs = inputs.to("cuda")
+            
+        with torch.no_grad():
+            outputs = self.model.generate(
+                **inputs,
+                max_new_tokens=256,
+                temperature=0.3,
+                do_sample=True,
+                pad_token_id=self.tokenizer.eos_token_id
+            )
+            
+        response = self.tokenizer.decode(outputs[0], skip_special_tokens=True)
+        
+        try:
+            if "Output:" in response:
+                return response.split("Output:")[-1].strip()
+            return response[len(prompt):].strip()
+        except:
+            return response.strip()
     
     def _extract_with_gemini(self, user_input: str, field_name: str) -> Dict[str, Any]:
         """Extract using Gemini for complex cases."""

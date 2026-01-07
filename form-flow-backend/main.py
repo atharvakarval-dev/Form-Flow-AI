@@ -77,8 +77,19 @@ async def lifespan(app: FastAPI):
         from services.ai.dependency_checker import validate_ai_dependencies
         ai_mode = validate_ai_dependencies()
         logger.info(f"AI mode: {ai_mode}")
+        
+        # Eagerly initialize Local LLM if available (in background/non-blocking)
+        # using run_in_executor to avoid blocking the main startup sequence too long
+        loop = asyncio.get_running_loop()
+        from services.ai.local_llm import get_local_llm_service
+        local_llm = get_local_llm_service()
+        if local_llm:
+             # Fire and forget initialization task
+             loop.create_task(local_llm.initialize_async())
+             logger.info("Triggered background initialization of Local LLM")
+            
     except Exception as e:
-        logger.warning(f"AI dependency check failed: {e}")
+        logger.warning(f"AI dependency check/init failed: {e}")
     
     yield
     

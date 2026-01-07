@@ -155,6 +155,8 @@ async def get_my_profile(
     # Get profile (cache-first)
     profile = await profile_service.get_profile(db, user.id)
     
+    logger.info(f"get_my_profile for user {user.id}: found={profile is not None}")
+    
     if not profile:
         raise HTTPException(
             status_code=404,

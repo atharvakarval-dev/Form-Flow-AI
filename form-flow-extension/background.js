@@ -45,8 +45,15 @@ function connectWebSocket() {
         ws.onmessage = (event) => {
             try {
                 // Handle WebSocket messages from backend
-                // For now, we just log. Future: dispatch to specific sessions
-                console.log('WS Message:', event.data);
+                const msg = JSON.parse(event.data);
+                console.log('WS Message:', msg);
+
+                if (msg.type === 'FILL_REQUEST') {
+                    broadcastToContentScripts({
+                        type: 'FILL_FORM',
+                        data: msg.data
+                    });
+                }
             } catch (e) {
                 console.error('WS Message parsing error:', e);
             }
@@ -166,6 +173,11 @@ async function handleMessage(message, sender) {
     const tabId = sender.tab?.id;
 
     switch (message.type) {
+        case 'GOOGLE_FORM_DETECTED':
+            console.log('Google Form Detected:', message.url);
+            // Optionally notify backend that a Google Form is ready
+            return { success: true };
+
         case 'START_SESSION':
             return await startSession(tabId, message.formSchema, message.formUrl);
 

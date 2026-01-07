@@ -47,6 +47,7 @@ from langchain_core.output_parsers import StrOutputParser, JsonOutputParser
 from config.settings import settings
 from utils.logging import get_logger
 from utils.cache import get_cached, set_cached
+from services.ai.local_llm import get_local_llm_service
 
 logger = get_logger(__name__)
 
@@ -56,7 +57,7 @@ logger = get_logger(__name__)
 # =============================================================================
 
 # LLM Configuration for real-time suggestions (fast model)
-SUGGESTION_MODEL = "gemini-1.5-flash"  # Fast for real-time
+SUGGESTION_MODEL = "gemini-2.0-flash"  # Fast for real-time
 SUGGESTION_TEMPERATURE = 0.4  # Balanced creativity
 SUGGESTION_TIMEOUT = 5.0  # Max 5 seconds
 
@@ -200,8 +201,10 @@ class ProfileSuggestionEngine:
         
         if self.api_key:
             logger.info("ProfileSuggestionEngine initialized with Gemini Flash")
-        else:
-            logger.warning("ProfileSuggestionEngine: No API key - using pattern-only mode")
+        
+        self.local_llm = get_local_llm_service()
+        if self.local_llm:
+            logger.info("ProfileSuggestionEngine: Local LLM available")
     
     @property
     def llm(self) -> Optional[ChatGoogleGenerativeAI]:
@@ -308,6 +311,28 @@ class ProfileSuggestionEngine:
         
         This is the ChatGPT/Claude-level intelligence tier.
         """
+        if self.local_llm:
+            try:
+                prompt = TIER1_SUGGESTION_PROMPT.format(
+                    profile_text=profile.get("profile_text", "No profile available"),
+                    field_name=field_context.get("name", "unknown"),
+                    field_label=field_context.get("label", field_context.get("name", "")),
+                    field_type=field_context.get("type", "text"),
+                    form_purpose=form_context.get("purpose", "General form")
+                )
+                
+                result = self.local_llm.generate_response(
+                    "You are a helpful assistant that generates JSON suggestions based on user profiles.", 
+                    prompt
+                )
+                
+                suggestions = self._parse_llm_suggestions(result, SuggestionTier.PROFILE_BASED)
+                if suggestions:
+                    logger.info(f"Tier 1 (Local): Generated {len(suggestions)} suggestions")
+                    return suggestions
+            except Exception as e:
+                logger.warning(f"Tier 1 (Local) failed: {e}, attempting Gemini fallback")
+
         if not self.llm:
             return self._tier3_pattern_only(field_context, previous_answers)
         
@@ -359,6 +384,30 @@ class ProfileSuggestionEngine:
         # Get pattern-based suggestions first
         pattern_suggestions = self._get_pattern_suggestions(field_context, previous_answers)
         
+        if self.local_llm:
+            try:
+                profile_summary = profile.get("profile_text", "")[:200]
+                prompt = TIER2_BLENDED_PROMPT.format(
+                    profile_summary=profile_summary,
+                    confidence_level=profile.get("confidence_level", "Medium"),
+                    field_name=field_context.get("name", "unknown"),
+                    field_label=field_context.get("label", ""),
+                    field_type=field_context.get("type", "text"),
+                    pattern_suggestions=", ".join(pattern_suggestions[:5]) if pattern_suggestions else "None"
+                )
+                
+                result = self.local_llm.generate_response(
+                    "You are a helpful assistant that generates intelligent default form values in JSON.",
+                    prompt
+                )
+                
+                suggestions = self._parse_llm_suggestions(result, SuggestionTier.PROFILE_BLENDED)
+                if suggestions:
+                    logger.info(f"Tier 2 (Local): Generated {len(suggestions)} blended suggestions")
+                    return suggestions
+            except Exception as e:
+                logger.warning(f"Tier 2 (Local) failed: {e}, attempting Gemini fallback")
+
         if not self.llm:
             # Just enhance pattern suggestions with generic behavioral framing
             return [

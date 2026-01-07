@@ -86,6 +86,8 @@ const VoiceFormFiller = ({ formSchema, formContext, onComplete, onClose }) => {
     // Fix Progress Calculation
     const progress = Math.min(Math.round(((currentFieldIndex) / allFields.length) * 100), 100);
 
+
+
     // Conversation State
     const [sessionId, setSessionId] = useState(null);
     const [aiResponse, setAiResponse] = useState('');
@@ -94,6 +96,12 @@ const VoiceFormFiller = ({ formSchema, formContext, onComplete, onClose }) => {
     const [currentBatch, setCurrentBatch] = useState([]);  // Array of field objects in current group
     const [batchStatus, setBatchStatus] = useState({});    // {fieldName: 'pending'|'filled'|'missing'}
     const [singleFieldMode, setSingleFieldMode] = useState(false); // User toggle for linear mode
+
+    // FIX: Check if current field is actually in the current batch to prevent stale group views
+    const isCurrentFieldInBatch = useMemo(() => {
+        if (!currentField || !currentBatch.length) return false;
+        return currentBatch.some(f => f.name === currentField.name);
+    }, [currentField, currentBatch]);
 
     // Init Speech
     useEffect(() => {
@@ -901,7 +909,7 @@ const VoiceFormFiller = ({ formSchema, formContext, onComplete, onClose }) => {
                             )}
 
                             {/* Smart Grouping: Field Slots UI */}
-                            {currentBatch.length > 1 && (
+                            {currentBatch.length > 1 && isCurrentFieldInBatch && (
                                 <motion.div
                                     initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}
                                     className="mt-6 p-4 rounded-xl bg-purple-500/5 border border-purple-500/10 backdrop-blur-md"
@@ -997,7 +1005,7 @@ const VoiceFormFiller = ({ formSchema, formContext, onComplete, onClose }) => {
                                     </div>
                                 </div>
                             ) : (
-                                (!singleFieldMode && currentBatch.length > 1) ? (
+                                (!singleFieldMode && currentBatch.length > 1 && isCurrentFieldInBatch) ? (
                                     /* CASE B: GROUP VIEW */
                                     <div className="w-full flex flex-col justify-center gap-8">
                                         <div className="space-y-6">

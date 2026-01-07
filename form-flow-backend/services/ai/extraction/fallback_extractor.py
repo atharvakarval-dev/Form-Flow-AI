@@ -106,9 +106,9 @@ class IntelligentFallbackExtractor:
         matchers = []
         
         for field in fields:
-            field_name = field.get('name', '')
-            field_label = field.get('label', field_name)
-            field_type = field.get('type', 'text')
+            field_name = field.get('name') or ''
+            field_label = field.get('label') or field_name or ''
+            field_type = field.get('type') or 'text'
             
             # Extract keywords from label/name
             keywords = set()

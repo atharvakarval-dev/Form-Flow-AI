@@ -64,6 +64,10 @@ class Settings(BaseSettings):
         default=None,
         description="ElevenLabs API key for text-to-speech"
     )
+    OPENROUTER_API_KEY: Optional[str] = Field(
+        default=None,
+        description="OpenRouter API key for fallback inference (Gemma 3)"
+    )
     
     # ==========================================================================
     # CAPTCHA Solving Configuration

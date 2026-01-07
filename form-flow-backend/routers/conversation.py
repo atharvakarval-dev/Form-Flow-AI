@@ -237,38 +237,23 @@ async def update_context(
     try:
         agent = await get_conversation_agent()
         
-        # We need a method in conversation_agent.py to just update context
-        # without processing an answer.
-        # If it doesn't exist, we can use a workaround or add it. 
-        # For now, let's assume we can access the session and update it.
+        # Use agent to get proper session object (not raw dict)
+        session = await agent.get_session(request.session_id)
         
-        sm = await get_session_manager()
-        session = await sm.get_session(request.session_id)
         if not session:
             logger.warning(f"Session {request.session_id} not found for context update")
             return {"success": False}
         
-        # Find the question corresponding to this field
-        # We need to set 'current_question_index' or modify the 'next_questions' queue.
-        # ConversationSession struct: current_question_index, questions list.
+        # Update context window using the new API
+        session.set_active_field(request.current_field)
         
-        # Find index of question with matching field_name
-        target_idx = -1
-        for i, q in enumerate(session.questions):
-            if q.field_name == request.current_field:
-                target_idx = i
-                break
+        # Update timestamp
+        session.update_activity()
         
-        if target_idx != -1:
-            session.current_question_index = target_idx
-            # Also update last_interaction time
-            import datetime
-            session.updated_at = datetime.datetime.now().isoformat()
-            
-            await sm.save_session(session)
-            logger.info(f"Context updated: Session {request.session_id} -> Field {request.current_field} (Idx {target_idx})")
-        else:
-            logger.debug(f"Field {request.current_field} not found in session questions list")
+        # Save session through agent to ensure cache consistency
+        await agent._save_session(session)
+        
+        logger.info(f"Context updated: Session {request.session_id} -> Field {request.current_field}")
             
         return {"success": True, "field": request.current_field}
         
