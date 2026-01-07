@@ -136,6 +136,14 @@ document.addEventListener('DOMContentLoaded', async () => {
         try {
             const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
 
+            if (tab.url.includes('docs.google.com/forms')) {
+                State.addLog('Google Forms Protocol Active', 'SYS');
+                State.addLog('Automation running in background...', 'SYS');
+                State.setProgress(100);
+                ui.actionText.textContent = "AUTOMATION READY";
+                return;
+            }
+
             await chrome.scripting.executeScript({
                 target: { tabId: tab.id },
                 func: () => {
