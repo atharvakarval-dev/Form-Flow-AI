@@ -328,20 +328,20 @@ class ProfileService:
                     return result.strip()
             
             except asyncio.TimeoutError:
-                logger.warning("Local LLM profile generation timed out (10s). Switching to Grok fallback...")
-                # Fallback to Grok
-                grok_result = await self._call_grok(prompt)
-                if grok_result:
-                    return grok_result
+                logger.warning("Local LLM profile generation timed out (10s). Switching to OpenRouter fallback...")
+                # Fallback to OpenRouter (Gemma 3)
+                or_result = await self._call_openrouter(prompt)
+                if or_result:
+                    return or_result
                     
             except Exception as e:
                 logger.warning(f"Local LLM profile generation failed: {e}, attempting fallback")
 
-        # Fallback to Grok if Local LLM failed/timed out and didn't return
-        if settings.GROK_API_KEY:
-             grok_result = await self._call_grok(prompt)
-             if grok_result:
-                 return grok_result
+        # Fallback to OpenRouter if Local LLM failed/timed out and didn't return
+        if settings.OPENROUTER_API_KEY:
+             or_result = await self._call_openrouter(prompt)
+             if or_result:
+                 return or_result
 
         # Final Fallback to Gemini
         if not self.llm:
@@ -365,31 +365,30 @@ class ProfileService:
             logger.error(f"LLM call failed: {e}")
             return None
 
-    async def _call_grok(self, prompt: str) -> Optional[str]:
-        """Call xAI Grok API as fallback."""
+    async def _call_openrouter(self, prompt: str) -> Optional[str]:
+        """Call OpenRouter API (Gemma 3) as fallback."""
         import os
-        api_key = settings.GROK_API_KEY or os.getenv("GROK_API_KEY")
+        api_key = settings.OPENROUTER_API_KEY or os.getenv("OPENROUTER_API_KEY")
         
         if not api_key:
-            logger.warning("Grok API call skipped: GROK_API_KEY not found in settings or env")
+            logger.warning("OpenRouter API call skipped: OPENROUTER_API_KEY not found")
             return None
             
         try:
-            # Use OpenAI client as it's cleaner for Grok (compatible endpoint)
-            # but httpx is already installed and simple. Sticking to httpx for minimal dependency risk
-            # but adding better logging to debug failures.
             import httpx
             
-            logger.info(f"Calling Grok API (Key ending in ...{api_key[-4:]})...")
+            logger.info("Calling OpenRouter API (Gemma 3)...")
             async with httpx.AsyncClient() as client:
                 response = await client.post(
-                    "https://api.x.ai/v1/chat/completions",
+                    "https://openrouter.ai/api/v1/chat/completions",
                     headers={
                         "Authorization": f"Bearer {api_key}",
-                        "Content-Type": "application/json"
+                        "Content-Type": "application/json",
+                        "HTTP-Referer": "https://formflow.ai", # Optional but good practice
+                        "X-Title": "Form Flow AI"
                     },
                     json={
-                        "model": "grok-beta",
+                        "model": "google/gemma-3-27b-it",
                         "messages": [
                             {"role": "system", "content": "You are an expert behavioral analyst."},
                             {"role": "user", "content": prompt}
@@ -402,14 +401,15 @@ class ProfileService:
                 
                 if response.status_code == 200:
                     data = response.json()
+                    # OpenRouter response format mimics OpenAI
                     content = data['choices'][0]['message']['content'].strip()
-                    logger.info("Grok API call successful")
+                    logger.info("OpenRouter API call successful")
                     return content
                 else:
-                    logger.warning(f"Grok API error {response.status_code}: {response.text}")
+                    logger.warning(f"OpenRouter API error {response.status_code}: {response.text}")
                     return None
         except Exception as e:
-            logger.error(f"Grok API call failed: {e}")
+            logger.error(f"OpenRouter API call failed: {e}")
             return None
     
     def _calculate_confidence(self, form_count: int, question_count: int) -> float:

@@ -64,9 +64,9 @@ class Settings(BaseSettings):
         default=None,
         description="ElevenLabs API key for text-to-speech"
     )
-    GROK_API_KEY: Optional[str] = Field(
+    OPENROUTER_API_KEY: Optional[str] = Field(
         default=None,
-        description="xAI Grok API key for fallback inference"
+        description="OpenRouter API key for fallback inference (Gemma 3)"
     )
     
     # ==========================================================================
