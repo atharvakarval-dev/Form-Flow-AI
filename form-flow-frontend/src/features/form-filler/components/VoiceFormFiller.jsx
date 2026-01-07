@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
-import { Mic, MicOff, ChevronLeft, ChevronRight, SkipForward, Send, Volume2, Keyboard, Terminal, Activity, CheckCircle, Sparkles, X } from 'lucide-react';
+import { Mic, MicOff, ChevronLeft, ChevronRight, SkipForward, Send, Volume2, Keyboard, Terminal, Activity, CheckCircle, Sparkles, X, Brain, Lightbulb } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
-import api, { API_BASE_URL, refineText, startConversationSession, sendConversationMessage, getSuggestions } from '@/services/api';
+import api, { API_BASE_URL, refineText, startConversationSession, sendConversationMessage, getSuggestions, getSmartSuggestions } from '@/services/api';
 
 const VoiceFormFiller = ({ formSchema, formContext, onComplete, onClose }) => {
     const [isListening, setIsListening] = useState(false);
@@ -14,6 +14,13 @@ const VoiceFormFiller = ({ formSchema, formContext, onComplete, onClose }) => {
     const [suggestions, setSuggestions] = useState([]);
     const [loadingSuggestions, setLoadingSuggestions] = useState(false);
     const fetchTimeoutRef = useRef(null);
+
+    const [smartSuggestions, setSmartSuggestions] = useState([]);
+    const [showSmartSuggestions, setShowSmartSuggestions] = useState(false);
+    const [suggestionTier, setSuggestionTier] = useState(null);
+    const [profileConfidence, setProfileConfidence] = useState(null);
+    const hesitationTimerRef = useRef(null);
+    const questionsAnsweredRef = useRef(0);
 
     // Magic Fill State
     const [magicFillLoading, setMagicFillLoading] = useState(true);
@@ -538,11 +545,91 @@ const VoiceFormFiller = ({ formSchema, formContext, onComplete, onClose }) => {
         }
     };
 
+    // 🧠 Smart Suggestions - Profile-based intelligent suggestions
+    const fetchSmartSuggestions = async (field) => {
+        try {
+            console.log('🧠 Fetching smart suggestions for:', field.name);
+            const result = await getSmartSuggestions(
+                field.name,
+                field.label || field.display_name,
+                inferFieldType(field),
+                formContext || 'Form filling',
+                formDataRef.current  // Pass already answered fields
+            );
+
+            if (result.suggestions && result.suggestions.length > 0) {
+                setSmartSuggestions(result.suggestions);
+                setSuggestionTier(result.tier_used);
+                setProfileConfidence(result.profile_confidence);
+                setShowSmartSuggestions(true);
+                console.log(`🧠 Smart suggestions received (Tier: ${result.tier_used}):`, result.suggestions.length);
+            }
+        } catch (e) {
+            console.error('Smart suggestions failed:', e);
+        }
+    };
+
+    // 🕐 Hesitation Detection Timer
+    // Progressive: 5 seconds initially, 3 seconds after 5 questions
+    const startHesitationTimer = (field) => {
+        clearTimeout(hesitationTimerRef.current);
+
+        // Close any existing suggestion popup
+        setShowSmartSuggestions(false);
+
+        // Progressive delay: 5 seconds for new users, 3 seconds after 5 questions
+        const delay = questionsAnsweredRef.current >= 5 ? 3000 : 5000;
+
+        hesitationTimerRef.current = setTimeout(() => {
+            // Only show if field is still empty and not processing
+            if (!formDataRef.current[field.name] && !processing && !showTextInput) {
+                console.log(`🕐 Hesitation detected on ${field.name} (delay: ${delay}ms)`);
+                fetchSmartSuggestions(field);
+            }
+        }, delay);
+    };
+
+    // Clear hesitation timer on any user activity
+    const clearHesitationTimer = () => {
+        clearTimeout(hesitationTimerRef.current);
+        setShowSmartSuggestions(false);
+    };
+
+    // Handle smart suggestion selection
+    const handleSmartSuggestionSelect = (suggestion) => {
+        if (!currentField) return;
+
+        console.log(`✨ Smart suggestion selected: ${suggestion.value}`);
+        updateField(currentField, suggestion.value);
+        setShowSmartSuggestions(false);
+        questionsAnsweredRef.current++;
+
+        // Move to next field
+        setTimeout(() => handleNext(currentFieldIndex), 100);
+    };
+
+    // Start hesitation timer when landing on a new field
+    useEffect(() => {
+        if (currentField && !processing && !magicFillLoading) {
+            startHesitationTimer(currentField);
+        }
+
+        return () => clearTimeout(hesitationTimerRef.current);
+    }, [currentFieldIndex, processing, magicFillLoading]);
+
+    // Clear hesitation timer when user starts typing or speaking
+    useEffect(() => {
+        if (transcript || textInputValue || isListening) {
+            clearHesitationTimer();
+        }
+    }, [transcript, textInputValue, isListening]);
+
     // Debounced suggestions on text input change
     useEffect(() => {
         if (!showTextInput || !currentField) return;
 
         clearTimeout(fetchTimeoutRef.current);
+        clearHesitationTimer(); // User is typing, no need for hesitation suggestions
 
         if (textInputValue && textInputValue.length >= 1) {
             fetchTimeoutRef.current = setTimeout(() => {
@@ -661,6 +748,98 @@ const VoiceFormFiller = ({ formSchema, formContext, onComplete, onClose }) => {
                             <div className="bg-emerald-500/10 backdrop-blur-md border border-emerald-500/20 text-emerald-400 px-4 py-1.5 rounded-full text-xs font-mono flex items-center gap-2 shadow-lg">
                                 <Sparkles size={12} className="animate-spin-slow" />
                                 <span>AI MAGIC FILL RUNNING...</span>
+                            </div>
+                        </motion.div>
+                    )}
+                </AnimatePresence>
+
+                {/* 🧠 Smart Suggestions Modal (Profile-Based) */}
+                <AnimatePresence>
+                    {showSmartSuggestions && smartSuggestions.length > 0 && (
+                        <motion.div
+                            initial={{ opacity: 0, y: 20, scale: 0.95 }}
+                            animate={{ opacity: 1, y: 0, scale: 1 }}
+                            exit={{ opacity: 0, y: 20, scale: 0.95 }}
+                            transition={{ type: "spring", damping: 25, stiffness: 300 }}
+                            className="absolute bottom-24 left-1/2 transform -translate-x-1/2 z-50 w-[500px] max-w-[90%]"
+                        >
+                            <div className="bg-gradient-to-br from-purple-900/80 to-indigo-900/80 backdrop-blur-xl rounded-2xl border border-purple-500/30 shadow-2xl overflow-hidden">
+                                {/* Header */}
+                                <div className="flex items-center justify-between px-5 py-3 border-b border-purple-500/20 bg-purple-500/10">
+                                    <div className="flex items-center gap-3">
+                                        <div className="p-2 rounded-lg bg-purple-500/20">
+                                            <Brain size={18} className="text-purple-300" />
+                                        </div>
+                                        <div>
+                                            <div className="text-sm font-semibold text-white flex items-center gap-2">
+                                                Need help with this field?
+                                                {suggestionTier && (
+                                                    <span className={`text-[10px] px-1.5 py-0.5 rounded-full uppercase tracking-wider ${suggestionTier === 'profile_based'
+                                                            ? 'bg-purple-500/30 text-purple-200'
+                                                            : suggestionTier === 'profile_blended'
+                                                                ? 'bg-blue-500/30 text-blue-200'
+                                                                : 'bg-gray-500/30 text-gray-200'
+                                                        }`}>
+                                                        {suggestionTier === 'profile_based' ? '🧠 Personalized' :
+                                                            suggestionTier === 'profile_blended' ? '🎯 Smart' : '⚡ Quick'}
+                                                    </span>
+                                                )}
+                                            </div>
+                                            <p className="text-xs text-purple-200/70">Based on your behavioral profile</p>
+                                        </div>
+                                    </div>
+                                    <button
+                                        onClick={() => setShowSmartSuggestions(false)}
+                                        className="p-1.5 rounded-lg hover:bg-white/10 text-white/50 hover:text-white transition-colors"
+                                    >
+                                        <X size={14} />
+                                    </button>
+                                </div>
+
+                                {/* Suggestions List */}
+                                <div className="p-3 space-y-2 max-h-[250px] overflow-y-auto custom-scrollbar">
+                                    {smartSuggestions.map((suggestion, idx) => (
+                                        <motion.button
+                                            key={idx}
+                                            initial={{ opacity: 0, x: -10 }}
+                                            animate={{ opacity: 1, x: 0 }}
+                                            transition={{ delay: idx * 0.1 }}
+                                            onClick={() => handleSmartSuggestionSelect(suggestion)}
+                                            className="w-full text-left p-3 rounded-xl bg-white/5 hover:bg-white/10 border border-white/5 hover:border-purple-500/30 transition-all group"
+                                        >
+                                            <div className="flex items-start justify-between gap-3">
+                                                <div className="flex-1">
+                                                    <div className="font-medium text-white group-hover:text-purple-200 transition-colors">
+                                                        {suggestion.value}
+                                                    </div>
+                                                    {suggestion.reasoning && (
+                                                        <p className="text-xs text-white/50 mt-1 line-clamp-2">
+                                                            {suggestion.reasoning}
+                                                        </p>
+                                                    )}
+                                                    {suggestion.behavioral_match && (
+                                                        <div className="flex items-center gap-1 mt-2">
+                                                            <Lightbulb size={10} className="text-amber-400/70" />
+                                                            <span className="text-[10px] text-amber-400/70 italic">
+                                                                {suggestion.behavioral_match}
+                                                            </span>
+                                                        </div>
+                                                    )}
+                                                </div>
+                                                <div className="text-[10px] text-purple-300/60 bg-purple-500/10 px-2 py-1 rounded-full whitespace-nowrap">
+                                                    {Math.round(suggestion.confidence * 100)}%
+                                                </div>
+                                            </div>
+                                        </motion.button>
+                                    ))}
+                                </div>
+
+                                {/* Footer */}
+                                <div className="px-4 py-2 border-t border-purple-500/20 bg-purple-500/5">
+                                    <p className="text-[10px] text-purple-300/50 text-center">
+                                        Suggestions improve as you complete more forms • Press any key to dismiss
+                                    </p>
+                                </div>
                             </div>
                         </motion.div>
                     )}

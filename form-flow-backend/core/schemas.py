@@ -8,7 +8,7 @@ Usage:
     from core.schemas import UserCreate, UserResponse, Token
 """
 
-from pydantic import BaseModel, EmailStr, Field
+from pydantic import BaseModel, EmailStr, Field, ConfigDict
 from typing import Optional, List
 from datetime import datetime
 
@@ -83,8 +83,7 @@ class FormSubmissionResponse(BaseModel):
     status: str = Field(..., description="Submission status")
     timestamp: datetime = Field(..., description="Submission timestamp")
     
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 # =============================================================================
@@ -105,8 +104,7 @@ class UserResponse(UserBase):
         description="User's form submission history"
     )
     
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 # =============================================================================

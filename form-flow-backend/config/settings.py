@@ -12,7 +12,7 @@ Usage:
 """
 
 from pydantic_settings import BaseSettings
-from pydantic import Field
+from pydantic import Field, ConfigDict
 from typing import List, Optional
 from functools import lru_cache
 
@@ -154,12 +154,12 @@ class Settings(BaseSettings):
         description="ElevenLabs model for TTS"
     )
     
-    class Config:
-        """Pydantic Settings configuration."""
-        env_file = ".env"
-        env_file_encoding = "utf-8"
-        case_sensitive = False
-        extra = "ignore"  # Ignore extra env vars
+    model_config = ConfigDict(
+        env_file=".env",
+        env_file_encoding="utf-8",
+        case_sensitive=False,
+        extra="ignore",  # Ignore extra env vars
+    )
 
 
 @lru_cache()

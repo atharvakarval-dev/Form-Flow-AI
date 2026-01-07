@@ -522,6 +522,51 @@ export const getSuggestions = async (
     }
 };
 
+/**
+ * Get intelligent profile-based suggestions for a form field
+ * 
+ * This is the ChatGPT/Claude-level suggestion system that uses 
+ * behavioral profiles to generate personalized suggestions.
+ * 
+ * Features:
+ * - Tier 1 (Profile-Based): Uses full behavioral profile with LLM
+ * - Tier 2 (Blended): Combines patterns with light profile context
+ * - Tier 3 (Pattern-Only): Fast fallback for new users
+ * 
+ * @param {string} fieldName - Field name
+ * @param {string} fieldLabel - Field label (optional)
+ * @param {string} fieldType - Field type (optional)
+ * @param {string} formPurpose - Purpose of the form (optional)
+ * @param {Object} previousAnswers - Already answered fields in this form (optional)
+ * @returns {Promise<{suggestions: Array, tier_used: string, profile_confidence: number}>}
+ */
+export const getSmartSuggestions = async (
+    fieldName,
+    fieldLabel = null,
+    fieldType = 'text',
+    formPurpose = 'General',
+    previousAnswers = {}
+) => {
+    try {
+        const response = await api.post('/smart-suggestions', {
+            field_name: fieldName,
+            field_label: fieldLabel,
+            field_type: fieldType,
+            form_purpose: formPurpose,
+            previous_answers: previousAnswers
+        });
+        return response.data;
+    } catch (error) {
+        console.warn('[getSmartSuggestions] Failed:', error.message);
+        return {
+            suggestions: [],
+            field_name: fieldName,
+            tier_used: 'error',
+            profile_confidence: null
+        };
+    }
+};
+
 export default api;
 
 

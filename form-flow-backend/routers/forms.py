@@ -1,4 +1,4 @@
-from fastapi import APIRouter, HTTPException, Depends, Request
+from fastapi import APIRouter, HTTPException, Depends, Request, BackgroundTasks
 from sqlalchemy.ext.asyncio import AsyncSession
 from typing import Dict, List, Any
 from pydantic import BaseModel
@@ -20,6 +20,7 @@ from core import database, models
 import auth
 from config.settings import settings
 from sqlalchemy.future import select
+from services.ai.profile_service import generate_profile_background
 
 # --- Pydantic Models ---
 class ScrapeRequest(BaseModel):
@@ -416,6 +417,7 @@ async def magic_fill(
 async def submit_form(
     data: FormSubmitRequest, 
     request: Request,
+    background_tasks: BackgroundTasks,
     db: AsyncSession = Depends(database.get_db),
     form_submitter: FormSubmitter = Depends(get_form_submitter)
 ):
@@ -488,6 +490,20 @@ async def submit_form(
                                 print(f"🧠 Smart Autofill learned from submission")
                             except Exception as e:
                                 print(f"⚠️ Autofill learning failed: {e}")
+                            
+                            # 🧠 Queue background profile generation (non-blocking)
+                            try:
+                                if user.profiling_enabled and len(formatted_data) >= 5:
+                                    background_tasks.add_task(
+                                        generate_profile_background,
+                                        user_id=user.id,
+                                        form_data=formatted_data,
+                                        form_type="Web Form",
+                                        form_purpose=f"Form at {data.url[:50]}"
+                                    )
+                                    print(f"🧠 Profile generation queued for user {user.id}")
+                            except Exception as e:
+                                print(f"⚠️ Profile generation queue failed: {e}")
                 except Exception as e:
                     print(f"⚠️ Failed to record history (Auth error): {e}")
         except Exception as e:
