@@ -502,7 +502,7 @@ class ProfileSuggestionEngine:
         # Fallback to database if session provided
         if db:
             try:
-                from services.ai.profile_service import get_profile_service
+                from services.ai.profile.service import get_profile_service
                 service = get_profile_service()
                 profile = await service.get_profile(db, user_id)
                 return profile.to_dict() if hasattr(profile, 'to_dict') else profile

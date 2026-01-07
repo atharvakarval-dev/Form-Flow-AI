@@ -10,9 +10,7 @@ from services.ai.prompts.extraction_prompts import (
     get_expected_format,
 )
 
-from services.ai.prompts.profile_prompts import (
-    PROFILE_CREATE_PROMPT,
-    PROFILE_UPDATE_PROMPT,
+from services.ai.profile.prompts import (
     build_create_prompt,
     build_update_prompt,
     build_condense_prompt,

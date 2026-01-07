@@ -20,7 +20,7 @@ from core import database, models
 import auth
 from config.settings import settings
 from sqlalchemy.future import select
-from services.ai.profile_service import generate_profile_background
+from services.ai.profile import ProfileService_profile_background
 
 # --- Pydantic Models ---
 class ScrapeRequest(BaseModel):
