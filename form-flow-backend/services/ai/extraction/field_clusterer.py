@@ -75,8 +75,8 @@ class FieldClusterer:
         Returns:
             Cluster name or 'other'
         """
-        field_name = field.get('name', '').lower()
-        field_label = field.get('label', '').lower()
+        field_name = (field.get('name') or '').lower()
+        field_label = (field.get('label') or '').lower()
         combined = f"{field_name} {field_label}"
         
         for cluster_name, patterns in self._compiled_patterns.items():
@@ -96,8 +96,8 @@ class FieldClusterer:
         Returns:
             Complexity score (1=simple, 2=moderate, 3=complex)
         """
-        field_type = field.get('type', 'text').lower()
-        field_name = field.get('name', '').lower()
+        field_type = (field.get('type') or 'text').lower()
+        field_name = (field.get('name') or '').lower()
         
         # Check explicit complexity
         if field_type in self.COMPLEXITY_MAP['simple']:

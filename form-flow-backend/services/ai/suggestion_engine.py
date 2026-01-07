@@ -216,17 +216,17 @@ class SuggestionEngine:
             return patterns
         
         # Detect email patterns
-        if field_type == 'email' or 'email' in field_name.lower():
+        if field_type == 'email' or 'email' in (field_name or '').lower():
             email_patterns = self._detect_email_patterns(field_value, field_name)
             patterns.update(email_patterns)
         
         # Detect phone patterns
-        if field_type == 'tel' or any(k in field_name.lower() for k in ['phone', 'mobile', 'tel']):
+        if field_type == 'tel' or any(k in (field_name or '').lower() for k in ['phone', 'mobile', 'tel']):
             phone_patterns = self._detect_phone_patterns(field_value)
             patterns.update(phone_patterns)
         
         # Detect name patterns
-        if 'name' in field_name.lower() or 'name' in field_label.lower():
+        if 'name' in (field_name or '').lower() or 'name' in (field_label or '').lower():
             name_patterns = self._detect_name_patterns(field_value, field_name)
             patterns.update(name_patterns)
         
@@ -474,7 +474,7 @@ class SuggestionEngine:
             suggestion = None
             
             # Strategy 1: Work email from personal email + company
-            if 'work' in field_name.lower() and 'email' in field_name.lower():
+            if 'work' in (field_name or '').lower() and 'email' in (field_name or '').lower():
                 suggestion = self._suggest_work_email(
                     extracted_fields, 
                     detected_patterns,
@@ -482,19 +482,19 @@ class SuggestionEngine:
                 )
             
             # Strategy 2: Country from phone
-            elif 'country' in field_name.lower() or 'country' in field_label.lower():
+            elif 'country' in (field_name or '').lower() or 'country' in (field_label or '').lower():
                 suggestion = self._suggest_country_from_phone(
                     detected_patterns,
                     field_name
                 )
             
             # Strategy 3: First/Last name from full name
-            elif 'first' in field_name.lower() and 'name' in field_name.lower():
+            elif 'first' in (field_name or '').lower() and 'name' in (field_name or '').lower():
                 suggestion = self._suggest_first_name(
                     detected_patterns,
                     field_name
                 )
-            elif 'last' in field_name.lower() and 'name' in field_name.lower():
+            elif 'last' in (field_name or '').lower() and 'name' in (field_name or '').lower():
                 suggestion = self._suggest_last_name(
                     detected_patterns,
                     field_name
