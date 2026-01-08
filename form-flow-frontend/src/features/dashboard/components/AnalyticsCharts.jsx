@@ -1,7 +1,7 @@
 /**
- * AnalyticsCharts Component
+ * AnalyticsCharts Component - Premium Redesign
  * 
- * Recharts-powered visualizations for form filling analytics.
+ * Recharts-powered visualizations with enhanced aesthetics for Bento dashboard.
  */
 
 import {
@@ -15,8 +15,30 @@ import {
 } from 'recharts';
 import { useTheme } from '@/context/ThemeProvider';
 
-// Chart color palette - Reference Style (Blue/Purple/Orange/Green)
-const COLORS = ['#3B82F6', '#8B5CF6', '#F59E0B', '#10B981', '#EC4899', '#6366F1'];
+// Premium color palette with gradients
+const COLORS = {
+    primary: ['#6366F1', '#8B5CF6'], // Indigo to Purple
+    success: ['#10B981', '#34D399'], // Emerald
+    warning: ['#F59E0B', '#FBBF24'], // Amber
+    info: ['#3B82F6', '#60A5FA'],    // Blue
+    danger: ['#EF4444', '#F87171'],  // Red
+    pink: ['#EC4899', '#F472B6'],    // Pink
+};
+
+const CHART_COLORS = ['#6366F1', '#8B5CF6', '#EC4899', '#3B82F6', '#10B981', '#F59E0B'];
+
+// Custom tooltip style
+const getTooltipStyle = (isDark) => ({
+    backgroundColor: isDark ? 'rgba(9, 9, 11, 0.95)' : 'rgba(255, 255, 255, 0.95)',
+    border: isDark ? '1px solid rgba(255,255,255,0.1)' : '1px solid rgba(0,0,0,0.1)',
+    borderRadius: '12px',
+    color: isDark ? '#fff' : '#18181b',
+    boxShadow: isDark
+        ? '0 4px 20px rgba(0, 0, 0, 0.5)'
+        : '0 4px 20px rgba(0, 0, 0, 0.1)',
+    padding: '12px 16px',
+    backdropFilter: 'blur(8px)',
+});
 
 export function SubmissionTrendChart({ data }) {
     const { isDark } = useTheme();
@@ -24,43 +46,51 @@ export function SubmissionTrendChart({ data }) {
     return (
         <div className="h-full w-full">
             <ResponsiveContainer width="100%" height="100%">
-                <LineChart data={data} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
+                <AreaChart data={data} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
+                    <defs>
+                        <linearGradient id="trendGradient" x1="0" y1="0" x2="0" y2="1">
+                            <stop offset="5%" stopColor="#F59E0B" stopOpacity={0.4} />
+                            <stop offset="95%" stopColor="#F59E0B" stopOpacity={0} />
+                        </linearGradient>
+                    </defs>
                     <XAxis
                         dataKey="date"
-                        stroke={isDark ? '#52525b' : '#a1a1aa'}
-                        fontSize={12}
+                        stroke={isDark ? '#3f3f46' : '#d4d4d8'}
+                        fontSize={11}
                         tickLine={false}
                         axisLine={false}
                         dy={10}
+                        tick={{ fill: isDark ? '#71717a' : '#a1a1aa' }}
                     />
                     <YAxis
-                        stroke={isDark ? '#52525b' : '#a1a1aa'}
-                        fontSize={12}
+                        stroke={isDark ? '#3f3f46' : '#d4d4d8'}
+                        fontSize={11}
                         tickLine={false}
                         axisLine={false}
+                        tick={{ fill: isDark ? '#71717a' : '#a1a1aa' }}
                         tickFormatter={(value) => `${value}`}
                     />
                     <Tooltip
-                        contentStyle={{
-                            backgroundColor: '#09090b',
-                            border: '1px solid #27272a',
-                            borderRadius: '12px',
-                            color: '#fff',
-                            boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.5)'
-                        }}
-                        itemStyle={{ color: '#e4e4e7' }}
-                        cursor={{ stroke: '#3f3f46', strokeWidth: 1, strokeDasharray: '4 4' }}
+                        contentStyle={getTooltipStyle(isDark)}
+                        itemStyle={{ color: isDark ? '#fbbf24' : '#d97706' }}
+                        cursor={{ stroke: isDark ? '#3f3f46' : '#e4e4e7', strokeWidth: 1, strokeDasharray: '4 4' }}
                     />
-                    <Line
+                    <Area
                         type="monotone"
                         dataKey="count"
                         stroke="#F59E0B"
-                        strokeWidth={4}
+                        strokeWidth={3}
+                        fill="url(#trendGradient)"
                         dot={false}
-                        activeDot={{ r: 6, fill: '#F59E0B', stroke: '#09090b', strokeWidth: 2 }}
+                        activeDot={{
+                            r: 6,
+                            fill: '#F59E0B',
+                            stroke: isDark ? '#09090b' : '#fff',
+                            strokeWidth: 3,
+                            filter: 'drop-shadow(0 0 8px rgba(245, 158, 11, 0.5))'
+                        }}
                     />
-                    {/* Mock second line for comparison visual if needed, or remove */}
-                </LineChart>
+                </AreaChart>
             </ResponsiveContainer>
         </div>
     );
@@ -74,47 +104,44 @@ export function SuccessRateChart({ successRate }) {
     ];
 
     return (
-        <div className="h-full w-full flex items-center">
+        <div className="h-full w-full flex items-center justify-center relative">
+            {/* Center percentage display */}
+            <div className="absolute inset-0 flex items-center justify-center pointer-events-none z-10">
+                <div className="text-center">
+                    <div className={`text-3xl font-bold ${isDark ? 'text-white' : 'text-zinc-900'}`}>
+                        {successRate}%
+                    </div>
+                    <div className={`text-xs ${isDark ? 'text-white/40' : 'text-zinc-500'}`}>
+                        Success
+                    </div>
+                </div>
+            </div>
+
             <ResponsiveContainer width="100%" height="100%">
                 <PieChart>
+                    <defs>
+                        <linearGradient id="successGradient" x1="0" y1="0" x2="1" y2="1">
+                            <stop offset="0%" stopColor="#10B981" />
+                            <stop offset="100%" stopColor="#34D399" />
+                        </linearGradient>
+                    </defs>
                     <Pie
                         data={data}
                         cx="50%"
                         cy="50%"
-                        innerRadius={60}
-                        outerRadius={80}
-                        paddingAngle={5}
+                        innerRadius="65%"
+                        outerRadius="85%"
+                        paddingAngle={4}
                         dataKey="value"
+                        startAngle={90}
+                        endAngle={-270}
                     >
-                        <Cell fill="#3B82F6" stroke="none" />
-                        <Cell fill="#27272a" stroke="none" />
-                        {/* Use dark gray for 'empty' part in reference style */}
+                        <Cell fill="url(#successGradient)" stroke="none" />
+                        <Cell fill={isDark ? '#27272a' : '#e4e4e7'} stroke="none" />
                     </Pie>
                     <Tooltip
                         formatter={(value) => `${value}%`}
-                        contentStyle={{
-                            backgroundColor: '#09090b',
-                            border: '1px solid #27272a',
-                            borderRadius: '12px',
-                            color: '#fff'
-                        }}
-                        itemStyle={{ color: '#e4e4e7' }}
-                    />
-                    <Legend
-                        verticalAlign="middle"
-                        align="right"
-                        layout="vertical"
-                        iconType="circle"
-                        content={({ payload }) => (
-                            <ul className="space-y-2">
-                                {payload.map((entry, index) => (
-                                    <li key={`item-${index}`} className="flex items-center gap-2 text-sm text-zinc-400">
-                                        <span className="w-2 h-2 rounded-full" style={{ backgroundColor: entry.color }}></span>
-                                        <span className={isDark ? "text-zinc-300" : "text-zinc-600"}>{entry.value}</span>
-                                    </li>
-                                ))}
-                            </ul>
-                        )}
+                        contentStyle={getTooltipStyle(isDark)}
                     />
                 </PieChart>
             </ResponsiveContainer>
@@ -122,35 +149,45 @@ export function SuccessRateChart({ successRate }) {
     );
 }
 
-// Stacked Bar Chart for Field Types (Reference: "Composition")
+// Horizontal stacked bar for Field Types (Composition)
 export function FieldTypesChart({ data }) {
+    const { isDark } = useTheme();
+
+    if (!data || data.length === 0) {
+        return (
+            <div className={`h-full w-full flex items-center justify-center ${isDark ? 'text-white/30' : 'text-zinc-300'}`}>
+                No data available
+            </div>
+        );
+    }
+
     return (
-        <div className="h-full w-full">
-            <ResponsiveContainer width="100%" height="100%">
-                {/* Using BarChart to mimic the stacked look */}
-                <BarChart data={[data.reduce((acc, curr) => ({ ...acc, [curr.name]: curr.value }), {})]} layout="vertical" margin={{ top: 0, right: 0, left: 0, bottom: 0 }}>
-                    <XAxis type="number" hide />
-                    <YAxis type="category" hide />
-                    <Tooltip
-                        cursor={{ fill: 'transparent' }}
-                        contentStyle={{
-                            backgroundColor: '#09090b',
-                            border: '1px solid #27272a',
-                            borderRadius: '12px',
-                            color: '#fff'
-                        }}
-                    />
-                    {data.map((entry, index) => (
-                        <Bar
+        <div className="h-full w-full flex flex-col justify-center">
+            {/* Stacked horizontal bar visualization */}
+            <div className="h-12 w-full rounded-xl overflow-hidden flex shadow-inner">
+                {data.map((entry, index) => {
+                    const total = data.reduce((sum, d) => sum + d.value, 0);
+                    const percentage = total > 0 ? (entry.value / total) * 100 : 0;
+
+                    return (
+                        <div
                             key={entry.name}
-                            dataKey={entry.name}
-                            stackId="a"
-                            fill={COLORS[index % COLORS.length]}
-                            radius={index === 0 ? [4, 0, 0, 4] : index === data.length - 1 ? [0, 4, 4, 0] : [0, 0, 0, 0]}
-                        />
-                    ))}
-                </BarChart>
-            </ResponsiveContainer>
+                            className="h-full transition-all duration-500 hover:opacity-80 relative group"
+                            style={{
+                                width: `${percentage}%`,
+                                backgroundColor: CHART_COLORS[index % CHART_COLORS.length],
+                                minWidth: percentage > 0 ? '8px' : 0
+                            }}
+                            title={`${entry.name}: ${entry.value} (${percentage.toFixed(1)}%)`}
+                        >
+                            {/* Tooltip on hover */}
+                            <div className="absolute -top-10 left-1/2 -translate-x-1/2 opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap bg-black/90 text-white text-xs px-2 py-1 rounded pointer-events-none z-20">
+                                {entry.name}: {entry.value}
+                            </div>
+                        </div>
+                    );
+                })}
+            </div>
         </div>
     );
 }
@@ -162,31 +199,38 @@ export function FormTypeChart({ data }) {
         <div className="h-full w-full">
             <ResponsiveContainer width="100%" height="100%">
                 <BarChart data={data} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
+                    <defs>
+                        <linearGradient id="successBarGradient" x1="0" y1="0" x2="0" y2="1">
+                            <stop offset="0%" stopColor="#10B981" />
+                            <stop offset="100%" stopColor="#059669" />
+                        </linearGradient>
+                        <linearGradient id="failBarGradient" x1="0" y1="0" x2="0" y2="1">
+                            <stop offset="0%" stopColor="#EF4444" />
+                            <stop offset="100%" stopColor="#DC2626" />
+                        </linearGradient>
+                    </defs>
                     <XAxis
                         dataKey="type"
-                        stroke={isDark ? '#52525b' : '#a1a1aa'}
-                        fontSize={12}
+                        stroke={isDark ? '#3f3f46' : '#d4d4d8'}
+                        fontSize={11}
                         tickLine={false}
                         axisLine={false}
                         dy={10}
+                        tick={{ fill: isDark ? '#71717a' : '#a1a1aa' }}
                     />
                     <YAxis
-                        stroke={isDark ? '#52525b' : '#a1a1aa'}
-                        fontSize={12}
+                        stroke={isDark ? '#3f3f46' : '#d4d4d8'}
+                        fontSize={11}
                         tickLine={false}
                         axisLine={false}
+                        tick={{ fill: isDark ? '#71717a' : '#a1a1aa' }}
                     />
                     <Tooltip
-                        contentStyle={{
-                            backgroundColor: '#09090b',
-                            border: '1px solid #27272a',
-                            borderRadius: '12px',
-                            color: '#fff'
-                        }}
-                        cursor={{ fill: isDark ? '#27272a' : '#f4f4f5' }}
+                        contentStyle={getTooltipStyle(isDark)}
+                        cursor={{ fill: isDark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.05)' }}
                     />
-                    <Bar dataKey="success" stackId="a" fill="#10B981" radius={[0, 0, 4, 4]} barSize={40} />
-                    <Bar dataKey="fail" stackId="a" fill="#3B82F6" radius={[4, 4, 0, 0]} barSize={40} />
+                    <Bar dataKey="success" stackId="a" fill="url(#successBarGradient)" radius={[0, 0, 4, 4]} barSize={40} />
+                    <Bar dataKey="fail" stackId="a" fill="url(#failBarGradient)" radius={[4, 4, 0, 0]} barSize={40} />
                 </BarChart>
             </ResponsiveContainer>
         </div>
@@ -196,6 +240,14 @@ export function FormTypeChart({ data }) {
 export function TopDomainsChart({ data }) {
     const { isDark } = useTheme();
 
+    if (!data || data.length === 0) {
+        return (
+            <div className={`h-full w-full flex items-center justify-center ${isDark ? 'text-white/30' : 'text-zinc-300'}`}>
+                No domains yet
+            </div>
+        );
+    }
+
     return (
         <div className="h-full w-full">
             <ResponsiveContainer width="100%" height="100%">
@@ -204,25 +256,32 @@ export function TopDomainsChart({ data }) {
                     data={data}
                     margin={{ top: 0, right: 10, left: 10, bottom: 0 }}
                 >
+                    <defs>
+                        <linearGradient id="domainGradient" x1="0" y1="0" x2="1" y2="0">
+                            <stop offset="0%" stopColor="#8B5CF6" />
+                            <stop offset="100%" stopColor="#EC4899" />
+                        </linearGradient>
+                    </defs>
                     <XAxis type="number" hide />
                     <YAxis
                         dataKey="name"
                         type="category"
                         width={100}
-                        tick={{ fill: isDark ? '#a1a1aa' : '#52525b', fontSize: 11 }}
+                        tick={{ fill: isDark ? '#a1a1aa' : '#52525b', fontSize: 10 }}
                         tickLine={false}
                         axisLine={false}
+                        tickFormatter={(value) => value.length > 15 ? value.substring(0, 15) + '...' : value}
                     />
                     <Tooltip
-                        cursor={{ fill: isDark ? '#27272a' : '#f4f4f5' }}
-                        contentStyle={{
-                            backgroundColor: '#09090b',
-                            border: '1px solid #27272a',
-                            borderRadius: '12px',
-                            color: '#fff'
-                        }}
+                        cursor={{ fill: isDark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.05)' }}
+                        contentStyle={getTooltipStyle(isDark)}
                     />
-                    <Bar dataKey="value" fill="#8B5CF6" radius={[0, 4, 4, 0]} barSize={20} />
+                    <Bar
+                        dataKey="value"
+                        fill="url(#domainGradient)"
+                        radius={[0, 6, 6, 0]}
+                        barSize={16}
+                    />
                 </BarChart>
             </ResponsiveContainer>
         </div>
@@ -237,37 +296,40 @@ export function ActivityHourlyChart({ data }) {
             <ResponsiveContainer width="100%" height="100%">
                 <AreaChart data={data} margin={{ top: 10, right: 0, left: -20, bottom: 0 }}>
                     <defs>
-                        <linearGradient id="colorCount" x1="0" y1="0" x2="0" y2="1">
-                            <stop offset="5%" stopColor="#3B82F6" stopOpacity={0.3} />
+                        <linearGradient id="hourlyGradient" x1="0" y1="0" x2="0" y2="1">
+                            <stop offset="5%" stopColor="#3B82F6" stopOpacity={0.4} />
                             <stop offset="95%" stopColor="#3B82F6" stopOpacity={0} />
                         </linearGradient>
                     </defs>
                     <XAxis
                         dataKey="hour"
-                        stroke={isDark ? '#52525b' : '#a1a1aa'}
-                        fontSize={10}
+                        stroke={isDark ? '#3f3f46' : '#d4d4d8'}
+                        fontSize={9}
                         tickLine={false}
                         axisLine={false}
-                        interval={3}
+                        interval={5}
                         tickFormatter={(h) => `${h}h`}
+                        tick={{ fill: isDark ? '#52525b' : '#a1a1aa' }}
                     />
                     <YAxis hide />
                     <Tooltip
                         labelFormatter={(h) => `${h}:00 - ${h}:59`}
-                        contentStyle={{
-                            backgroundColor: '#09090b',
-                            border: '1px solid #27272a',
-                            borderRadius: '12px',
-                            color: '#fff'
-                        }}
+                        contentStyle={getTooltipStyle(isDark)}
                     />
                     <Area
                         type="monotone"
                         dataKey="count"
                         stroke="#3B82F6"
-                        fillOpacity={1}
-                        fill="url(#colorCount)"
                         strokeWidth={2}
+                        fillOpacity={1}
+                        fill="url(#hourlyGradient)"
+                        dot={false}
+                        activeDot={{
+                            r: 4,
+                            fill: '#3B82F6',
+                            stroke: isDark ? '#09090b' : '#fff',
+                            strokeWidth: 2
+                        }}
                     />
                 </AreaChart>
             </ResponsiveContainer>
