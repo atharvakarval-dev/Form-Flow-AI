@@ -1,5 +1,5 @@
 import asyncio
-from typing import Dict, List, Any
+from typing import Dict, List, Any, Optional
 import time
 import os
 import random
@@ -62,6 +62,39 @@ class FormSubmitter:
         self.session_timeout = 30000
         self.debug_screenshots = []
         self._detected_dynamic_fields: List[Dict[str, Any]] = []  # Track newly appeared fields
+    
+    def _find_field_in_schema(self, name: str, field_map: Dict[str, Dict]) -> Optional[Dict]:
+        """
+        Find field with fuzzy matching on name/label.
+        
+        Handles cases where form_data keys don't exactly match schema field names.
+        """
+        # 1. Exact match first
+        if name in field_map:
+            return field_map[name]
+        
+        # 2. Normalize and try fuzzy match on name
+        name_lower = name.lower().replace('_', '').replace('-', '').replace(' ', '')
+        
+        for field_name, field_info in field_map.items():
+            field_normalized = field_name.lower().replace('_', '').replace('-', '').replace(' ', '')
+            if field_normalized == name_lower:
+                return field_info
+        
+        # 3. Try match on label
+        for field_name, field_info in field_map.items():
+            label = (field_info.get('label') or field_info.get('display_name') or '').lower()
+            label_normalized = label.replace('_', '').replace('-', '').replace(' ', '')
+            if label_normalized == name_lower or name_lower in label_normalized or label_normalized in name_lower:
+                return field_info
+        
+        # 4. Partial match on name (for cases like "fullName" vs "full_name")
+        for field_name, field_info in field_map.items():
+            field_normalized = field_name.lower().replace('_', '').replace('-', '').replace(' ', '')
+            if name_lower in field_normalized or field_normalized in name_lower:
+                return field_info
+        
+        return None
 
     # ─────────────────────────────────────────────────────────────────────────
     # DYNAMIC FIELD DETECTION
@@ -801,9 +834,10 @@ class FormSubmitter:
         
         # Fill each field with retry
         for name, value in fields_to_process:
-            if name not in field_map:
+            field_info = self._find_field_in_schema(name, field_map)
+            if not field_info:
+                logger.debug(f"Field not found in schema: {name}")
                 continue
-            field_info = field_map[name]
             ftype = field_info.get('type', 'text')
             success = False
             
@@ -983,26 +1017,6 @@ class FormSubmitter:
         if sys.platform == 'win32':
             return await asyncio.to_thread(self._sync_submit_form_data, url, form_data, form_schema, use_cdp)
         
-        # Non-Windows: use async Playwright as before
-        return await self._async_submit_form_data(url, form_data, form_schema, use_cdp)
-    
-    def _sync_submit_form_data(self, url: str, form_data: Dict[str, str], form_schema: List[Dict], use_cdp: bool = False) -> Dict[str, Any]:
-        """Sync Playwright implementation for Windows."""
-        from playwright.sync_api import sync_playwright
-        
-        is_google = 'docs.google.com/forms' in url
-        
-        try:
-            # Manual lifecycle management to keep browser open on CAPTCHA
-            playwright = sync_playwright().start()
-            browser = playwright.chromium.launch(
-                headless=False,
-                args=['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage']
-            )
-            context = browser.new_context(
-                viewport={'width': 1280, 'height': 800},
-                user_agent='Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/121.0.0.0 Safari/537.36'
-            )
             page = context.new_page()
             
             print(f"🌐 Navigating to form: {url}")
@@ -1150,9 +1164,10 @@ class FormSubmitter:
         field_map = {f.get('name', ''): f for form in form_schema for f in form.get('fields', [])}
         
         for name, value in form_data.items():
-            if name not in field_map:
+            field_info = self._find_field_in_schema(name, field_map)
+            if not field_info:
+                logger.debug(f"Field not found in schema (sync): {name}")
                 continue
-            field_info = field_map[name]
             
             try:
                 element = None

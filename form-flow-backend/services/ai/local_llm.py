@@ -141,6 +141,8 @@ class LocalLLMService:
         1. Check cache (instant)
         2. Use local LLM (fast, free)
         3. Fallback to Gemini for complex cases
+        4. Fallback to OpenRouter/Gemma if available
+        5. Final fallback - heuristics
         """
         # 1. Check cache first
         cache_key = f"{user_input.lower()}:{field_name.lower()}"
@@ -167,8 +169,78 @@ class LocalLLMService:
             except Exception as e:
                 logger.error(f"Gemini fallback failed: {e}")
         
-        # 4. Final fallback - simple heuristics
+        # 4. Fallback to OpenRouter/Gemma
+        openrouter_result = self._extract_with_openrouter_sync(user_input, field_name)
+        if openrouter_result.get('confidence', 0) > 0.4:
+            self._cache[cache_key] = openrouter_result
+            return openrouter_result
+        
+        # 5. Final fallback - simple heuristics
         return self._extract_with_heuristics(user_input, field_name)
+    
+    def _extract_with_openrouter_sync(self, user_input: str, field_name: str) -> Dict[str, Any]:
+        """Sync wrapper for OpenRouter/Gemma extraction."""
+        import os
+        import asyncio
+        
+        api_key = os.getenv("OPENROUTER_API_KEY")
+        if not api_key:
+            return {"value": "", "confidence": 0.0, "source": "openrouter_unavailable"}
+        
+        try:
+            # Check if there's an existing event loop
+            try:
+                loop = asyncio.get_running_loop()
+                # Already in async context, can't use run - return empty
+                return {"value": "", "confidence": 0.0, "source": "openrouter_async_context"}
+            except RuntimeError:
+                # No running loop, we can use asyncio.run
+                pass
+            
+            return asyncio.run(self._extract_with_openrouter_async(user_input, field_name, api_key))
+        except Exception as e:
+            logger.warning(f"OpenRouter sync extraction failed: {e}")
+            return {"value": "", "confidence": 0.0, "source": "openrouter_error"}
+    
+    async def _extract_with_openrouter_async(self, user_input: str, field_name: str, api_key: str) -> Dict[str, Any]:
+        """Async OpenRouter/Gemma extraction for fallback."""
+        try:
+            import httpx
+            
+            logger.info(f"Using OpenRouter/Gemma fallback for {field_name}")
+            async with httpx.AsyncClient() as client:
+                response = await client.post(
+                    "https://openrouter.ai/api/v1/chat/completions",
+                    headers={
+                        "Authorization": f"Bearer {api_key}",
+                        "Content-Type": "application/json",
+                        "HTTP-Referer": "https://formflow.ai",
+                        "X-Title": "Form Flow AI"
+                    },
+                    json={
+                        "model": "google/gemma-3-27b-it",
+                        "messages": [
+                            {"role": "user", "content": f"Extract the {field_name} from this input: \"{user_input}\"\n\nReturn ONLY the extracted value, nothing else. If you cannot extract it, return \"UNKNOWN\"."}
+                        ],
+                        "temperature": 0.1,
+                        "max_tokens": 100
+                    },
+                    timeout=10.0
+                )
+                
+                if response.status_code == 200:
+                    data = response.json()
+                    value = data['choices'][0]['message']['content'].strip()
+                    if value and value.upper() != "UNKNOWN":
+                        logger.info(f"OpenRouter extracted {field_name}: {value[:50]}...")
+                        return {"value": value, "confidence": 0.85, "source": "openrouter_gemma"}
+                else:
+                    logger.warning(f"OpenRouter API error: {response.status_code}")
+                    
+        except Exception as e:
+            logger.warning(f"OpenRouter extraction failed: {e}")
+        
+        return {"value": "", "confidence": 0.0, "source": "openrouter_failed"}
     
     
     def _extract_with_local_llm(self, user_input: str, field_name: str) -> Dict[str, Any]:
@@ -306,6 +378,63 @@ class LocalLLMService:
                 # Take last 10 digits if longer (standardizing), or keep as is if 9-10
                 phone = digits_only[-10:] if len(digits_only) > 10 else digits_only
                 return {"value": phone, "confidence": 0.85, "source": "heuristic"}
+        
+        # Address/City/State/Country/Zip/Location detection
+        if any(k in field_lower for k in ['address', 'city', 'state', 'country', 'zip', 'postal', 'location']):
+            # Try "my X is Y" pattern first
+            pattern = rf'(?:my\s+)?{re.escape(field_name[:15])}\s+(?:is|:)\s+(.+?)(?:\s+(?:and|my|,)|$)'
+            match = re.search(pattern, user_input, re.IGNORECASE)
+            if match:
+                return {"value": match.group(1).strip(), "confidence": 0.85, "source": "heuristic"}
+            # Fallback: generic location patterns
+            loc_patterns = [
+                rf'(?:in|from|at)\s+([A-Z][a-z]+(?:\s+[A-Z][a-z]+)*)',  # "in New York"
+                rf'(?:live|located|based)\s+(?:in|at)\s+(.+?)(?:\s+and|,|$)',
+            ]
+            for pat in loc_patterns:
+                match = re.search(pat, user_input)
+                if match:
+                    return {"value": match.group(1).strip(), "confidence": 0.75, "source": "heuristic"}
+        
+        # Company/Organization/Employer detection
+        if any(k in field_lower for k in ['company', 'organization', 'employer', 'business', 'org', 'work']):
+            company_patterns = [
+                rf'(?:my\s+)?(?:company|organization|employer|business|work(?:ing)?(?:\s+at)?)\s+(?:is|name\s+is|:)?\s*(.+?)(?:\s+(?:and|my|,)|$)',
+                rf'(?:work(?:ing)?|employed)\s+(?:at|for|with)\s+(.+?)(?:\s+(?:and|as|,)|$)',
+                rf'(?:at|for|with)\s+([A-Z][A-Za-z]+(?:\s+[A-Z]?[A-Za-z]+)*)\s+(?:as|since|for)',
+            ]
+            for pat in company_patterns:
+                match = re.search(pat, user_input, re.IGNORECASE)
+                if match:
+                    value = match.group(1).strip()
+                    # Title case and clean
+                    value = ' '.join(word.capitalize() for word in value.split())
+                    return {"value": value, "confidence": 0.85, "source": "heuristic"}
+        
+        # Subject/Title/Reason/Purpose detection
+        if any(k in field_lower for k in ['subject', 'title', 'topic', 'reason', 'purpose', 'regarding']):
+            subj_patterns = [
+                rf'(?:my\s+)?(?:subject|title|topic|reason|purpose)\s+(?:is|:)\s+(.+?)(?:\s+(?:and|my)|$)',
+                rf'(?:regarding|about|concerning)\s+(.+?)(?:\s+(?:and|my|please)|$)',
+            ]
+            for pat in subj_patterns:
+                match = re.search(pat, user_input, re.IGNORECASE)
+                if match:
+                    return {"value": match.group(1).strip(), "confidence": 0.80, "source": "heuristic"}
+        
+        # Message/Comments/Description/Feedback - capture everything after keyword
+        if any(k in field_lower for k in ['message', 'comment', 'description', 'note', 'feedback', 'inquiry', 'query']):
+            msg_patterns = [
+                rf'(?:my\s+)?(?:message|comment|description|feedback|inquiry|query)\s+(?:is|:)\s+(.+)',
+                rf'(?:i\s+)?(?:want|would like|need)\s+(?:to\s+)?(?:say|ask|tell|inquire)\s*(?:that|:)?\s*(.+)',
+            ]
+            for pat in msg_patterns:
+                match = re.search(pat, user_input, re.IGNORECASE | re.DOTALL)
+                if match:
+                    value = match.group(1).strip()
+                    # Clean up trailing punctuation if too short
+                    if len(value) > 3:
+                        return {"value": value, "confidence": 0.80, "source": "heuristic"}
         
         return {"value": "", "confidence": 0.0, "source": "heuristic"}
     
