@@ -39,10 +39,10 @@ function BentoCard({ children, className = "", size = "default", glow = false, a
     const glowEffect = glow && isDark ? 'shadow-[0_0_50px_-20px_rgba(139,92,246,0.3)]' : '';
 
     const accentStyles = {
-        purple: 'before:absolute before:inset-0 before:bg-gradient-to-br before:from-purple-500/10 before:to-transparent before:pointer-events-none',
-        blue: 'before:absolute before:inset-0 before:bg-gradient-to-br before:from-blue-500/10 before:to-transparent before:pointer-events-none',
         green: 'before:absolute before:inset-0 before:bg-gradient-to-br before:from-emerald-500/10 before:to-transparent before:pointer-events-none',
-        amber: 'before:absolute before:inset-0 before:bg-gradient-to-br before:from-amber-500/10 before:to-transparent before:pointer-events-none',
+        teal: 'before:absolute before:inset-0 before:bg-gradient-to-br before:from-teal-500/10 before:to-transparent before:pointer-events-none',
+        lime: 'before:absolute before:inset-0 before:bg-gradient-to-br before:from-lime-500/10 before:to-transparent before:pointer-events-none',
+        emerald: 'before:absolute before:inset-0 before:bg-gradient-to-br before:from-emerald-400/15 before:to-transparent before:pointer-events-none',
     };
 
     return (
@@ -62,10 +62,10 @@ function StatCard({ icon: Icon, label, value, trend, color = "blue", delay = 0 }
     const { isDark } = useTheme();
 
     const colorStyles = {
-        blue: { bg: 'bg-blue-500/10', text: 'text-blue-400', glow: 'shadow-blue-500/20' },
         green: { bg: 'bg-emerald-500/10', text: 'text-emerald-400', glow: 'shadow-emerald-500/20' },
-        purple: { bg: 'bg-purple-500/10', text: 'text-purple-400', glow: 'shadow-purple-500/20' },
-        amber: { bg: 'bg-amber-500/10', text: 'text-amber-400', glow: 'shadow-amber-500/20' },
+        teal: { bg: 'bg-teal-500/10', text: 'text-teal-400', glow: 'shadow-teal-500/20' },
+        lime: { bg: 'bg-lime-500/10', text: 'text-lime-400', glow: 'shadow-lime-500/20' },
+        emerald: { bg: 'bg-emerald-400/10', text: 'text-emerald-300', glow: 'shadow-emerald-400/20' },
     };
 
     const style = colorStyles[color];
@@ -232,8 +232,8 @@ export function Dashboard() {
             {/* Subtle gradient background */}
             <div className="fixed inset-0 -z-10">
                 <div className={`absolute inset-0 ${isDark ? 'bg-zinc-950' : 'bg-zinc-50'}`} />
-                <div className={`absolute top-0 left-1/4 w-96 h-96 rounded-full blur-3xl opacity-20 ${isDark ? 'bg-purple-600' : 'bg-purple-200'}`} />
-                <div className={`absolute bottom-0 right-1/4 w-96 h-96 rounded-full blur-3xl opacity-20 ${isDark ? 'bg-blue-600' : 'bg-blue-200'}`} />
+                <div className={`absolute top-0 left-1/4 w-96 h-96 rounded-full blur-3xl opacity-30 ${isDark ? 'bg-emerald-600' : 'bg-emerald-200'}`} />
+                <div className={`absolute bottom-0 right-1/4 w-96 h-96 rounded-full blur-3xl opacity-20 ${isDark ? 'bg-teal-600' : 'bg-teal-200'}`} />
             </div>
 
             <div className="max-w-7xl mx-auto px-6 py-8 space-y-8">
@@ -246,8 +246,8 @@ export function Dashboard() {
                 >
                     <div>
                         <div className="flex items-center gap-2 mb-2">
-                            <Sparkles className={`w-5 h-5 ${isDark ? 'text-purple-400' : 'text-purple-600'}`} />
-                            <span className={`text-sm font-medium ${isDark ? 'text-purple-400' : 'text-purple-600'}`}>
+                            <Sparkles className={`w-5 h-5 ${isDark ? 'text-emerald-400' : 'text-emerald-600'}`} />
+                            <span className={`text-sm font-medium ${isDark ? 'text-emerald-400' : 'text-emerald-600'}`}>
                                 Welcome back
                             </span>
                         </div>
@@ -302,43 +302,43 @@ export function Dashboard() {
                         >
                             {/* Top Stats Row - Bento Grid */}
                             <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-                                <BentoCard accent="blue">
+                                <BentoCard accent="green">
                                     <StatCard
                                         icon={Target}
                                         label="Total Forms"
                                         value={totalForms}
                                         trend={12}
-                                        color="blue"
+                                        color="green"
                                         delay={0}
                                     />
                                 </BentoCard>
 
-                                <BentoCard accent="green">
+                                <BentoCard accent="emerald">
                                     <StatCard
                                         icon={CheckCircle2}
                                         label="Success Rate"
                                         value={`${successRate}%`}
-                                        color="green"
+                                        color="emerald"
                                         delay={0.1}
                                     />
                                 </BentoCard>
 
-                                <BentoCard accent="purple">
+                                <BentoCard accent="teal">
                                     <StatCard
                                         icon={Clock}
                                         label="Time Saved"
                                         value={timeSaved}
-                                        color="purple"
+                                        color="teal"
                                         delay={0.2}
                                     />
                                 </BentoCard>
 
-                                <BentoCard accent="amber">
+                                <BentoCard accent="lime">
                                     <StatCard
                                         icon={Flame}
                                         label="Day Streak"
                                         value={streakDays || history.length}
-                                        color="amber"
+                                        color="lime"
                                         delay={0.3}
                                     />
                                 </BentoCard>
@@ -348,10 +348,10 @@ export function Dashboard() {
                             <div className="grid grid-cols-12 gap-4 auto-rows-[minmax(140px,auto)]">
 
                                 {/* AI Insights - Featured Card */}
-                                <BentoCard className="col-span-12 lg:col-span-5 row-span-2" size="lg" glow accent="purple">
+                                <BentoCard className="col-span-12 lg:col-span-5 row-span-2" size="lg" glow accent="green">
                                     <div className="h-full flex flex-col">
                                         <div className="flex items-center gap-3 mb-4">
-                                            <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-purple-500 to-pink-500 flex items-center justify-center shadow-lg shadow-purple-500/25">
+                                            <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-emerald-500 to-teal-500 flex items-center justify-center shadow-lg shadow-emerald-500/25">
                                                 <Sparkles className="w-5 h-5 text-white" />
                                             </div>
                                             <div>
@@ -374,15 +374,15 @@ export function Dashboard() {
                                     <div className="h-full flex flex-col">
                                         <div className="flex items-center justify-between mb-4">
                                             <div className="flex items-center gap-3">
-                                                <div className={`w-10 h-10 rounded-xl ${isDark ? 'bg-amber-500/10' : 'bg-amber-50'} flex items-center justify-center`}>
-                                                    <TrendingUp className="w-5 h-5 text-amber-500" />
+                                                <div className={`w-10 h-10 rounded-xl ${isDark ? 'bg-emerald-500/10' : 'bg-emerald-50'} flex items-center justify-center`}>
+                                                    <TrendingUp className="w-5 h-5 text-emerald-500" />
                                                 </div>
                                                 <div>
                                                     <h3 className={`font-semibold ${isDark ? 'text-white' : 'text-zinc-900'}`}>Activity Trend</h3>
                                                     <p className={`text-xs ${isDark ? 'text-white/50' : 'text-zinc-500'}`}>Last 7 days</p>
                                                 </div>
                                             </div>
-                                            <div className={`px-3 py-1 rounded-full text-xs font-medium ${isDark ? 'bg-amber-500/10 text-amber-400' : 'bg-amber-50 text-amber-600'}`}>
+                                            <div className={`px-3 py-1 rounded-full text-xs font-medium ${isDark ? 'bg-emerald-500/10 text-emerald-400' : 'bg-emerald-50 text-emerald-600'}`}>
                                                 <Calendar className="w-3 h-3 inline mr-1" />
                                                 Weekly
                                             </div>
@@ -423,7 +423,7 @@ export function Dashboard() {
                                 <BentoCard className="col-span-12 lg:col-span-4 row-span-2" size="lg">
                                     <div className="h-full flex flex-col">
                                         <div className="flex items-center gap-2 mb-4">
-                                            <BarChart3 className={`w-4 h-4 ${isDark ? 'text-purple-400' : 'text-purple-600'}`} />
+                                            <BarChart3 className={`w-4 h-4 ${isDark ? 'text-emerald-400' : 'text-emerald-600'}`} />
                                             <h3 className={`font-semibold text-sm ${isDark ? 'text-white' : 'text-zinc-900'}`}>Field Types</h3>
                                         </div>
                                         <p className={`text-xs mb-4 ${isDark ? 'text-white/40' : 'text-zinc-500'}`}>
@@ -436,7 +436,7 @@ export function Dashboard() {
                                         <div className="grid grid-cols-3 gap-2 mt-4 pt-4 border-t border-white/5">
                                             {(chartData?.field_types || []).slice(0, 6).map((type, i) => (
                                                 <div key={type.name} className="flex items-center gap-1.5 text-[10px]">
-                                                    <div className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: ['#3B82F6', '#8B5CF6', '#F59E0B', '#10B981', '#EC4899', '#6366F1'][i] }} />
+                                                    <div className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: ['#10B981', '#14B8A6', '#22C55E', '#84CC16', '#34D399', '#6EE7B7'][i] }} />
                                                     <span className={isDark ? 'text-white/60' : 'text-zinc-600'}>{type.name}</span>
                                                 </div>
                                             ))}
@@ -448,7 +448,7 @@ export function Dashboard() {
                                 <BentoCard className="col-span-12 lg:col-span-4" size="compact">
                                     <div className="h-full flex flex-col">
                                         <div className="flex items-center gap-2 mb-3">
-                                            <ExternalLink className={`w-4 h-4 ${isDark ? 'text-pink-400' : 'text-pink-600'}`} />
+                                            <ExternalLink className={`w-4 h-4 ${isDark ? 'text-teal-400' : 'text-teal-600'}`} />
                                             <h3 className={`font-semibold text-sm ${isDark ? 'text-white' : 'text-zinc-900'}`}>Top Domains</h3>
                                         </div>
                                         <div className="flex-1 min-h-[100px]">
@@ -505,7 +505,7 @@ export function Dashboard() {
                                             <p className={`font-medium ${isDark ? 'text-white/60' : 'text-zinc-600'}`}>No forms submitted yet</p>
                                             <p className={`text-sm mt-1 ${isDark ? 'text-white/40' : 'text-zinc-400'}`}>Your submission history will appear here</p>
                                         </div>
-                                        <a href={ROUTES.HOME} className="mt-2 px-4 py-2 rounded-xl bg-gradient-to-r from-purple-500 to-blue-500 text-white text-sm font-medium hover:opacity-90 transition-opacity">
+                                        <a href={ROUTES.HOME} className="mt-2 px-4 py-2 rounded-xl bg-gradient-to-r from-emerald-500 to-teal-500 text-white text-sm font-medium hover:opacity-90 transition-opacity">
                                             Fill your first form
                                         </a>
                                     </div>
@@ -528,13 +528,13 @@ export function Dashboard() {
                                                     >
                                                         <div className="flex items-center gap-4">
                                                             <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${item.status === 'Success'
-                                                                    ? 'bg-emerald-500/10 text-emerald-400'
-                                                                    : 'bg-red-500/10 text-red-400'
+                                                                ? 'bg-emerald-500/10 text-emerald-400'
+                                                                : 'bg-red-500/10 text-red-400'
                                                                 }`}>
                                                                 {item.status === 'Success' ? <CheckCircle2 className="h-5 w-5" /> : <XCircle className="h-5 w-5" />}
                                                             </div>
                                                             <div>
-                                                                <div className={`font-medium group-hover:text-purple-400 transition-colors truncate max-w-[200px] md:max-w-[400px] flex items-center gap-2 ${isDark ? 'text-white' : 'text-zinc-900'}`}>
+                                                                <div className={`font-medium group-hover:text-emerald-400 transition-colors truncate max-w-[200px] md:max-w-[400px] flex items-center gap-2 ${isDark ? 'text-white' : 'text-zinc-900'}`}>
                                                                     {item.form_url}
                                                                     {emoji && (
                                                                         <span title={`Rated: ${feedback.rating}/5`} className={`text-base w-6 h-6 rounded-lg flex items-center justify-center ${isDark ? 'bg-white/10' : 'bg-zinc-100'}`}>
@@ -569,8 +569,8 @@ export function Dashboard() {
                                                     onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
                                                     disabled={currentPage === 1}
                                                     className={`px-4 py-2 text-sm font-medium rounded-xl transition-all ${isDark
-                                                            ? 'bg-white/10 hover:bg-white/20 disabled:bg-white/5 disabled:text-white/30'
-                                                            : 'bg-zinc-100 hover:bg-zinc-200 disabled:bg-zinc-50 disabled:text-zinc-300'
+                                                        ? 'bg-white/10 hover:bg-white/20 disabled:bg-white/5 disabled:text-white/30'
+                                                        : 'bg-zinc-100 hover:bg-zinc-200 disabled:bg-zinc-50 disabled:text-zinc-300'
                                                         }`}
                                                 >
                                                     Previous
@@ -582,8 +582,8 @@ export function Dashboard() {
                                                     onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
                                                     disabled={currentPage === totalPages}
                                                     className={`px-4 py-2 text-sm font-medium rounded-xl transition-all ${isDark
-                                                            ? 'bg-white/10 hover:bg-white/20 disabled:bg-white/5 disabled:text-white/30'
-                                                            : 'bg-zinc-100 hover:bg-zinc-200 disabled:bg-zinc-50 disabled:text-zinc-300'
+                                                        ? 'bg-white/10 hover:bg-white/20 disabled:bg-white/5 disabled:text-white/30'
+                                                        : 'bg-zinc-100 hover:bg-zinc-200 disabled:bg-zinc-50 disabled:text-zinc-300'
                                                         }`}
                                                 >
                                                     Next

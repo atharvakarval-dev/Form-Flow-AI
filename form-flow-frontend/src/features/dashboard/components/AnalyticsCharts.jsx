@@ -25,7 +25,7 @@ const COLORS = {
     pink: ['#EC4899', '#F472B6'],    // Pink
 };
 
-const CHART_COLORS = ['#6366F1', '#8B5CF6', '#EC4899', '#3B82F6', '#10B981', '#F59E0B'];
+const CHART_COLORS = ['#10B981', '#14B8A6', '#22C55E', '#84CC16', '#34D399', '#6EE7B7'];
 
 // Custom tooltip style
 const getTooltipStyle = (isDark) => ({
@@ -49,8 +49,8 @@ export function SubmissionTrendChart({ data }) {
                 <AreaChart data={data} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
                     <defs>
                         <linearGradient id="trendGradient" x1="0" y1="0" x2="0" y2="1">
-                            <stop offset="5%" stopColor="#F59E0B" stopOpacity={0.4} />
-                            <stop offset="95%" stopColor="#F59E0B" stopOpacity={0} />
+                            <stop offset="5%" stopColor="#10B981" stopOpacity={0.4} />
+                            <stop offset="95%" stopColor="#10B981" stopOpacity={0} />
                         </linearGradient>
                     </defs>
                     <XAxis
@@ -78,16 +78,16 @@ export function SubmissionTrendChart({ data }) {
                     <Area
                         type="monotone"
                         dataKey="count"
-                        stroke="#F59E0B"
+                        stroke="#10B981"
                         strokeWidth={3}
                         fill="url(#trendGradient)"
                         dot={false}
                         activeDot={{
                             r: 6,
-                            fill: '#F59E0B',
+                            fill: '#10B981',
                             stroke: isDark ? '#09090b' : '#fff',
                             strokeWidth: 3,
-                            filter: 'drop-shadow(0 0 8px rgba(245, 158, 11, 0.5))'
+                            filter: 'drop-shadow(0 0 8px rgba(16, 185, 129, 0.5))'
                         }}
                     />
                 </AreaChart>
@@ -258,8 +258,8 @@ export function TopDomainsChart({ data }) {
                 >
                     <defs>
                         <linearGradient id="domainGradient" x1="0" y1="0" x2="1" y2="0">
-                            <stop offset="0%" stopColor="#8B5CF6" />
-                            <stop offset="100%" stopColor="#EC4899" />
+                            <stop offset="0%" stopColor="#14B8A6" />
+                            <stop offset="100%" stopColor="#10B981" />
                         </linearGradient>
                     </defs>
                     <XAxis type="number" hide />
@@ -297,8 +297,8 @@ export function ActivityHourlyChart({ data }) {
                 <AreaChart data={data} margin={{ top: 10, right: 0, left: -20, bottom: 0 }}>
                     <defs>
                         <linearGradient id="hourlyGradient" x1="0" y1="0" x2="0" y2="1">
-                            <stop offset="5%" stopColor="#3B82F6" stopOpacity={0.4} />
-                            <stop offset="95%" stopColor="#3B82F6" stopOpacity={0} />
+                            <stop offset="5%" stopColor="#14B8A6" stopOpacity={0.4} />
+                            <stop offset="95%" stopColor="#14B8A6" stopOpacity={0} />
                         </linearGradient>
                     </defs>
                     <XAxis
@@ -319,14 +319,14 @@ export function ActivityHourlyChart({ data }) {
                     <Area
                         type="monotone"
                         dataKey="count"
-                        stroke="#3B82F6"
+                        stroke="#14B8A6"
                         strokeWidth={2}
                         fillOpacity={1}
                         fill="url(#hourlyGradient)"
                         dot={false}
                         activeDot={{
                             r: 4,
-                            fill: '#3B82F6',
+                            fill: '#14B8A6',
                             stroke: isDark ? '#09090b' : '#fff',
                             strokeWidth: 2
                         }}
