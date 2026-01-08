@@ -1013,97 +1013,14 @@ class FormSubmitter:
             4. If CAPTCHA found: DON'T submit, leave browser open for user
             5. If no CAPTCHA: Submit form normally
         """
-        # On Windows, use sync Playwright to avoid asyncio subprocess issues
         if sys.platform == 'win32':
             return await asyncio.to_thread(self._sync_submit_form_data, url, form_data, form_schema, use_cdp)
-        
-            page = context.new_page()
-            
-            print(f"🌐 Navigating to form: {url}")
-            page.goto(url, wait_until='domcontentloaded', timeout=60000)
-            
-            # Wait for form load
-            if is_google:
-                try:
-                    page.wait_for_selector('[role="listitem"], .freebirdFormviewerViewItemsItemItem', timeout=20000)
-                    time.sleep(2)
-                except:
-                    logger.debug("Google form selector wait timeout/error")
-                    pass
-            else:
-                try:
-                    page.wait_for_load_state("networkidle", timeout=15000)
-                except:
-                    logger.debug("Network idle wait error")
-                    pass
-                time.sleep(1)
-            
-            initial_url = page.url
-            
-            # Fill form
-            fill_result = self._sync_fill_form(page, form_data, form_schema, is_google)
-            
-            # CHECK FOR CAPTCHA
-            captcha_info = self._detect_captcha_sync(page)
-            if captcha_info.get('hasCaptcha'):
-                import os
-                has_api_key = bool(os.getenv("TWOCAPTCHA_API_KEY"))
-                
-                logger.warning(f"🔐 CAPTCHA detected: {captcha_info.get('type', 'unknown')}")
-                
-                if has_api_key:
-                    # API key exists but sync mode can't use async solver
-                    logger.info("💡 TIP: CAPTCHA API key found but sync mode requires manual solving.")
-                    logger.info("   The async path (non-Windows) uses 2Captcha automatically.")
-                else:
-                    logger.info("💡 TIP: Set TWOCAPTCHA_API_KEY env variable to auto-solve CAPTCHAs.")
-                    logger.info("   Get your API key at https://2captcha.com")
-                
-                print(f"🛑 Browser left OPEN for manual CAPTCHA solving.")
-                
-                # Do NOT close browser/playwright here
-                return {
-                    "success": False,
-                    "captcha_detected": True,
-                    "browser_left_open": True,
-                    "message": "CAPTCHA detected. Please solve manually in the open browser window.",
-                    "submission_result": fill_result
-                }
-            
-            # Submit form (Only if no CAPTCHA)
-            submit_ok = self._sync_submit_form(page, form_schema, is_google)
-            time.sleep(2)
-            
-            # Validate
-            page_content = page.content().lower()
-            current_url = page.url
-            
-            # Simple success validation
-            success_indicators = ['thank you', 'success', 'submitted', 'received', 'confirmation']
-            likely_success = any(ind in page_content for ind in success_indicators) or current_url != initial_url
-            
-            # Cleanup only on success/failure (not captcha)
-            browser.close()
-            playwright.stop()
-            
-            return {
-                "success": likely_success and not fill_result.get("errors"),
-                "captcha_detected": False,
-                "message": "Form submitted successfully" if likely_success else "Form submission completed with issues",
-                "submission_result": fill_result,
-                "validation_result": {"likely_success": likely_success}
-            }
-            
-        except Exception as e:
-            import traceback
-            traceback.print_exc()
-            return {"success": False, "error": str(e), "message": "Form submission failed"}
+        else:
+            return await self._async_submit_form_data(url, form_data, form_schema, use_cdp)
     
     def _detect_captcha_sync(self, page) -> Dict[str, Any]:
         """Detect CAPTCHA using sync Playwright API."""
         import json
-        
-        # Inject detection logic
         selectors_js = json.dumps(CAPTCHA_SELECTORS)
         
         result = page.evaluate(f"""

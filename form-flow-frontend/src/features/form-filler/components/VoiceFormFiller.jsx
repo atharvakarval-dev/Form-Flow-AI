@@ -712,7 +712,7 @@ const VoiceFormFiller = ({ formSchema, formContext, onComplete, onClose }) => {
     return (
         // OVERLAY: Completely clear (bg-black/20 for slight dim, NO BLUR)
         <div className="fixed inset-0 z-[100] flex items-center justify-center p-6 bg-black/20 font-sans">
-            <style jsx>{`
+            <style>{`
                 .custom-scrollbar::-webkit-scrollbar {
                     width: 6px;
                 }
