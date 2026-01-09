@@ -56,6 +56,10 @@ class Settings(BaseSettings):
         default=None,
         description="Google Gemini API key for AI features"
     )
+    GEMMA_API_KEY: Optional[str] = Field(
+        default=None,
+        description="Gemma API key (prioritized over Google API key)"
+    )
     OPENAI_API_KEY: Optional[str] = Field(
         default=None,
         description="OpenAI API key (optional, for fallback)"

@@ -27,6 +27,7 @@ import os
 import json
 from typing import Dict, List, Any, Optional
 
+from langchain_community.chat_models import ChatOpenAI
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.output_parsers import JsonOutputParser
@@ -81,27 +82,43 @@ class GeminiService:
         Initialize Gemini service with LangChain.
         
         Args:
-            api_key: Google API key. Falls back to GOOGLE_API_KEY env var.
-            model: Gemini model to use.
+            api_key: Google or OpenRouter API key. 
+                     Checks GEMMA_API_KEY, then GOOGLE_API_KEY.
+            model: Model to use.
             
         Raises:
             ValueError: If no API key is provided or found.
         """
-        self.api_key = api_key or os.getenv('GOOGLE_API_KEY')
+        # Prioritize GEMMA_API_KEY as requested
+        self.api_key = api_key or os.getenv('GEMMA_API_KEY') or os.getenv('OPENROUTER_API_KEY') or os.getenv('GOOGLE_API_KEY')
         self.model = model
         
         if not self.api_key:
-            raise ValueError("Google API key not found. Set GOOGLE_API_KEY env variable.")
+            raise ValueError("No API key found. Set GEMMA_API_KEY, OPENROUTER_API_KEY, or GOOGLE_API_KEY.")
         
-        # Initialize LangChain LLM
-        self.llm = ChatGoogleGenerativeAI(
-            model=self.model,
-            google_api_key=self.api_key,
-            temperature=0.3,  # Lower temp for more consistent outputs
-            convert_system_message_to_human=True
-        )
+        # Check if it's an OpenRouter key (Gemma)
+        if self.api_key and self.api_key.startswith("sk-or-"):
+            logger.info("Detected OpenRouter API key. Switching to OpenRouter provider.")
+            # Default to Gemma 2 9B if using OpenRouter and default gemini model was passed
+            if self.model == "gemini-2.0-flash":
+                self.model = "google/gemma-2-9b-it:free" # Use free tier or standard
+            
+            self.llm = ChatOpenAI(
+                model=self.model,
+                api_key=self.api_key,
+                base_url="https://openrouter.ai/api/v1",
+                temperature=0.3
+            )
+        else:
+            # Standard Google Gemini
+            self.llm = ChatGoogleGenerativeAI(
+                model=self.model,
+                google_api_key=self.api_key,
+                temperature=0.3,  # Lower temp for more consistent outputs
+                convert_system_message_to_human=True
+            )
         
-        logger.info(f"GeminiService initialized with LangChain, model: {self.model}")
+        logger.info(f"GeminiService initialized, model: {self.model}")
 
     def generate_conversational_flow(
         self,
