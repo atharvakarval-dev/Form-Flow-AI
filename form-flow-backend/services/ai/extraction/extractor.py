@@ -68,6 +68,7 @@ class FieldExtractor:
         'country': ['country', 'nation', 'from'],
         'address': ['address', 'street', 'city', 'zip'],
         'company': ['company', 'organization', 'work', 'employer'],
+        'message': ['message', 'comment', 'note', 'description', 'feedback', 'inquiry', 'question', 'text', 'details'],
     }
     
     def __init__(self, llm_client=None):
@@ -227,6 +228,9 @@ If no values found, return: {{}}"""
             return 'company'
         if ftype == 'number' or 'age' in combined or 'year' in combined:
             return 'number'
+        # message, comments, notes, textarea - free text fields
+        if ftype == 'textarea' or any(k in combined for k in ['message', 'comment', 'note', 'description', 'feedback', 'inquiry', 'question']):
+            return 'message'
         
         return 'text'
     
@@ -242,6 +246,10 @@ If no values found, return: {{}}"""
         
         # Check for country keywords
         if category == 'country' and any(k in text for k in ['country', 'from', 'india', 'usa', 'uk']):
+            return True
+        
+        # Message/textarea fields - almost always relevant when there's text
+        if category == 'message' and len(text.strip()) > 10:
             return True
         
         # Check field keywords
@@ -269,6 +277,8 @@ If no values found, return: {{}}"""
             return self._extract_country(text)
         elif category == 'number':
             return self._extract_number(text)
+        elif category == 'message':
+            return self._extract_message(text, field)
         else:
             return self._extract_text(text, field)
     
@@ -316,6 +326,15 @@ If no values found, return: {{}}"""
     def _extract_text(self, text: str, field: Dict) -> Optional[str]:
         """Extract generic text value."""
         return normalize_text_smart(text)
+    
+    def _extract_message(self, text: str, field: Dict) -> Optional[str]:
+        """Extract message/textarea content - captures full text."""
+        # For message fields, we want the full user text (cleaned up)
+        cleaned = normalize_text_smart(text)
+        # Return the text if it has meaningful content
+        if cleaned and len(cleaned.strip()) > 0:
+            return cleaned.strip()
+        return None
     
     def _normalize_extracted_values(
         self,

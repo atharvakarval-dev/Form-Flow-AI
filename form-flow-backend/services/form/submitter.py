@@ -1150,6 +1150,86 @@ class FormSubmitter:
         
         return False
     
+    def _sync_submit_form_data(self, url: str, form_data: Dict[str, str], form_schema: List[Dict], use_cdp: bool = False) -> Dict[str, Any]:
+        """Sync Playwright implementation for Windows."""
+        from playwright.sync_api import sync_playwright
+        import json
+        
+        is_google = 'docs.google.com/forms' in url
+        
+        try:
+            playwright = sync_playwright().start()
+            
+            browser = playwright.chromium.launch(
+                headless=False,
+                args=['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage']
+            )
+            context = browser.new_context(
+                viewport={'width': 1280, 'height': 800},
+                user_agent='Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/121.0.0.0 Safari/537.36'
+            )
+            page = context.new_page()
+            
+            print(f"🌐 Navigating to form: {url}")
+            page.goto(url, wait_until='domcontentloaded', timeout=60000)
+            
+            if is_google:
+                try:
+                    page.wait_for_selector('[role="listitem"], .freebirdFormviewerViewItemsItemItem', timeout=20000)
+                    time.sleep(2)
+                except:
+                    pass
+            else:
+                try:
+                    page.wait_for_load_state("networkidle", timeout=15000)
+                except:
+                    pass
+                time.sleep(1)
+            
+            initial_url = page.url
+            
+            # Fill form
+            fill_result = self._sync_fill_form(page, form_data, form_schema, is_google)
+            
+            # Check for CAPTCHA
+            captcha_info = self._detect_captcha_sync(page)
+            
+            if captcha_info.get('hasCaptcha'):
+                print(f"🔐 CAPTCHA detected: {captcha_info.get('type')}")
+                print("🛑 CAPTCHA requires manual solving. Browser left open.")
+                return {
+                    "success": False,
+                    "captcha_detected": True,
+                    "captcha_type": captcha_info.get('type', 'unknown'),
+                    "message": "Please solve the CAPTCHA in the browser window, then click Submit.",
+                    "browser_left_open": True,
+                    "fields_filled": fill_result.get("filled_fields", []),
+                    "fill_rate": fill_result.get("fill_rate", 0)
+                }
+            
+            # No CAPTCHA - submit
+            submit_ok = self._sync_submit_form(page, form_schema, is_google)
+            time.sleep(2)
+            
+            # Cleanup
+            context.close()
+            browser.close()
+            playwright.stop()
+            
+            success = submit_ok and not fill_result.get("errors")
+            
+            return {
+                "success": success,
+                "captcha_detected": False,
+                "message": "Form submitted successfully" if success else "Form submission completed with issues",
+                "submission_result": fill_result
+            }
+            
+        except Exception as e:
+            import traceback
+            traceback.print_exc()
+            return {"success": False, "error": str(e), "message": f"Form submission failed: {e}"}
+    
     async def _async_submit_form_data(self, url: str, form_data: Dict[str, str], form_schema: List[Dict], use_cdp: bool = False) -> Dict[str, Any]:
         """Original async Playwright implementation for non-Windows platforms."""
         is_google = 'docs.google.com/forms' in url
