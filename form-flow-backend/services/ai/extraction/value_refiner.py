@@ -46,7 +46,7 @@ class ValueRefiner:
         r'\bmy\s+\w+\s+is\b',
     ]
     
-    def __init__(self, use_text_refiner: bool = True):
+    def __init__(self, use_text_refiner: bool = False):
         """
         Initialize value refiner.
         
