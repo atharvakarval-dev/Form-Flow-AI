@@ -322,21 +322,23 @@
                 // Explicit strong corrections
                 { regex: /let\s+me\s+correct(?:\s+that)?[,:\s]+(.+)$/i, name: 'let_me_correct' },
                 { regex: /correction[:\s]+(.+)$/i, name: 'correction' },
-                { regex: /\bactually[,\s]+(.+)$/i, name: 'actually' },
+                { regex: /\bactually[,\s]+(?:it'?s\s+|its\s+)?(.+)$/i, name: 'actually' },
                 { regex: /scratch\s+that[,\s]+(.+)$/i, name: 'scratch_that' },
 
-                // Medium strength corrections
-                { regex: /\bi\s+mean[t]?[,\s]+(.+)$/i, name: 'i_mean' },
-                { regex: /(?:no\s+)?wait[,\s]+(.+)$/i, name: 'no_wait' },
+                // Medium strength corrections - "oh sorry", "sorry its X", etc.
+                { regex: /\boh\s+sorry[,\s]+(?:it'?s\s+|its\s+)?(.+)$/i, name: 'oh_sorry' },
+                { regex: /\bsorry[,\s]+(?:it'?s\s+|its\s+)(.+)$/i, name: 'sorry_its' },
                 { regex: /(?:sorry|oops|my\s+bad)[,\s]+(.+)$/i, name: 'sorry' },
+                { regex: /\bi\s+mean[t]?[,\s]+(?:it'?s\s+|its\s+)?(.+)$/i, name: 'i_mean' },
+                { regex: /(?:no\s+)?wait[,\s]+(?:it'?s\s+|its\s+)?(.+)$/i, name: 'no_wait' },
                 { regex: /(?:or\s+)?rather[,\s]+(.+)$/i, name: 'rather' },
                 { regex: /make\s+that[,\s]+(.+)$/i, name: 'make_that' },
                 { regex: /change\s+(?:that|it)\s+to[,\s]+(.+)$/i, name: 'change_to' },
 
-                // Negation patterns
+                // Negation patterns - "no its X", "not X its Y"
+                { regex: /\bno[,\s]+(?:it'?s|its)\s+(.+)$/i, name: 'no_its' },
                 { regex: /not\s+(\S+)[,\s]+(?:it'?s|its|it\s+is)\s+(.+)$/i, name: 'not_its', groups: 2 },
-                { regex: /^(?:no|nope)[,\s]+(?:it'?s|its|it\s+is\s+)?(.+)$/i, name: 'no_its' },
-                { regex: /^no[,\s]+(?!problem|worries|thanks|thank|issue|way)(.+)$/i, name: 'no_value' },
+                { regex: /^(?:no|nope)[,\s]+(.+)$/i, name: 'no_value' },
 
                 // Restart patterns (abandoned starts)
                 { regex: /(\w{1,3})\.{2,}\s*(\w{2,}.*)$/i, name: 'abandoned_start', groups: 2 },

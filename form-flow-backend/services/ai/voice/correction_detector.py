@@ -95,12 +95,16 @@ class CorrectionDetector:
     
     # Priority 2: Medium strength correction markers
     EXPLICIT_MEDIUM_PATTERNS = [
-        # "I mean X" / "I meant X"
-        (r'\bi\s+mean[t]?[,\s]+(.+)$', 'i_mean'),
-        # "no wait, X" / "wait, X"
-        (r'(?:no\s+)?wait[,\s]+(.+)$', 'no_wait'),
+        # "oh sorry, its X" / "oh sorry its X" - COMMON in natural speech!
+        (r'\boh\s+sorry[,\s]+(?:it\'?s\s+|its\s+)?(.+)$', 'oh_sorry'),
+        # "sorry, it's X" / "sorry its X"
+        (r'\bsorry[,\s]+(?:it\'?s\s+|its\s+)(.+)$', 'sorry_its'),
         # "sorry, X" / "oops, X" / "my bad, X"
         (r'(?:sorry|oops|my\s+bad)[,\s]+(.+)$', 'sorry'),
+        # "I mean X" / "I meant X" (with optional "its")
+        (r'\bi\s+mean[t]?[,\s]+(?:it\'?s\s+|its\s+)?(.+)$', 'i_mean'),
+        # "no wait, X" / "wait, X" (with optional "its")
+        (r'(?:no\s+)?wait[,\s]+(?:it\'?s\s+|its\s+)?(.+)$', 'no_wait'),
         # "rather X" / "or rather X"
         (r'(?:or\s+)?rather[,\s]+(.+)$', 'rather'),
         # "make that X"
@@ -111,12 +115,14 @@ class CorrectionDetector:
     
     # Priority 3: Negation patterns  
     NEGATION_PATTERNS = [
+        # "no its X" / "no it's X" - VERY COMMON!
+        (r'\bno[,\s]+(?:it\'?s|its)\s+(.+)$', 'no_its'),
+        # "no it is X" - slightly different pattern
+        (r'\bno[,\s]+it\s+is\s+(.+)$', 'no_it_is'),
         # "not X, it's Y" / "not X, its Y"
         (r'not\s+(\S+)[,\s]+(?:it\'?s|its|it\s+is)\s+(.+)$', 'not_its'),
-        # "no, it's X" / "nope, X"
-        (r'^(?:no|nope)[,\s]+(?:it\'?s|its|it\s+is\s+)?(.+)$', 'no_its'),
-        # "no, X" (but not "no problem", "no worries")
-        (r'^no[,\s]+(?!problem|worries|thanks|thank|issue|way)(.+)$', 'no_value'),
+        # "no, X" / "nope, X" (fallback - not followed by problem/worries/etc)
+        (r'^(?:no|nope)[,\s]+(?!problem|worries|thanks|thank|issue|way)(.+)$', 'no_value'),
     ]
     
     # Priority 4: Restart patterns (abandoned starts)
@@ -388,8 +394,8 @@ class CorrectionDetector:
         
         Example: "John... James... actually Jake" → Jake
         """
-        # Count correction markers
-        markers = ['actually', 'i mean', 'no wait', 'wait', 'no,', 'sorry']
+        # Count correction markers (including 'oh sorry')
+        markers = ['actually', 'oh sorry', 'i mean', 'no wait', 'wait', 'sorry', 'no its', 'no,']
         marker_positions = []
         
         text_lower = text.lower()

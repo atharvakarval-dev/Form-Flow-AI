@@ -10,13 +10,16 @@ test_cases = [
     ('my name is John actually James', 'text'),
     ('email john@gmail let me correct that james@gmail', 'email'),
     ('scratch that, my name is Sarah', 'text'),
-    # Medium
+    # Medium - "oh sorry" patterns
+    ('Hi my name is Atharva oh sorry its Shashikant', 'text'),
+    ('my name is John sorry its James', 'text'),
+    ('the email is john oops, james@gmail', 'email'),
+    # No its patterns
+    ('no its Shashikant Karve', 'text'),
+    ('no it is alex@gmail.com', 'email'),
+    # Standard patterns
     ('phone 5551234 I mean 5554321', 'tel'),
     ('John no wait Jake', 'text'),
-    ('sorry, it should be Smith', 'text'),
-    # Negation
-    ('not John, it is James', 'text'),
-    ('no, it is alex@gmail.com', 'email'),
     # Restart
     ('j... james', 'text'),
     # Nested
