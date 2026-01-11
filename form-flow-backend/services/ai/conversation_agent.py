@@ -735,12 +735,15 @@ class ConversationAgent:
                 extracted = {}
                 confidence = {}
                 
-                # Prepare field list for extraction
+                # Prepare field list for extraction - use ALL remaining fields, not just current_batch
+                # This allows users to provide multiple fields at once (e.g., "my name is X and email is Y")
                 fields_to_extract = [
                     field.get('label', field.get('name')) 
-                    for field in current_batch 
+                    for field in remaining_fields  # Use remaining_fields, not current_batch
                     if field.get('name') not in extracted
                 ]
+                
+                logger.info(f"Extracting from {len(fields_to_extract)} fields: {fields_to_extract[:5]}...")
                 
                 if fields_to_extract:
                     # Use new batch extraction method
@@ -750,11 +753,13 @@ class ConversationAgent:
                         new_extracted = batch_result['extracted']
                         new_confidence = batch_result.get('confidence', {})
                         
+                        logger.info(f"Local LLM raw extraction: {new_extracted}")
+                        
                         # Update main extracted dict
                         for label, value in new_extracted.items():
-                            # Find matching field name from label
+                            # Find matching field name from label - search in remaining_fields
                             field_match = next(
-                                (f for f in current_batch if f.get('label', f.get('name')) == label), 
+                                (f for f in remaining_fields if f.get('label', f.get('name')) == label), 
                                 None
                             )
                             if field_match:
@@ -828,7 +833,7 @@ class ConversationAgent:
         if extracted:
             field_labels = []
             for field_name in extracted.keys():
-                field_info = next((f for f in current_batch if f.get('name') == field_name), {})
+                field_info = next((f for f in remaining_fields if f.get('name') == field_name), {})
                 field_labels.append(field_info.get('label', field_name))
             
             if len(field_labels) == 1:

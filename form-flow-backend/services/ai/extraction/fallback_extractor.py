@@ -64,12 +64,20 @@ class IntelligentFallbackExtractor:
                 is_mentioned = IntelligentFallbackExtractor._segment_mentions_field(segment_lower, field_info)
                 is_current = field_info['name'] in [f.get('name') for f in current_batch]
                 
+                # Debug logging for dropdown fields
+                if field_info.get('type') == 'dropdown' or field_info.get('options'):
+                    print(f"  🔍 Dropdown '{field_info.get('label', field_info['name'])}': mentioned={is_mentioned}, current={is_current}, options={len(field_info.get('options', []))} items")
+                
                 if is_mentioned or is_current:
                     # Extract value from segment
                     value, conf = IntelligentFallbackExtractor._extract_value_from_segment(
                         segment, 
                         field_info
                     )
+                    
+                    # Debug logging
+                    if field_info.get('type') == 'dropdown' or field_info.get('options'):
+                        print(f"  📍 Dropdown extraction result: value='{value}', confidence={conf}")
                     
                     if value:
                         extracted[field_info['name']] = value
@@ -212,8 +220,9 @@ class IntelligentFallbackExtractor:
         # 0. DROPDOWN PRIORITY: Match against available options first
         if extractor['type'] == 'dropdown':
             options = extractor.get('options', []) or field_info.get('options', [])
+            print(f"    🎯 Dropdown extraction for segment '{segment}' with {len(options)} options")
             if options:
-                segment_lower = segment.lower()
+                segment_lower = segment.lower().strip()
                 best_match = None
                 best_score = 0
                 
@@ -224,15 +233,16 @@ class IntelligentFallbackExtractor:
                     opt_value_lower = opt_value.lower()
                     opt_label_lower = opt_label.lower()
                     
-                    # Exact match
+                    # Exact match: check if option label/value appears in user's segment
                     if opt_value_lower in segment_lower or opt_label_lower in segment_lower:
+                        print(f"    ✅ Exact match: '{segment_lower}' contains '{opt_label_lower}'")
                         return opt_value, 0.95
                     
-                    # Fuzzy matching: check if user's input contains significant portion of option
-                    # e.g., "India" matches "India" in options, not "British Indian Ocean Territory"
+                    # Fuzzy matching: check if user's input word matches option exactly
                     for user_word in segment_lower.split():
                         if len(user_word) >= 3:
                             if user_word == opt_label_lower or user_word == opt_value_lower:
+                                print(f"    ✅ Word match: '{user_word}' == '{opt_label_lower}'")
                                 return opt_value, 0.92
                             if opt_label_lower.startswith(user_word) and len(user_word) >= 4:
                                 if best_score < 0.85:
@@ -241,9 +251,12 @@ class IntelligentFallbackExtractor:
                 
                 if best_match:
                     return best_match, best_score
-                    
+                
+                print(f"    ❌ No match found for segment '{segment_lower}'")
                 # No match found - return None so user gets prompted again
                 return None, 0.0
+            else:
+                print(f"    ⚠️ No options available for this dropdown!")
         
         # 1. Try to extract using contextual patterns ("my X is Y")
         value_patterns = [

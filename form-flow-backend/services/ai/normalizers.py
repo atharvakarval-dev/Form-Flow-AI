@@ -91,6 +91,17 @@ def normalize_email_smart(text: str) -> str:
     
     # Step 6: Extract and clean email
     if '@' in text:
+        # STOP WORDS: When walking backwards from @, stop at these
+        STOP_WORDS = {
+            'is', 'at', 'my', 'the', 'email', 'address', 'and', 'also', 'with', 
+            'for', 'to', 'from', 'of', 'in', 'on', 'as', 'by', 'or', 'but',
+            'you', 'your', 'i', 'am', 'are', 'was', 'were', 'be', 'been', 
+            'have', 'has', 'had', 'do', 'does', 'did', 'will', 'would', 
+            'could', 'should', 'can', 'may', 'might', 'must', 'shall',
+            'this', 'that', 'it', 'its', 'he', 'she', 'they', 'them',
+            'relationship', 'contact', 'here', 'guys', 'client', 'customer',
+        }
+        
         # 1. Try Look-back extraction first (handles spaces: "Atharva karwal@gmail.com")
         at_index = text.find('@')
         if at_index > 0:
@@ -101,9 +112,9 @@ def normalize_email_smart(text: str) -> str:
             candidates = before_at.split()
             valid_parts = []
             for part in reversed(candidates):
-                # Stop if we hit a keyword or invalid char
+                # Stop if we hit a stop word or invalid char
                 # Allow dots, underscores, dashes, plus in local part
-                if re.match(r'^[a-zA-Z0-9._\-+]+$', part) and part.lower() not in ['is', 'at', 'my', 'the', 'email', 'address']:
+                if re.match(r'^[a-zA-Z0-9._\-+]+$', part) and part.lower() not in STOP_WORDS:
                     valid_parts.insert(0, part)
                 else:
                     break
