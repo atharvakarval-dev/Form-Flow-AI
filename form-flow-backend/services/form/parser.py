@@ -744,7 +744,7 @@ def _extract_with_beautifulsoup(html: str) -> List[Dict]:
                     label = lbl.get_text(strip=True)
             
             field = {
-                "name": name, "type": field_type, "tagName": tag.name,
+                "name": name, "id": tag.get("id"), "type": field_type, "tagName": tag.name,
                 "label": label, "placeholder": tag.get("placeholder"),
                 "required": tag.has_attr("required"), "hidden": False
             }

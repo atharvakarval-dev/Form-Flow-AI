@@ -65,35 +65,49 @@ class FormSubmitter:
     
     def _find_field_in_schema(self, name: str, field_map: Dict[str, Dict]) -> Optional[Dict]:
         """
-        Find field with fuzzy matching on name/label.
+        Find field with fuzzy matching on name/label/id.
         
-        Handles cases where form_data keys don't exactly match schema field names.
+        Handles cases where form_data keys don't exactly match schema field names,
+        especially for Angular Material / React MUI forms with auto-generated IDs.
         """
         # 1. Exact match first
         if name in field_map:
+            logger.debug(f"[MATCH] Exact match for '{name}'")
             return field_map[name]
         
-        # 2. Normalize and try fuzzy match on name
+        # 2. Match by field ID (critical for Angular Material / auto-generated IDs like mat-input-2)
+        for field_name, field_info in field_map.items():
+            field_id = field_info.get('id')
+            if field_id == name:
+                logger.debug(f"[MATCH] ID match: '{name}' == field.id for '{field_name}'")
+                return field_info
+        
+        # 3. Normalize and try fuzzy match on name
         name_lower = name.lower().replace('_', '').replace('-', '').replace(' ', '')
         
         for field_name, field_info in field_map.items():
             field_normalized = field_name.lower().replace('_', '').replace('-', '').replace(' ', '')
             if field_normalized == name_lower:
+                logger.debug(f"[MATCH] Normalized name match: '{name}' ~= '{field_name}'")
                 return field_info
         
-        # 3. Try match on label
+        # 4. Try match on label
         for field_name, field_info in field_map.items():
             label = (field_info.get('label') or field_info.get('display_name') or '').lower()
             label_normalized = label.replace('_', '').replace('-', '').replace(' ', '')
             if label_normalized == name_lower or name_lower in label_normalized or label_normalized in name_lower:
+                logger.debug(f"[MATCH] Label match: '{name}' ~= label '{label}' for '{field_name}'")
                 return field_info
         
-        # 4. Partial match on name (for cases like "fullName" vs "full_name")
+        # 5. Partial match on name (for cases like "fullName" vs "full_name")
         for field_name, field_info in field_map.items():
             field_normalized = field_name.lower().replace('_', '').replace('-', '').replace(' ', '')
             if name_lower in field_normalized or field_normalized in name_lower:
+                logger.debug(f"[MATCH] Partial name match: '{name}' partial '{field_name}'")
                 return field_info
         
+        # NO MATCH - log available fields for debugging
+        logger.warning(f"[NO MATCH] Could not find field '{name}' in schema. Available: {list(field_map.keys())[:10]}")
         return None
 
     # ─────────────────────────────────────────────────────────────────────────
@@ -1083,8 +1097,9 @@ class FormSubmitter:
         for name, value in form_data.items():
             field_info = self._find_field_in_schema(name, field_map)
             if not field_info:
-                logger.debug(f"Field not found in schema (sync): {name}")
-                continue
+                # Fallback: use name directly as ID for Angular Material/dynamic ID forms
+                logger.debug(f"Field not found in schema (sync), trying direct ID: {name}")
+                field_info = {'id': name, 'name': name, 'type': 'text'}
             
             try:
                 element = None

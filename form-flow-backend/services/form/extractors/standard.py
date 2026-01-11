@@ -331,6 +331,7 @@ STANDARD_FORMS_JS = '''
                 } else {
                     fields.push({
                         name: name,
+                        id: field.id || null,
                         type: 'checkbox',
                         tagName: 'input',
                         label: findLabel(field, form),
@@ -346,6 +347,7 @@ STANDARD_FORMS_JS = '''
             if (field.tagName === 'SELECT') {
                 fields.push({
                     name: name,
+                    id: field.id || null,
                     type: 'dropdown',
                     tagName: 'select',
                     label: findLabel(field, form),
@@ -363,6 +365,7 @@ STANDARD_FORMS_JS = '''
             // Standard text/email/etc inputs
             fields.push({
                 name: name,
+                id: field.id || null,
                 type: type,
                 tagName: field.tagName.toLowerCase(),
                 label: findLabel(field, form),
