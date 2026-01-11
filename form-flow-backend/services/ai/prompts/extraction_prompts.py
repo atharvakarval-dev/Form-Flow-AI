@@ -109,6 +109,37 @@ Detect intent BEFORE extraction:
 | "help", "what", "example" | HELP | Provide guidance |
 | "yes", "correct", "right" | CONFIRMATION | Confirm and proceed |
 
+=== INLINE CORRECTION HANDLING (CRITICAL) ===
+
+Users naturally correct themselves mid-sentence. ALWAYS extract the CORRECTED value:
+
+1. EXPLICIT CORRECTIONS (always use the LAST value):
+   "my name is John... actually James" → Extract: "James"
+   "email john@gmail, I mean james@gmail" → Extract: "james@gmail"
+   "phone 555-1234, no wait, 555-4321" → Extract: "555-4321"
+   "let me correct that, it's Sarah" → Extract: "Sarah"
+   "scratch that, the name is Smith" → Extract: "Smith"
+
+2. NEGATION CORRECTIONS:
+   "not J-O-N, it's J-O-H-N" → Extract: "John"
+   "no, my email is alex@" → Extract: "alex@..."
+   
+3. RESTART PATTERNS (abandoned starts):
+   "my email is j... james@gmail.com" → Extract: "james@gmail.com"
+   "the number is 555, 555-4321" → Extract: "555-4321"
+
+4. PARTIAL CORRECTIONS (apply to the specific part):
+   "john at gmail... actually yahoo" → Extract: "john@yahoo.com" (domain change only)
+   "555-1234... I mean 4321" → Extract: "555-4321" (suffix change only)
+
+5. MULTIPLE CORRECTIONS (use the LAST one):
+   "John... James... actually Jake" → Extract: "Jake"
+   "age 25, no 26, wait actually 27" → Extract: "27"
+
+CORRECTION TRIGGER WORDS: "actually", "I mean", "I meant", "no wait", "wait", 
+"sorry", "oops", "my bad", "scratch that", "correction", "let me correct",
+"make that", "change that to", "rather", "not X, it's Y"
+
 === OUTPUT FORMAT (strict JSON) ===
 
 {
@@ -132,6 +163,7 @@ When processing voice input:
 - Numbers may be spelled out ("five five five" = "555")
 - Common homophones: "John" vs "Jon", "there" vs "their"
 - STT confidence affects extraction confidence
+- ALWAYS check for inline corrections before extracting values
 
 Remember: PRECISION over capture. Protect filled fields. When in doubt, ask.
 """

@@ -311,6 +311,122 @@
         CORNER_DOWN_LEFT: `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 10 4 15 9 20"/><path d="M20 4v7a4 4 0 0 1-4 4H4"/></svg>`
     };
 
+    // =============================================================================
+    // Real-Time Correction Detector (Lightweight frontend version)
+    // =============================================================================
+
+    class CorrectionDetector {
+        constructor() {
+            // Correction trigger patterns (ordered by priority)
+            this.patterns = [
+                // Explicit strong corrections
+                { regex: /let\s+me\s+correct(?:\s+that)?[,:\s]+(.+)$/i, name: 'let_me_correct' },
+                { regex: /correction[:\s]+(.+)$/i, name: 'correction' },
+                { regex: /\bactually[,\s]+(.+)$/i, name: 'actually' },
+                { regex: /scratch\s+that[,\s]+(.+)$/i, name: 'scratch_that' },
+
+                // Medium strength corrections
+                { regex: /\bi\s+mean[t]?[,\s]+(.+)$/i, name: 'i_mean' },
+                { regex: /(?:no\s+)?wait[,\s]+(.+)$/i, name: 'no_wait' },
+                { regex: /(?:sorry|oops|my\s+bad)[,\s]+(.+)$/i, name: 'sorry' },
+                { regex: /(?:or\s+)?rather[,\s]+(.+)$/i, name: 'rather' },
+                { regex: /make\s+that[,\s]+(.+)$/i, name: 'make_that' },
+                { regex: /change\s+(?:that|it)\s+to[,\s]+(.+)$/i, name: 'change_to' },
+
+                // Negation patterns
+                { regex: /not\s+(\S+)[,\s]+(?:it'?s|its|it\s+is)\s+(.+)$/i, name: 'not_its', groups: 2 },
+                { regex: /^(?:no|nope)[,\s]+(?:it'?s|its|it\s+is\s+)?(.+)$/i, name: 'no_its' },
+                { regex: /^no[,\s]+(?!problem|worries|thanks|thank|issue|way)(.+)$/i, name: 'no_value' },
+
+                // Restart patterns (abandoned starts)
+                { regex: /(\w{1,3})\.{2,}\s*(\w{2,}.*)$/i, name: 'abandoned_start', groups: 2 },
+            ];
+
+            // False positive guards
+            this.falsePositives = [
+                /\bactually\s+(?:inc|llc|ltd|corp|co\.?)\b/i,
+                /\bno\s+(?:problem|worries|thanks|thank\s+you|issue)\b/i,
+            ];
+        }
+
+        /**
+         * Detect correction in text and return result
+         * @param {string} text - The transcript text
+         * @returns {{ hasCorrection: boolean, original: string, corrected: string, marker: string }}
+         */
+        detect(text) {
+            if (!text || text.length < 3) {
+                return { hasCorrection: false, original: text, corrected: text, marker: null };
+            }
+
+            // Check false positives first
+            for (const fp of this.falsePositives) {
+                if (fp.test(text)) {
+                    return { hasCorrection: false, original: text, corrected: text, marker: null };
+                }
+            }
+
+            // Try each pattern
+            for (const pattern of this.patterns) {
+                const match = pattern.regex.exec(text);
+                if (match) {
+                    let corrected, original;
+
+                    if (pattern.name === 'not_its' || pattern.name === 'abandoned_start') {
+                        // Two capture groups - use second one
+                        original = match[1] || '';
+                        corrected = match[2] ? match[2].trim() : match[1].trim();
+                    } else {
+                        // Single capture group
+                        corrected = match[1].trim();
+                        original = text.slice(0, match.index).trim();
+                    }
+
+                    console.log(`FormFlow: Correction detected [${pattern.name}]: "${original}" → "${corrected}"`);
+
+                    return {
+                        hasCorrection: true,
+                        original: original,
+                        corrected: corrected,
+                        marker: pattern.name
+                    };
+                }
+            }
+
+            return { hasCorrection: false, original: text, corrected: text, marker: null };
+        }
+
+        /**
+         * Apply correction to text and return formatted result for display
+         * @param {string} text - The full transcript
+         * @returns {{ displayText: string, finalText: string, wasCorrection: boolean }}
+         */
+        applyCorrection(text) {
+            const result = this.detect(text);
+
+            if (result.hasCorrection) {
+                return {
+                    displayText: result.corrected,
+                    finalText: result.corrected,
+                    wasCorrection: true,
+                    original: result.original,
+                    marker: result.marker
+                };
+            }
+
+            return {
+                displayText: text,
+                finalText: text,
+                wasCorrection: false,
+                original: null,
+                marker: null
+            };
+        }
+    }
+
+    // Singleton instance
+    const correctionDetector = new CorrectionDetector();
+
     class VoiceOverlay {
         constructor(formDetector) {
             this.formDetector = formDetector;
@@ -890,6 +1006,50 @@
                     color: rgba(255,255,255,0.6);
                     margin: 0;
                 }
+
+                /* Correction Visual Feedback */
+                .correction-applied {
+                    animation: correctionPulse 0.5s ease-out;
+                }
+
+                @keyframes correctionPulse {
+                    0% { 
+                        background: rgba(16, 185, 129, 0.3);
+                        transform: scale(1.02);
+                    }
+                    100% { 
+                        background: transparent;
+                        transform: scale(1);
+                    }
+                }
+
+                .correction-badge {
+                    display: inline-flex;
+                    align-items: center;
+                    gap: 4px;
+                    font-size: 10px;
+                    color: #10b981;
+                    background: rgba(16, 185, 129, 0.15);
+                    padding: 2px 8px;
+                    border-radius: 10px;
+                    margin-left: 8px;
+                    animation: fadeIn 0.3s ease;
+                }
+
+                .correction-badge svg {
+                    width: 12px;
+                    height: 12px;
+                }
+
+                @keyframes fadeIn {
+                    from { opacity: 0; transform: translateY(-4px); }
+                    to { opacity: 1; transform: translateY(0); }
+                }
+
+                .input-area.corrected {
+                    border-left: 2px solid #10b981;
+                    padding-left: 10px;
+                }
             `;
 
             const styleSheet = document.createElement('style');
@@ -1132,15 +1292,32 @@
 
                 console.log('FormFlow: Transcription -', { interim: interimTranscript, final: finalTranscript });
 
-                // Update live transcription display
+                // Apply real-time correction detection to interim transcript
                 if (interimTranscript) {
-                    this.updateTranscription(interimTranscript, false);
+                    const correction = correctionDetector.applyCorrection(interimTranscript);
+                    this.updateTranscription(
+                        correction.displayText,
+                        false,
+                        correction.wasCorrection,
+                        correction.original
+                    );
                 }
 
+                // Apply correction detection to final transcript
                 if (finalTranscript) {
-                    this.updateTranscription(finalTranscript, true);
-                    this.addMessage(finalTranscript, 'user');
-                    this.processUserSpeech(finalTranscript);
+                    const correction = correctionDetector.applyCorrection(finalTranscript);
+                    const textToSend = correction.finalText;
+
+                    this.updateTranscription(
+                        correction.displayText,
+                        true,
+                        correction.wasCorrection,
+                        correction.original
+                    );
+
+                    // Show the corrected value (not raw transcript) in chat and send to backend
+                    this.addMessage(textToSend, 'user');
+                    this.processUserSpeech(textToSend);
                     this.stopListening();
                 }
             };
@@ -1230,12 +1407,45 @@
             });
         }
 
-        updateTranscription(text, isFinal) {
+        updateTranscription(text, isFinal, wasCorrection = false, originalText = null) {
             if (this.inputArea) {
                 this.inputArea.value = text || (this.isListening ? 'Listening...' : '');
 
                 // Auto-scroll textarea if needed
                 this.inputArea.scrollTop = this.inputArea.scrollHeight;
+
+                // Visual feedback for corrections
+                if (wasCorrection) {
+                    // Add correction styling
+                    this.inputArea.classList.add('corrected');
+                    this.inputArea.classList.add('correction-applied');
+
+                    // Update status to show correction was applied
+                    if (this.voiceStatus) {
+                        this.voiceStatus.textContent = '✓ Corrected';
+                        this.voiceStatus.style.color = '#10b981';
+                    }
+
+                    // Remove animation class after it completes
+                    setTimeout(() => {
+                        this.inputArea.classList.remove('correction-applied');
+                    }, 500);
+
+                    // Reset status after a moment
+                    if (!isFinal) {
+                        setTimeout(() => {
+                            if (this.isListening && this.voiceStatus) {
+                                this.voiceStatus.textContent = 'Listening...';
+                                this.voiceStatus.style.color = '';
+                            }
+                        }, 1500);
+                    }
+
+                    console.log(`FormFlow: Correction applied - "${originalText}" → "${text}"`);
+                } else {
+                    // Reset correction styling if no correction
+                    this.inputArea.classList.remove('corrected');
+                }
             }
         }
 

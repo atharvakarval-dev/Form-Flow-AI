@@ -11,6 +11,16 @@ from services.ai.voice.processor import (
     get_voice_processor,
 )
 
+# Correction Detection
+from services.ai.voice.correction_detector import (
+    CorrectionDetector,
+    CorrectionResult,
+    CorrectionType,
+    CorrectionScope,
+    FieldContext,
+    get_correction_detector,
+)
+
 # Normalizers
 from services.ai.voice.normalization import (
     EmailNormalizer,
@@ -59,6 +69,13 @@ __all__ = [
     'VoiceProcessor',
     'VoiceInputProcessor',
     'get_voice_processor',
+    # Correction Detection
+    'CorrectionDetector',
+    'CorrectionResult',
+    'CorrectionType',
+    'CorrectionScope',
+    'FieldContext',
+    'get_correction_detector',
     # Normalizers
     'EmailNormalizer',
     'PhoneNormalizer',
@@ -87,3 +104,4 @@ __all__ = [
     # Config
     'FieldImportance',
 ]
+

@@ -38,6 +38,13 @@ from services.ai.voice.strategies import (
     FallbackStrategy,
 )
 
+# Import correction detector
+from services.ai.voice.correction_detector import (
+    CorrectionDetector,
+    FieldContext,
+    get_correction_detector,
+)
+
 logger = get_logger(__name__)
 
 
@@ -74,6 +81,7 @@ class VoiceProcessor:
         self.stt_corrector = STTCorrector()
         self.learning_system = LearningSystem()
         self.hesitation_detector = HesitationDetector
+        self.correction_detector = get_correction_detector()
     
     def normalize_input(
         self,
@@ -86,6 +94,7 @@ class VoiceProcessor:
         Main entry point for voice normalization.
         
         Pipeline:
+        0. Detect and apply inline corrections ("actually", "I mean", etc.)
         1. Apply learned corrections
         2. Apply general STT corrections
         3. Handle spelled-out text
@@ -105,7 +114,25 @@ class VoiceProcessor:
         
         result = text.strip()
         
-        # 1. Apply learned corrections first
+        # 0. NEW: Detect and apply inline corrections first
+        field_context = FieldContext(
+            field_type=field_type or 'text',
+            field_name=field_name or '',
+            field_label=context.get('field_label', '') if context else '',
+            current_value=context.get('current_value', '') if context else '',
+        )
+        
+        correction = self.correction_detector.detect(result, field_context)
+        if correction.has_correction:
+            logger.info(
+                f"Correction detected: '{correction.original_segment}' → "
+                f"'{correction.corrected_value}' (pattern: {correction.pattern_matched})"
+            )
+            result = correction.final_value
+            # Record for learning
+            self.correction_detector.record_correction(correction)
+        
+        # 1. Apply learned corrections
         result = self.learning_system.apply_learned_corrections(result)
         
         # 2. Apply general STT corrections
@@ -115,7 +142,7 @@ class VoiceProcessor:
         if SpelledTextHandler.is_spelled_out(result):
             result = SpelledTextHandler.join_spelled_letters(result)
         
-        # 4. Route        # Select normalizer
+        # 4. Route to specific normalizer
         normalizer = self._get_normalizer(field_type, field_name)
         
         if normalizer:
