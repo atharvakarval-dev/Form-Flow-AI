@@ -125,6 +125,11 @@ def _sync_get_form_schema(url: str, generate_speech: bool = True, wait_for_dynam
             
             print(f"✓ Found {len(forms_data)} form(s)")
             
+            # Click custom dropdowns to extract options (BEFORE closing browser)
+            if not is_google_form and forms_data:
+                print("🔽 Extracting custom dropdown options...")
+                forms_data = _sync_extract_custom_dropdown_options(page, forms_data)
+            
             browser.close()
             
             # Process and enrich fields
@@ -162,6 +167,84 @@ def _sync_wait_for_google_form(page):
         except:
             continue
     time.sleep(3)
+
+
+def _sync_extract_custom_dropdown_options(page, forms_data: List[Dict]) -> List[Dict]:
+    """
+    Sync version: Click custom dropdowns to reveal their options.
+    Works for Ant Design, React Select, MUI, and similar component libraries.
+    """
+    import time
+    
+    try:
+        # Find all custom dropdown fields that need options extracted
+        custom_dropdowns = []
+        for form in forms_data:
+            for field in form.get('fields', []):
+                if field.get('isCustomComponent') or (field.get('type') == 'dropdown' and field.get('tagName') == 'custom-select'):
+                    if not field.get('options') or len(field.get('options', [])) == 0:
+                        custom_dropdowns.append(field)
+        
+        if not custom_dropdowns:
+            return forms_data
+        
+        print(f"   🔽 Found {len(custom_dropdowns)} custom dropdown(s) to expand...")
+        
+        for field in custom_dropdowns:
+            try:
+                label = field.get('label', '')
+                
+                # Common dropdown selectors
+                dropdown = page.query_selector(f'.ant-select:has(.ant-select-selection-placeholder:has-text("{label}"))')
+                if not dropdown:
+                    dropdown = page.query_selector(f'.ant-form-item:has-text("{label}") .ant-select')
+                if not dropdown:
+                    dropdown = page.query_selector(f'[role="combobox"][aria-label*="{label}"]')
+                if not dropdown:
+                    dropdown = page.query_selector(f'.form-group:has-text("{label}") [role="combobox"]')
+                if not dropdown:
+                    dropdown = page.query_selector(f'label:has-text("{label}") + .ant-select')
+                
+                if dropdown:
+                    dropdown.click()
+                    time.sleep(0.5)  # Wait for options to render
+                    
+                    # Extract options from any visible dropdown panel
+                    options = page.evaluate("""
+                        () => {
+                            const getText = el => el ? (el.innerText || el.textContent || '').trim() : '';
+                            const optionEls = document.querySelectorAll(
+                                '.ant-select-dropdown:not(.ant-select-dropdown-hidden) .ant-select-item-option, ' +
+                                '.ant-select-dropdown:not(.ant-select-dropdown-hidden) [role="option"], ' +
+                                '.rc-virtual-list-holder-inner .ant-select-item, ' +
+                                '[role="listbox"] [role="option"], ' +
+                                '.MuiMenu-paper [role="option"], ' +
+                                '.select-dropdown [data-value], ' +
+                                '.dropdown-menu li:not(.disabled)'
+                            );
+                            return Array.from(optionEls).map(o => ({
+                                value: o.getAttribute('data-value') || o.getAttribute('title') || getText(o),
+                                label: getText(o)
+                            })).filter(o => o.label && o.label.length > 0);
+                        }
+                    """)
+                    
+                    if options:
+                        field['options'] = options
+                        print(f"   ✓ Extracted {len(options)} options for '{label}'")
+                    
+                    # Close dropdown
+                    page.keyboard.press('Escape')
+                    time.sleep(0.2)
+                    
+            except Exception as e:
+                print(f"   ⚠️ Could not extract options for dropdown: {e}")
+                continue
+                
+    except Exception as e:
+        print(f"   ⚠️ Custom dropdown extraction error: {e}")
+    
+    return forms_data
 
 
 def _get_standard_extraction_js():
