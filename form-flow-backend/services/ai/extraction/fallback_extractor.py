@@ -109,6 +109,7 @@ class IntelligentFallbackExtractor:
             field_name = field.get('name') or ''
             field_label = field.get('label') or field_name or ''
             field_type = field.get('type') or 'text'
+            field_options = field.get('options', [])  # For dropdown/select fields
             
             # Extract keywords from label/name
             keywords = set()
@@ -121,17 +122,27 @@ class IntelligentFallbackExtractor:
                 'label': field_label,
                 'type': field_type,
                 'keywords': keywords,
-                'extractor': IntelligentFallbackExtractor._get_extractor_for_type(field_type, field_name, field_label)
+                'options': field_options,  # Pass options for dropdown matching
+                'extractor': IntelligentFallbackExtractor._get_extractor_for_type(field_type, field_name, field_label, field_options)
             })
         
         return matchers
     
     @staticmethod
-    def _get_extractor_for_type(field_type: str, field_name: str, field_label: str) -> Dict[str, Any]:
+    def _get_extractor_for_type(field_type: str, field_name: str, field_label: str, field_options: List[Dict] = None) -> Dict[str, Any]:
         """Get appropriate extractor configuration for field type."""
         field_type = field_type.lower()
         field_name_lower = field_name.lower()
         field_label_lower = field_label.lower()
+        
+        # Dropdown/Select detector - MUST be first so it takes priority
+        if field_type in ('dropdown', 'select', 'radio') or field_options:
+            return {
+                'type': 'dropdown',
+                'options': field_options or [],
+                'pattern': None,
+                'normalizer': lambda x: normalize_text_smart(x)
+            }
         
         # Email detector
         if field_type == 'email' or 'email' in field_name_lower or 'email' in field_label_lower:
@@ -197,6 +208,42 @@ class IntelligentFallbackExtractor:
         Uses field-specific extractors and validates the result.
         """
         extractor = field_info['extractor']
+        
+        # 0. DROPDOWN PRIORITY: Match against available options first
+        if extractor['type'] == 'dropdown':
+            options = extractor.get('options', []) or field_info.get('options', [])
+            if options:
+                segment_lower = segment.lower()
+                best_match = None
+                best_score = 0
+                
+                for opt in options:
+                    opt_value = opt.get('value', '') if isinstance(opt, dict) else str(opt)
+                    opt_label = opt.get('label', opt_value) if isinstance(opt, dict) else str(opt)
+                    
+                    opt_value_lower = opt_value.lower()
+                    opt_label_lower = opt_label.lower()
+                    
+                    # Exact match
+                    if opt_value_lower in segment_lower or opt_label_lower in segment_lower:
+                        return opt_value, 0.95
+                    
+                    # Fuzzy matching: check if user's input contains significant portion of option
+                    # e.g., "India" matches "India" in options, not "British Indian Ocean Territory"
+                    for user_word in segment_lower.split():
+                        if len(user_word) >= 3:
+                            if user_word == opt_label_lower or user_word == opt_value_lower:
+                                return opt_value, 0.92
+                            if opt_label_lower.startswith(user_word) and len(user_word) >= 4:
+                                if best_score < 0.85:
+                                    best_match = opt_value
+                                    best_score = 0.85
+                
+                if best_match:
+                    return best_match, best_score
+                    
+                # No match found - return None so user gets prompted again
+                return None, 0.0
         
         # 1. Try to extract using contextual patterns ("my X is Y")
         value_patterns = [

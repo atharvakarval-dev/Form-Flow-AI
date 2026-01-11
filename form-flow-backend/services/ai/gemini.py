@@ -99,9 +99,9 @@ class GeminiService:
         # Check if it's an OpenRouter key (Gemma)
         if self.api_key and self.api_key.startswith("sk-or-"):
             logger.info("Detected OpenRouter API key. Switching to OpenRouter provider.")
-            # Default to Gemma 2 9B if using OpenRouter and default gemini model was passed
-            if self.model == "gemini-2.0-flash":
-                self.model = "google/gemma-2-9b-it:free" # Use free tier or standard
+            # Default to Gemma 2 9B if using OpenRouter and default model was passed
+            if self.model in ("gemini-2.0-flash", "gemma-3-27b-it"):
+                self.model = "google/gemma-2-9b-it:free" # Use free tier
             
             self.llm = ChatOpenAI(
                 model=self.model,

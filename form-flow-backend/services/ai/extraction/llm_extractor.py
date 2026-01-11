@@ -219,6 +219,15 @@ class LLMExtractor:
             )
             field_type = field_info.get('type', 'text')
             field_label = field_info.get('label', field_name).lower()
+            field_options = field_info.get('options', [])
+            
+            # Dropdown/Select: Validate against options
+            if field_type in ('dropdown', 'select', 'radio') or field_options:
+                matched_value = self._match_dropdown_option(value, field_options)
+                if matched_value:
+                    normalized[field_name] = matched_value
+                # If no match, skip this field entirely - don't fill with invalid value
+                continue
             
             # Apply appropriate normalizer
             if field_type == 'email' or 'email' in field_label:
@@ -233,3 +242,28 @@ class LLMExtractor:
             normalized[field_name] = value
         
         return normalized
+    
+    def _match_dropdown_option(self, value: str, options: List[Dict]) -> Optional[str]:
+        """Match user input against dropdown options."""
+        if not options or not value:
+            return None
+            
+        value_lower = value.lower().strip()
+        
+        for opt in options:
+            opt_value = opt.get('value', '') if isinstance(opt, dict) else str(opt)
+            opt_label = opt.get('label', opt_value) if isinstance(opt, dict) else str(opt)
+            
+            opt_value_lower = opt_value.lower()
+            opt_label_lower = opt_label.lower()
+            
+            # Exact match
+            if value_lower == opt_value_lower or value_lower == opt_label_lower:
+                return opt_value
+            
+            # Partial match (value in option or option in value)
+            if value_lower in opt_label_lower or opt_label_lower in value_lower:
+                return opt_value
+        
+        # No match found
+        return None
