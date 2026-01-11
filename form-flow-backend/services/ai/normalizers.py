@@ -296,3 +296,49 @@ def normalize_number_smart(text: str) -> str:
         return match.group()
     
     return text.strip()
+
+
+def split_full_name_smart(full_name: str) -> dict:
+    """
+    Split a full name into first, middle, and last components.
+    
+    Args:
+        full_name: Full name string like "John Michael Doe"
+        
+    Returns:
+        Dict with 'first', 'middle', 'last' keys (values may be empty strings)
+        
+    Examples:
+        "John Michael Doe" → {"first": "John", "middle": "Michael", "last": "Doe"}
+        "John Doe" → {"first": "John", "middle": "", "last": "Doe"}
+        "John" → {"first": "John", "middle": "", "last": ""}
+        "John Michael Paul Doe" → {"first": "John", "middle": "Michael Paul", "last": "Doe"}
+    """
+    result = {'first': '', 'middle': '', 'last': ''}
+    
+    if not full_name:
+        return result
+    
+    # First normalize the name (strip conversational prefixes, title case)
+    cleaned = normalize_name_smart(full_name)
+    
+    if not cleaned:
+        return result
+    
+    # Split by whitespace
+    parts = cleaned.split()
+    
+    if len(parts) == 1:
+        # Single word: just first name
+        result['first'] = parts[0]
+    elif len(parts) == 2:
+        # Two words: first and last
+        result['first'] = parts[0]
+        result['last'] = parts[1]
+    else:
+        # Three or more words: first, middle (everything in between), last
+        result['first'] = parts[0]
+        result['last'] = parts[-1]
+        result['middle'] = ' '.join(parts[1:-1])
+    
+    return result

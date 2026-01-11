@@ -88,6 +88,15 @@ CORRECTION HANDLING:
    - 0.60-0.79: Possible match, needs confirmation
    - <0.60: Low confidence, ask for clarification
 
+5. NAME COMPONENT SPLITTING:
+   When form has separate first_name, middle_name, last_name fields:
+   - If user provides "John Michael Doe" → {"first_name": "John", "middle_name": "Michael", "last_name": "Doe"}
+   - If user provides "John Doe" (2 words) → {"first_name": "John", "last_name": "Doe"} (leave middle_name empty)
+   - If user provides "John" (1 word) → {"first_name": "John"} (ask for remaining)
+   - CRITICAL: NEVER put the entire full name in each separate name field!
+   - WRONG: {"first_name": "John Doe", "last_name": "John Doe"} ← This is incorrect
+   - RIGHT: {"first_name": "John", "last_name": "Doe"} ← Split the name properly
+
 === INTENT CLASSIFICATION ===
 
 Detect intent BEFORE extraction:

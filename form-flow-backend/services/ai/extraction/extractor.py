@@ -22,6 +22,7 @@ from services.ai.normalizers import (
     normalize_name_smart,
     normalize_text_smart,
     normalize_number_smart,
+    split_full_name_smart,
 )
 from utils.logging import get_logger
 
@@ -187,10 +188,27 @@ If no values found, return: {{}}"""
         
         text = user_input.lower().strip()
         
+        # Check if we have separate name component fields (first, middle, last)
+        name_component_fields = self._detect_name_component_fields(fields)
+        name_components_extracted = False
+        
+        # If we have name component fields, try to split a full name input
+        if name_component_fields:
+            split_values = self._extract_split_name(user_input, name_component_fields)
+            if split_values:
+                values.update(split_values)
+                for field_name in split_values:
+                    confidence[field_name] = 0.9
+                name_components_extracted = True
+        
         for field in fields:
             name = field.get('name', '')
             label = field.get('label', name)
             ftype = field.get('type', 'text')
+            
+            # Skip name component fields if already extracted via splitting
+            if name_components_extracted and name in name_component_fields:
+                continue
             
             # Determine field category
             category = self._detect_field_category(name, label, ftype)
@@ -211,6 +229,67 @@ If no values found, return: {{}}"""
             confidence=confidence,
             needs_confirmation=needs_confirmation
         )
+    
+    def _detect_name_component_fields(self, fields: List[Dict[str, Any]]) -> Dict[str, str]:
+        """
+        Detect if fields contain separate name components (first, middle, last).
+        
+        Returns:
+            Dict mapping component type ('first', 'middle', 'last') to field name
+        """
+        components = {}
+        
+        for field in fields:
+            name = field.get('name', '').lower()
+            label = field.get('label', '').lower()
+            combined = f"{name} {label}"
+            
+            if 'first' in combined and 'name' in combined:
+                components['first'] = field.get('name')
+            elif 'middle' in combined and 'name' in combined:
+                components['middle'] = field.get('name')
+            elif 'last' in combined and 'name' in combined:
+                components['last'] = field.get('name')
+            elif 'surname' in combined or 'family' in combined:
+                components['last'] = field.get('name')
+        
+        # Only return if we have at least 2 distinct name component fields
+        if len(components) >= 2:
+            return components
+        return {}
+    
+    def _extract_split_name(
+        self, 
+        user_input: str, 
+        component_fields: Dict[str, str]
+    ) -> Dict[str, str]:
+        """
+        Split a full name input into components for separate name fields.
+        
+        Args:
+            user_input: User's input text (e.g., "Samarth Mukund Patil")
+            component_fields: Mapping of component type to field name
+            
+        Returns:
+            Dict of field_name -> extracted_value
+        """
+        # Split the name using normalizer utility
+        name_parts = split_full_name_smart(user_input)
+        
+        result = {}
+        
+        # Map split parts to field names
+        if 'first' in component_fields and name_parts.get('first'):
+            result[component_fields['first']] = name_parts['first']
+        
+        if 'middle' in component_fields and name_parts.get('middle'):
+            result[component_fields['middle']] = name_parts['middle']
+        
+        if 'last' in component_fields and name_parts.get('last'):
+            result[component_fields['last']] = name_parts['last']
+        
+        # Only return if we extracted at least one component
+        return result if result else {}
     
     def _detect_field_category(self, name: str, label: str, ftype: str) -> str:
         """Detect what category a field belongs to."""
@@ -355,6 +434,11 @@ If no values found, return: {{}}"""
             ftype = f.get('type', 'text')
             field_types[name] = self._detect_field_category(name, label, ftype)
         
+        # Check for name component fields and fix duplicate full names
+        name_component_fields = self._detect_name_component_fields(fields)
+        if name_component_fields:
+            raw_values = self._fix_duplicate_name_values(raw_values, name_component_fields)
+        
         for name, value in raw_values.items():
             if not value or not isinstance(value, str):
                 continue
@@ -389,6 +473,59 @@ If no values found, return: {{}}"""
             confidence=confidence,
             needs_confirmation=needs_confirmation
         )
+    
+    def _fix_duplicate_name_values(
+        self, 
+        raw_values: Dict[str, str], 
+        component_fields: Dict[str, str]
+    ) -> Dict[str, str]:
+        """
+        Fix case where LLM puts the same full name in all name component fields.
+        
+        Example fix:
+            {"first_name": "John Doe", "last_name": "John Doe"} 
+            → {"first_name": "John", "last_name": "Doe"}
+        """
+        # Get the field names for name components
+        component_field_names = set(component_fields.values())
+        
+        # Get values for name component fields
+        name_values = {
+            k: v for k, v in raw_values.items() 
+            if k in component_field_names and v
+        }
+        
+        # Check if multiple fields have the same multi-word value
+        if len(name_values) >= 2:
+            values_list = list(name_values.values())
+            first_value = values_list[0]
+            
+            # Check if all name component fields have the same value
+            # and that value contains multiple words
+            if (all(v == first_value for v in values_list) and 
+                len(first_value.split()) >= 2):
+                
+                # This is the bug case - split the name properly
+                name_parts = split_full_name_smart(first_value)
+                
+                # Update raw_values with split values
+                fixed_values = dict(raw_values)
+                
+                if 'first' in component_fields and name_parts.get('first'):
+                    fixed_values[component_fields['first']] = name_parts['first']
+                
+                if 'middle' in component_fields and name_parts.get('middle'):
+                    fixed_values[component_fields['middle']] = name_parts['middle']
+                elif 'middle' in component_fields:
+                    # Remove the duplicate full name from middle if no middle part
+                    fixed_values[component_fields['middle']] = ''
+                
+                if 'last' in component_fields and name_parts.get('last'):
+                    fixed_values[component_fields['last']] = name_parts['last']
+                
+                return fixed_values
+        
+        return raw_values
 
 
 # Singleton instance
