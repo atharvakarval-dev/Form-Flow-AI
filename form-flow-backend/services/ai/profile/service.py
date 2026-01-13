@@ -33,8 +33,6 @@ from core.models import User, UserProfile
 from config.settings import settings
 from utils.logging import get_logger
 from utils.cache import get_cached, set_cached, delete_cached
-from utils.cache import get_cached, set_cached, delete_cached
-from services.ai.local_llm import get_local_llm_service
 import time
 
 from . import prompts as profile_prompts
@@ -85,11 +83,10 @@ class ProfileService:
         self._llm = None
         
         if self.api_key:
-            logger.info("ProfileService initialized with Gemini API")
+            logger.info("ProfileService initialized with Gemini API (fallback)")
         
-        self.local_llm = get_local_llm_service()
-        if self.local_llm:
-            logger.info("ProfileService: Local LLM available")
+        if settings.OPENROUTER_API_KEY:
+            logger.info("ProfileService: OpenRouter (Gemma 3) configured as primary")
     
     @property
     def llm(self) -> Optional[ChatGoogleGenerativeAI]:
@@ -182,8 +179,8 @@ class ProfileService:
         Returns:
             Updated UserProfile or None if skipped/failed
         """
-        if not self.llm and not self.local_llm:
-            logger.warning("Profile generation skipped: No LLM available")
+        if not self.llm and not settings.OPENROUTER_API_KEY:
+            logger.warning("Profile generation skipped: No LLM available (neither OpenRouter nor Gemini)")
             return None
         
         start_time = time.time()
@@ -323,44 +320,18 @@ class ProfileService:
         return condensed if condensed else profile_text[:MAX_PROFILE_WORDS * 7]  # Fallback
     
     async def _call_llm(self, prompt: str) -> Optional[str]:
-        """Make LLM call with error handling."""
-        # Try Local LLM first if available
-        if self.local_llm:
-            try:
-                # Add context about being a behavioral analyst
-                system_instruction = "You are an expert behavioral analyst. Analyze the user's form data to create a detailed behavioral profile."
-                
-                # 10 second timeout for Local LLM
-                result = await asyncio.wait_for(
-                    asyncio.to_thread(
-                        self.local_llm.generate_response, 
-                        system_instruction, 
-                        prompt
-                    ),
-                    timeout=10.0
-                )
-                
-                if result and len(result) > 20:  # Basic validation
-                    return result.strip()
-            
-            except asyncio.TimeoutError:
-                logger.warning("Local LLM profile generation timed out (10s). Switching to OpenRouter fallback...")
-                # Fallback to OpenRouter (Gemma 3)
-                or_result = await self._call_openrouter(prompt)
-                if or_result:
-                    return or_result
-                    
-            except Exception as e:
-                logger.warning(f"Local LLM profile generation failed: {e}, attempting fallback")
-
-        # Fallback to OpenRouter if Local LLM failed/timed out and didn't return
+        """Make LLM call with error handling. Priority: OpenRouter (Gemma) -> Gemini."""
+        
+        # 1. Try OpenRouter (Gemma 3) first - preferred for profile generation
         if settings.OPENROUTER_API_KEY:
-             or_result = await self._call_openrouter(prompt)
-             if or_result:
-                 return or_result
+            or_result = await self._call_openrouter(prompt)
+            if or_result:
+                return or_result
+            logger.warning("OpenRouter (Gemma) failed, falling back to Gemini...")
 
-        # Final Fallback to Gemini
+        # 2. Fallback to Gemini
         if not self.llm:
+            logger.error("No LLM available: OpenRouter failed and Gemini not configured")
             return None
 
         try:
@@ -375,10 +346,10 @@ class ProfileService:
             return result.strip()
             
         except asyncio.TimeoutError:
-            logger.error("LLM call timed out")
+            logger.error("Gemini LLM call timed out")
             return None
         except Exception as e:
-            logger.error(f"LLM call failed: {e}")
+            logger.error(f"Gemini LLM call failed: {e}")
             return None
 
     async def _call_openrouter(self, prompt: str) -> Optional[str]:
