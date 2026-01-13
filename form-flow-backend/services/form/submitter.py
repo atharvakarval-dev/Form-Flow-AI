@@ -237,6 +237,11 @@ class FormSubmitter:
         """Universal handler for text-like inputs."""
         await element.click()
         await asyncio.sleep(0.1)
+        # Disable browser autocomplete to prevent autofill interference
+        try:
+            await element.evaluate('(el) => el.setAttribute("autocomplete", "off")')
+        except:
+            pass  # Continue even if attribute setting fails
         await element.fill('')
         await element.fill(value)
         await asyncio.sleep(0.2)

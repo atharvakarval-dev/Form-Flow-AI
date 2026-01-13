@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import { CheckCircle, Send, AlertTriangle, Download, FileText, Copy, RotateCcw, Loader2, Sparkles, Brain } from 'lucide-react';
 import { motion } from 'framer-motion';
 import { submitForm, fillPdf, getPdfDownloadUrl, generateProfile } from '@/services/api';
@@ -9,6 +9,17 @@ const FormCompletion = ({ formData, formSchema, originalUrl, pdfId, onReset }) =
     const [submissionResult, setSubmissionResult] = useState(null);
     const [isDownloading, setIsDownloading] = useState(false);
     const [profileUpdateStatus, setProfileUpdateStatus] = useState('idle'); // idle, updating, success, error
+
+    // Create lookup from field.name to human-readable label
+    const fieldLabels = useMemo(() => {
+        const labels = {};
+        formSchema?.forEach(form => {
+            form.fields?.forEach(field => {
+                labels[field.name] = field.label || field.display_name || field.name;
+            });
+        });
+        return labels;
+    }, [formSchema]);
 
     // Auto-generate profile on completion
     React.useEffect(() => {
@@ -187,7 +198,7 @@ const FormCompletion = ({ formData, formSchema, originalUrl, pdfId, onReset }) =
                                 Object.entries(formData).map(([key, value]) => (
                                     <div key={key} className="flex justify-between items-start text-sm group">
                                         <span className="text-white/50 font-mono capitalize shrink-0 pr-4 mt-0.5 group-hover:text-white/70 transition-colors">
-                                            {key}:
+                                            {fieldLabels[key] || key}:
                                         </span>
                                         <span className="font-medium text-white text-right break-words">{value}</span>
                                     </div>
