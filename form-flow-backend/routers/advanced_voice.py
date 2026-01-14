@@ -1119,3 +1119,91 @@ async def detect_language(request: MultilingualRequest):
         logger.error(f"Language detection failed: {e}")
         return {"success": False, "language": "en-US", "error": str(e)}
 
+
+# =============================================================================
+# FLOW ENGINE ENDPOINT (WhisperFlow)
+# =============================================================================
+
+from core.schemas import FlowEngineRequest, FlowEngineResponse, ActionPayloadSchema
+
+
+@router.post(
+    "/flow",
+    response_model=FlowEngineResponse,
+    summary="WhisperFlow voice processing pipeline"
+)
+async def process_with_flow_engine(
+    request: FlowEngineRequest,
+    db = None,
+    current_user = None
+):
+    """
+    Process voice input through the Flow Engine pipeline.
+    
+    The "WhisperFlow" endpoint that:
+    - Handles self-corrections ("wait, no", "actually")
+    - Expands user-defined snippets
+    - Applies smart formatting (lists, tech terms)
+    - Detects action intents (Calendar, Jira, Slack, Email)
+    
+    Example:
+        Input: "Set meeting for Tuesday, wait actually Wednesday"
+        Output: {"display_text": "Set meeting for Wednesday", "intent": "command", ...}
+    """
+    from fastapi import Depends
+    from core.database import get_db
+    from auth import get_current_user_optional
+    
+    # Get dependencies (handle both authenticated and anonymous)
+    if db is None:
+        from core.database import SessionLocal
+        db = SessionLocal()
+    
+    try:
+        from services.ai.flow_engine import FlowEngine, FlowEngineResult
+        from core.models import User
+        
+        # Create mock user for anonymous processing
+        if current_user is None:
+            # Anonymous mode - create minimal user context
+            class AnonymousUser:
+                id = 0
+            current_user = AnonymousUser()
+        
+        engine = FlowEngine(db=db, user=current_user)
+        
+        result = await engine.process(
+            raw_text=request.audio_text,
+            app_context=request.app_context,
+            vocabulary=request.vocabulary
+        )
+        
+        return FlowEngineResponse(
+            display_text=result.display_text,
+            intent=result.intent,
+            detected_apps=result.detected_apps,
+            actions=[
+                ActionPayloadSchema(
+                    tool=a.tool,
+                    action_type=a.action_type,
+                    payload=a.payload
+                ) for a in result.actions
+            ],
+            corrections_applied=result.corrections_applied,
+            snippets_expanded=result.snippets_expanded,
+            confidence=result.confidence
+        )
+        
+    except Exception as e:
+        logger.error(f"Flow Engine failed: {e}")
+        return FlowEngineResponse(
+            display_text=request.audio_text,
+            intent="typing",
+            detected_apps=[],
+            actions=[],
+            corrections_applied=[],
+            snippets_expanded=[],
+            confidence=0.0
+        )
+
+

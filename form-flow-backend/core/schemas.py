@@ -9,7 +9,7 @@ Usage:
 """
 
 from pydantic import BaseModel, EmailStr, Field, ConfigDict
-from typing import Optional, List
+from typing import Optional, List, Dict, Any
 from datetime import datetime
 
 
@@ -147,3 +147,71 @@ class HealthResponse(BaseModel):
     status: str = Field(..., description="Health status ('healthy' or 'unhealthy')")
     database: bool = Field(..., description="Database connection status")
     version: str = Field(..., description="Application version")
+
+
+# =============================================================================
+# Snippet Schemas (WhisperFlow)
+# =============================================================================
+
+class SnippetBase(BaseModel):
+    """Base snippet schema."""
+    trigger_phrase: str = Field(..., max_length=100, description="Phrase that triggers expansion")
+    expansion_value: str = Field(..., description="Text to expand to")
+    is_active: bool = Field(default=True, description="Whether snippet is enabled")
+
+
+class SnippetCreate(SnippetBase):
+    """Schema for creating a snippet."""
+    pass
+
+
+class SnippetUpdate(BaseModel):
+    """Schema for updating a snippet."""
+    trigger_phrase: Optional[str] = Field(None, max_length=100)
+    expansion_value: Optional[str] = None
+    is_active: Optional[bool] = None
+
+
+class SnippetResponse(SnippetBase):
+    """Schema for snippet response."""
+    id: int
+    created_at: datetime
+    updated_at: datetime
+    
+    model_config = ConfigDict(from_attributes=True)
+
+
+# =============================================================================
+# Flow Engine Schemas (WhisperFlow)
+# =============================================================================
+
+class ActionPayloadSchema(BaseModel):
+    """Schema for detected action."""
+    tool: str = Field(..., description="Tool name (calendar, jira, slack, email)")
+    action_type: str = Field(..., description="Action type (create_event, create_issue, etc.)")
+    payload: Dict[str, Any] = Field(default_factory=dict, description="Action payload data")
+
+
+class FlowEngineRequest(BaseModel):
+    """Request for Flow Engine processing."""
+    audio_text: str = Field(..., description="Raw voice transcription")
+    app_context: Optional[Dict[str, Any]] = Field(
+        default=None, 
+        description="App context (e.g., {'view': 'DealPipeline'})"
+    )
+    vocabulary: Optional[List[str]] = Field(
+        default=None,
+        description="Additional technical terms to recognize"
+    )
+
+
+class FlowEngineResponse(BaseModel):
+    """Response from Flow Engine processing."""
+    display_text: str = Field(..., description="Polished text for display")
+    intent: str = Field(..., description="Intent: 'typing' or 'command'")
+    detected_apps: List[str] = Field(default_factory=list)
+    actions: List[ActionPayloadSchema] = Field(default_factory=list)
+    corrections_applied: List[str] = Field(default_factory=list)
+    snippets_expanded: List[str] = Field(default_factory=list)
+    confidence: float = Field(default=1.0)
+

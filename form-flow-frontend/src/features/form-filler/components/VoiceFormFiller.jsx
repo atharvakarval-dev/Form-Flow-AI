@@ -206,6 +206,14 @@ const VoiceFormFiller = ({ formSchema, formContext, onComplete, onClose }) => {
                     }
 
                     if (sessionRes.greeting) {
+                        // FIX: Cancel any playing prompt audio before agent speaks
+                        if (audioRef.current) {
+                            audioRef.current.pause();
+                            audioRef.current = null;
+                        }
+                        clearTimeout(idleTimeoutRef.current);
+
+                        window.speechSynthesis.cancel();
                         const utter = new SpeechSynthesisUtterance(sessionRes.greeting);
                         window.speechSynthesis.speak(utter);
                         setAiResponse(sessionRes.greeting);
@@ -270,14 +278,33 @@ const VoiceFormFiller = ({ formSchema, formContext, onComplete, onClose }) => {
                 playPrompt(field.name);
             }
         }
+
+        // Cleanup: Stop audio when switching fields or if session starts
+        return () => {
+            if (audioRef.current) {
+                audioRef.current.pause();
+                audioRef.current = null;
+            }
+            clearTimeout(idleTimeoutRef.current);
+        };
     }, [currentFieldIndex, allFields, autoFilledFields, sessionId]);
 
     const playPrompt = async (fieldName) => {
+        // Stop any existing audio first to prevent overlaps
+        if (audioRef.current) {
+            audioRef.current.pause();
+            audioRef.current = null;
+        }
+        clearTimeout(idleTimeoutRef.current);
+
         try {
             const audio = new Audio(`${API_BASE_URL}/speech/${fieldName}?t=${Date.now()}`);
             audioRef.current = audio;
             audio.onended = () => {
-                idleTimeoutRef.current = setTimeout(() => playPrompt(fieldName), 20000);
+                // Check ref to ensure we haven't been stopped
+                if (audioRef.current === audio) {
+                    idleTimeoutRef.current = setTimeout(() => playPrompt(fieldName), 20000);
+                }
             };
             await audio.play().catch(() => { });
         } catch (e) { }

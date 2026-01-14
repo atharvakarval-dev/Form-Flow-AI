@@ -84,6 +84,12 @@ class User(Base):
         lazy="selectin",
         cascade="all, delete-orphan"
     )
+    snippets = relationship(
+        "Snippet",
+        back_populates="user",
+        lazy="selectin",
+        cascade="all, delete-orphan"
+    )
     
     def __repr__(self) -> str:
         """String representation for debugging."""
@@ -226,3 +232,41 @@ class UserProfile(Base):
             "created_at": self.created_at.isoformat() if self.created_at else None,
             "updated_at": self.updated_at.isoformat() if self.updated_at else None,
         }
+
+
+class Snippet(Base):
+    """
+    User-defined text expansion snippet.
+    
+    Enables WhisperFlow-like snippet expansion where trigger phrases
+    are automatically replaced with their expansion values during voice processing.
+    
+    Attributes:
+        id: Primary key
+        user_id: Foreign key to User (snippets are user-specific)
+        trigger_phrase: Short phrase that triggers expansion (e.g., "calendar link")
+        expansion_value: Full text to expand to (e.g., "https://calendly.com/...")
+        is_active: Whether this snippet is enabled
+        created_at: Creation timestamp
+        updated_at: Last update timestamp
+    """
+    
+    __tablename__ = "snippets"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(
+        Integer,
+        ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True
+    )
+    trigger_phrase = Column(String(100), nullable=False, index=True)
+    expansion_value = Column(Text, nullable=False)
+    is_active = Column(Boolean, default=True, nullable=False)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+    
+    user = relationship("User", back_populates="snippets")
+    
+    def __repr__(self) -> str:
+        return f"<Snippet(id={self.id}, trigger='{self.trigger_phrase}')>"
