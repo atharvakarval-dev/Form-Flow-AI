@@ -156,6 +156,8 @@ async def get_smart_suggestions(
     Requires: Bearer token authentication (for profile lookup)
     """
     try:
+        logger.info(f"📥 [API] Smart suggestions request: {data.field_name} (Purpose: {data.form_purpose})")
+        
         # Get user from auth
         user_id = None
         profile_confidence = None
@@ -165,10 +167,13 @@ async def get_smart_suggestions(
             if token:
                 user = await auth.get_current_user(token, db)
                 user_id = user.id
+                logger.info(f"👤 [API] User identified: {user_id}")
                 
                 # Get profile confidence if available
                 if hasattr(user, 'behavioral_profile') and user.behavioral_profile:
                     profile_confidence = user.behavioral_profile.confidence_score
+            else:
+                logger.info("👻 [API] User not identified, using anonymous mode")
         except Exception as e:
             logger.debug(f"Auth lookup failed: {e}")
         
