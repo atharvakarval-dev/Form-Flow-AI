@@ -161,8 +161,8 @@ class ValueRefiner:
         
         for opt in options:
             if isinstance(opt, dict):
-                # Prefer label for matching user speech
-                opt_str = opt.get('label') or opt.get('name') or opt.get('value') or str(opt)
+                # Prefer label/text for matching user speech
+                opt_str = opt.get('label') or opt.get('text') or opt.get('name') or opt.get('value') or str(opt)
             else:
                 opt_str = str(opt)
             

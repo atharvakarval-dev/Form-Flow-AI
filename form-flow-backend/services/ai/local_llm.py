@@ -95,39 +95,75 @@ class LocalLLMService:
         try:
             logger.info(f"Loading local LLM: {self.model_id}")
             
+            # Log GPU status for debugging
+            logger.info(f"CUDA Available: {torch.cuda.is_available()}")
+            if torch.cuda.is_available():
+                logger.info(f"Current Device: {torch.cuda.get_device_name(0)}")
+                logger.info(f"CUDA Version: {torch.version.cuda}")
+            
             # Load tokenizer
             self.tokenizer = AutoTokenizer.from_pretrained(
                 self.model_id, 
                 trust_remote_code=True
             )
             
-            # Load model with CPU/GPU optimization
+            # ATTEMPT 1: Load with BitsAndBytes (4-bit quantization) - Most Efficient
             if torch.cuda.is_available():
-                logger.info("GPU detected, loading with quantization")
-                quant_config = BitsAndBytesConfig(
-                    load_in_4bit=True,
-                    bnb_4bit_compute_dtype=torch.float16,
-                    llm_int8_enable_fp32_cpu_offload=True
-                )
-                self.model = AutoModelForCausalLM.from_pretrained(
-                    self.model_id,
-                    device_map="auto",
-                    quantization_config=quant_config,
-                    trust_remote_code=True,
-                    dtype=torch.float16
-                )
-            else:
-                logger.info("No GPU detected, loading on CPU")
-                self.model = AutoModelForCausalLM.from_pretrained(
-                    self.model_id,
-                    device_map="cpu",
-                    trust_remote_code=True,
-                    dtype=torch.float32,
-                    low_cpu_mem_usage=True
-                )
-            
+                try:
+                    logger.info("🚀 Attempting to load with bitsandbytes (4-bit quantization)...")
+                    # Check if bitsandbytes is actually installed
+                    import bitsandbytes
+                    
+                    quant_config = BitsAndBytesConfig(
+                        load_in_4bit=True,
+                        bnb_4bit_compute_dtype=torch.float16,
+                        llm_int8_enable_fp32_cpu_offload=True
+                    )
+                    self.model = AutoModelForCausalLM.from_pretrained(
+                        self.model_id,
+                        device_map="auto",
+                        quantization_config=quant_config,
+                        trust_remote_code=True,
+                        dtype=torch.float16
+                    )
+                    logger.info("✅ Successfully loaded with 4-bit quantization")
+                    self._initialized = True
+                    return
+                except ImportError:
+                    logger.warning("⚠️ bitsandbytes not installed. Skipping 4-bit loading.")
+                except Exception as e:
+                    logger.warning(f"⚠️ Failed to load with 4-bit quantization: {e}")
+                    logger.info("🔄 Falling back to standard GPU loading...")
+
+            # ATTEMPT 2: Standard GPU Loading (FP16) - More Compatible
+            if torch.cuda.is_available():
+                try:
+                    logger.info("🚀 Attempting to load in float16 on GPU...")
+                    self.model = AutoModelForCausalLM.from_pretrained(
+                        self.model_id,
+                        device_map="cuda",  # Force CUDA
+                        trust_remote_code=True,
+                        dtype=torch.float16, # Half precision to save memory
+                        low_cpu_mem_usage=True
+                    )
+                    logger.info("✅ Successfully loaded in float16 on GPU")
+                    self._initialized = True
+                    return
+                except Exception as e:
+                    logger.error(f"❌ Failed to load on GPU (FP16): {e}")
+                    logger.info("🔄 Falling back to CPU...")
+
+            # ATTEMPT 3: CPU Loading (Fallback)
+            logger.info("🐌 Loading on CPU (Warning: This will be slow)...")
+            self.model = AutoModelForCausalLM.from_pretrained(
+                self.model_id,
+                device_map="cpu",
+                trust_remote_code=True,
+                dtype=torch.float32,
+                low_cpu_mem_usage=True
+            )
+            logger.info("✅ Successfully loaded on CPU")
             self._initialized = True
-            logger.info("✅ Local LLM loaded successfully")
             
         except Exception as e:
             logger.error(f"Failed to initialize local LLM: {e}")
@@ -135,381 +171,283 @@ class LocalLLMService:
     
     def extract_field_value(self, user_input: str, field_name: str) -> Dict[str, Any]:
         """
-        Extract field value with local-first routing.
-        
-        Route logic:
-        1. Check cache (instant)
-        2. Use local LLM (fast, free)
-        3. Fallback to Gemini for complex cases
-        4. Fallback to OpenRouter/Gemma if available
-        5. Final fallback - heuristics
+        Extract a single field value using the Local LLM.
+        Now uses the smart batch extraction logic for consistency.
         """
-        # 1. Check cache first
-        cache_key = f"{user_input.lower()}:{field_name.lower()}"
-        if cache_key in self._cache:
-            logger.info(f"Cache hit for {field_name}")
-            return self._cache[cache_key]
-        
-        # 2. Try local LLM first (primary path)
         try:
-            result = self._extract_with_local_llm(user_input, field_name)
-            if result.get('confidence', 0) > 0.4:  # Good enough confidence
-                self._cache[cache_key] = result
-                return result
-        except Exception as e:
-            logger.warning(f"Local LLM failed: {e}")
-        
-        # 3. Fallback to Gemini for complex cases
-        if self.gemini_llm:
-            try:
-                logger.info(f"Using Gemini fallback for {field_name}")
-                result = self._extract_with_gemini(user_input, field_name)
-                self._cache[cache_key] = result
-                return result
-            except Exception as e:
-                logger.error(f"Gemini fallback failed: {e}")
-        
-        # 4. Fallback to OpenRouter/Gemma
-        openrouter_result = self._extract_with_openrouter_sync(user_input, field_name)
-        if openrouter_result.get('confidence', 0) > 0.4:
-            self._cache[cache_key] = openrouter_result
-            return openrouter_result
-        
-        # 5. Final fallback - simple heuristics
-        return self._extract_with_heuristics(user_input, field_name)
-    
-    def _extract_with_openrouter_sync(self, user_input: str, field_name: str) -> Dict[str, Any]:
-        """Sync wrapper for OpenRouter/Gemma extraction."""
-        import os
-        import asyncio
-        
-        api_key = os.getenv("OPENROUTER_API_KEY")
-        if not api_key:
-            return {"value": "", "confidence": 0.0, "source": "openrouter_unavailable"}
-        
-        try:
-            # Check if there's an existing event loop
-            try:
-                loop = asyncio.get_running_loop()
-                # Already in async context, can't use run - return empty
-                return {"value": "", "confidence": 0.0, "source": "openrouter_async_context"}
-            except RuntimeError:
-                # No running loop, we can use asyncio.run
-                pass
+            # Re-use the robust batch extraction for a single field
+            batch_result = self.extract_all_fields(user_input, [field_name])
             
-            return asyncio.run(self._extract_with_openrouter_async(user_input, field_name, api_key))
-        except Exception as e:
-            logger.warning(f"OpenRouter sync extraction failed: {e}")
-            return {"value": "", "confidence": 0.0, "source": "openrouter_error"}
-    
-    async def _extract_with_openrouter_async(self, user_input: str, field_name: str, api_key: str) -> Dict[str, Any]:
-        """Async OpenRouter/Gemma extraction for fallback."""
-        try:
-            import httpx
+            extracted = batch_result.get('extracted', {})
+            confidence = batch_result.get('confidence', {})
             
-            logger.info(f"Using OpenRouter/Gemma fallback for {field_name}")
-            async with httpx.AsyncClient() as client:
-                response = await client.post(
-                    "https://openrouter.ai/api/v1/chat/completions",
-                    headers={
-                        "Authorization": f"Bearer {api_key}",
-                        "Content-Type": "application/json",
-                        "HTTP-Referer": "https://formflow.ai",
-                        "X-Title": "Form Flow AI"
-                    },
-                    json={
-                        "model": "google/gemma-3-27b-it",
-                        "messages": [
-                            {"role": "user", "content": f"Extract the {field_name} from this input: \"{user_input}\"\n\nReturn ONLY the extracted value, nothing else. If you cannot extract it, return \"UNKNOWN\"."}
-                        ],
-                        "temperature": 0.1,
-                        "max_tokens": 100
-                    },
-                    timeout=10.0
-                )
-                
-                if response.status_code == 200:
-                    data = response.json()
-                    value = data['choices'][0]['message']['content'].strip()
-                    if value and value.upper() != "UNKNOWN":
-                        logger.info(f"OpenRouter extracted {field_name}: {value[:50]}...")
-                        return {"value": value, "confidence": 0.85, "source": "openrouter_gemma"}
-                else:
-                    logger.warning(f"OpenRouter API error: {response.status_code}")
-                    
-        except Exception as e:
-            logger.warning(f"OpenRouter extraction failed: {e}")
-        
-        return {"value": "", "confidence": 0.0, "source": "openrouter_failed"}
-    
-    
-    def _extract_with_local_llm(self, user_input: str, field_name: str) -> Dict[str, Any]:
-        """Extract using local 3B model."""
-        self._initialize()
-        
-        # Preprocess input for common spoken patterns
-        cleaned_input = user_input.replace("at the rate", "@").replace(" at ", "@").replace(" dot ", ".")
-        
-        # Improved prompt for phi-2
-        prompt = f"Instruct: Extract the {field_name} from the user input.\nUser Input: {cleaned_input}\nOutput:"
-        inputs = self.tokenizer(prompt, return_tensors="pt")
-        
-        if self.model.device.type == "cuda":
-            inputs = inputs.to("cuda")
-        
-        with torch.no_grad():
-            outputs = self.model.generate(
-                **inputs,
-                max_new_tokens=32,  # Increased from 8 to allow full emails/addresses
-                temperature=0.1,
-                do_sample=False,
-                pad_token_id=self.tokenizer.eos_token_id
-            )
-        
-        response = self.tokenizer.decode(outputs[0], skip_special_tokens=True)
-        
-        # Phi-2 chat format parsing
-        try:
-            if "Output:" in response:
-                extracted = response.split("Output:")[-1].strip()
+            # Check if our field was found
+            # The batch extractor might return the key as the label or normalized name
+            # We need to find the matching key in the result
+            value = None
+            conf = 0.0
+            
+            # Direct match
+            if field_name in extracted:
+                value = extracted[field_name]
+                conf = confidence.get(field_name, 0.0)
             else:
-                extracted = response[len(prompt):].strip()
-        except:
-            extracted = response[len(prompt):].strip()
+                # Fuzzy match search in results
+                for key, val in extracted.items():
+                    if key.lower() in field_name.lower() or field_name.lower() in key.lower():
+                        value = val
+                        conf = confidence.get(key, 0.0)
+                        break
             
-        # Clean up any trailing text
-        if "\n" in extracted:
-            extracted = extracted.split("\n")[0].strip()
-        
-        return {
-            "value": extracted,
-            "confidence": min(0.9, len(extracted) / 10) if extracted else 0.1,
-            "source": "local_llm"
-        }
+            if value:
+                return {
+                    "value": value,
+                    "confidence": conf,
+                    "source": "local_llm"
+                }
+            
+            return {
+                "value": None,
+                "confidence": 0.0,
+                "source": "local_llm"
+            }
+            
+        except Exception as e:
+            logger.error(f"Error in extract_field_value: {e}")
+            return {
+                "value": None,
+                "confidence": 0.0,
+                "source": "local_llm",
+                "error": str(e)
+            }
+    
 
-    def generate_response(self, system_instruction: str, user_input: str) -> str:
+    
+    def extract_all_fields(self, user_input: str, fields: List[Any]) -> Dict[str, Any]:
         """
-        Generate a response using the local LLM.
-        Useful for suggestions and chat-like interactions.
-        """
-        # Ensure initialization
-        self._initialize()
-        
-        # Phi-2 instruct format
-        prompt = f"Instruct: {system_instruction}\n\nUser: {user_input}\nOutput:"
-        
-        inputs = self.tokenizer(prompt, return_tensors="pt")
-        if self.model.device.type == "cuda":
-            inputs = inputs.to("cuda")
-            
-        with torch.no_grad():
-            outputs = self.model.generate(
-                **inputs,
-                max_new_tokens=256,
-                temperature=0.3,
-                do_sample=True,
-                pad_token_id=self.tokenizer.eos_token_id
-            )
-            
-        response = self.tokenizer.decode(outputs[0], skip_special_tokens=True)
-        
-        try:
-            if "Output:" in response:
-                return response.split("Output:")[-1].strip()
-            return response[len(prompt):].strip()
-        except:
-            return response.strip()
-    
-    def _extract_with_gemini(self, user_input: str, field_name: str) -> Dict[str, Any]:
-        """Extract using Gemini for complex cases."""
-        from langchain_core.messages import HumanMessage
-        
-        message = HumanMessage(content=f"""
-        Extract the {field_name} from this user input: "{user_input}"
-        
-        Return only the extracted value, nothing else.
-        If you cannot extract it, return "UNKNOWN".
-        """)
-        
-        response = self.gemini_llm.invoke([message])
-        extracted = response.content.strip()
-        
-        return {
-            "value": extracted if extracted != "UNKNOWN" else "",
-            "confidence": 0.8 if extracted != "UNKNOWN" else 0.1,
-            "source": "gemini_fallback"
-        }
-    
-    def _extract_with_heuristics(self, user_input: str, field_name: str) -> Dict[str, Any]:
-        """Simple heuristic extraction as final fallback."""
-        import re
-        
-        # Normalize input first
-        normalized = self._normalize_input(user_input)
-        field_lower = field_name.lower()
-        
-        # Email detection (robust for spoken patterns)
-        if 'email' in field_lower:
-            email_match = re.search(r'[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}', normalized)
-            if email_match:
-                return {"value": email_match.group().lower(), "confidence": 0.9, "source": "heuristic"}
-        
-        # Name detection (handles multi-word names)
-        if 'name' in field_lower:
-            # Look for "name is X" or "I'm X" patterns
-            name_patterns = [
-                r'(?:my\s+)?name\s+is\s+([A-Z][a-z]+(?:\s+[A-Z][a-z]+)*)',
-                r"(?:i'?m|this is)\s+([A-Z][a-z]+(?:\s+[A-Z][a-z]+)*)",
-                r'([A-Z][a-z]+(?:\s+[A-Z][a-z]+)+)'  # 2+ capitalized words
-            ]
-            for pattern in name_patterns:
-                match = re.search(pattern, user_input, re.IGNORECASE)
-                if match:
-                    name = match.group(1).strip()
-                    # Title case the name
-                    name = ' '.join(word.capitalize() for word in name.split())
-                    return {"value": name, "confidence": 0.85, "source": "heuristic"}
-        
-        # Phone detection (handles Indian and intl formats)
-        if 'phone' in field_lower or 'mobile' in field_lower or 'number' in field_lower:
-            # Remove spaces and common separators
-            digits_only = re.sub(r'[^\d]', '', normalized)
-            if len(digits_only) >= 9:
-                # Take last 10 digits if longer (standardizing), or keep as is if 9-10
-                phone = digits_only[-10:] if len(digits_only) > 10 else digits_only
-                return {"value": phone, "confidence": 0.85, "source": "heuristic"}
-        
-        # Address/City/State/Country/Zip/Location detection
-        if any(k in field_lower for k in ['address', 'city', 'state', 'country', 'zip', 'postal', 'location']):
-            # Try "my X is Y" pattern first
-            pattern = rf'(?:my\s+)?{re.escape(field_name[:15])}\s+(?:is|:)\s+(.+?)(?:\s+(?:and|my|,)|$)'
-            match = re.search(pattern, user_input, re.IGNORECASE)
-            if match:
-                return {"value": match.group(1).strip(), "confidence": 0.85, "source": "heuristic"}
-            # Fallback: generic location patterns
-            loc_patterns = [
-                rf'(?:in|from|at)\s+([A-Z][a-z]+(?:\s+[A-Z][a-z]+)*)',  # "in New York"
-                rf'(?:live|located|based)\s+(?:in|at)\s+(.+?)(?:\s+and|,|$)',
-            ]
-            for pat in loc_patterns:
-                match = re.search(pat, user_input)
-                if match:
-                    return {"value": match.group(1).strip(), "confidence": 0.75, "source": "heuristic"}
-        
-        # Company/Organization/Employer detection
-        if any(k in field_lower for k in ['company', 'organization', 'employer', 'business', 'org', 'work']):
-            company_patterns = [
-                rf'(?:my\s+)?(?:company|organization|employer|business|work(?:ing)?(?:\s+at)?)\s+(?:is|name\s+is|:)?\s*(.+?)(?:\s+(?:and|my|,)|$)',
-                rf'(?:work(?:ing)?|employed)\s+(?:at|for|with)\s+(.+?)(?:\s+(?:and|as|,)|$)',
-                rf'(?:at|for|with)\s+([A-Z][A-Za-z]+(?:\s+[A-Z]?[A-Za-z]+)*)\s+(?:as|since|for)',
-            ]
-            for pat in company_patterns:
-                match = re.search(pat, user_input, re.IGNORECASE)
-                if match:
-                    value = match.group(1).strip()
-                    # Title case and clean
-                    value = ' '.join(word.capitalize() for word in value.split())
-                    return {"value": value, "confidence": 0.85, "source": "heuristic"}
-        
-        # Subject/Title/Reason/Purpose detection
-        if any(k in field_lower for k in ['subject', 'title', 'topic', 'reason', 'purpose', 'regarding']):
-            subj_patterns = [
-                rf'(?:my\s+)?(?:subject|title|topic|reason|purpose)\s+(?:is|:)\s+(.+?)(?:\s+(?:and|my)|$)',
-                rf'(?:regarding|about|concerning)\s+(.+?)(?:\s+(?:and|my|please)|$)',
-            ]
-            for pat in subj_patterns:
-                match = re.search(pat, user_input, re.IGNORECASE)
-                if match:
-                    return {"value": match.group(1).strip(), "confidence": 0.80, "source": "heuristic"}
-        
-        # Message/Comments/Description/Feedback - capture everything after keyword
-        if any(k in field_lower for k in ['message', 'comment', 'description', 'note', 'feedback', 'inquiry', 'query']):
-            msg_patterns = [
-                rf'(?:my\s+)?(?:message|comment|description|feedback|inquiry|query)\s+(?:is|:)\s+(.+)',
-                rf'(?:i\s+)?(?:want|would like|need)\s+(?:to\s+)?(?:say|ask|tell|inquire)\s*(?:that|:)?\s*(.+)',
-            ]
-            for pat in msg_patterns:
-                match = re.search(pat, user_input, re.IGNORECASE | re.DOTALL)
-                if match:
-                    value = match.group(1).strip()
-                    # Clean up trailing punctuation if too short
-                    if len(value) > 3:
-                        return {"value": value, "confidence": 0.80, "source": "heuristic"}
-        
-        return {"value": "", "confidence": 0.0, "source": "heuristic"}
-    
-    def _normalize_input(self, user_input: str) -> str:
-        """Normalize spoken input patterns to standard formats."""
-        import re
-        
-        normalized = user_input
-        
-        # Email normalization - handle spoken patterns like "Atharva Karwal @ gmail.com"
-        # Step 1: Replace "at the rate" with @
-        normalized = re.sub(r'\bat\s+the\s+rate\b', '@', normalized, flags=re.IGNORECASE)
-        
-        # Step 2: Replace " at " with @ (common spoken pattern)
-        normalized = re.sub(r'\s+at\s+', '@', normalized)
-        
-        # Step 3: Replace " dot " with .
-        normalized = re.sub(r'\s+dot\s+', '.', normalized, flags=re.IGNORECASE)
-        
-        # Step 4: Handle spoken email patterns like "name name @ domain.com"
-        # Find patterns where there are words before @ and after @
-        # e.g., "Atharva Karwal @ gmail.com" -> "atharvakarwal@gmail.com"
-        email_spoken_pattern = re.search(
-            r'([A-Za-z]+(?:\s+[A-Za-z]+)*)\s*@\s*([A-Za-z0-9.-]+\.[A-Za-z]{2,})',
-            normalized
-        )
-        if email_spoken_pattern:
-            username_part = email_spoken_pattern.group(1).replace(' ', '').lower()
-            domain_part = email_spoken_pattern.group(2).lower()
-            reconstructed_email = f"{username_part}@{domain_part}"
-            # Replace the original spoken pattern with the normalized email
-            normalized = normalized[:email_spoken_pattern.start()] + reconstructed_email + normalized[email_spoken_pattern.end():]
-        
-        # Number word to digit (for phone numbers in speech)
-        number_words = {
-            'zero': '0', 'one': '1', 'two': '2', 'three': '3', 'four': '4',
-            'five': '5', 'six': '6', 'seven': '7', 'eight': '8', 'nine': '9',
-            'double': '  '  # placeholder for "double five" -> "55"
-        }
-        
-        for word, digit in number_words.items():
-            normalized = re.sub(rf'\b{word}\b', digit, normalized, flags=re.IGNORECASE)
-        
-        # Handle "double X" pattern (e.g., "double five" -> "55")
-        normalized = re.sub(r'  (\d)', r'\1\1', normalized)
-        
-        return normalized
-    
-    def extract_all_fields(self, user_input: str, fields: List[str]) -> Dict[str, Any]:
-        """
-        Extract ALL fields from a single user input in one pass.
-        
-        This is more efficient than calling extract_field_value multiple times
-        and better handles multi-field responses like:
-        "My name is John, email is john@test.com, phone is 1234567890"
+        Extract ALL fields from a single user input using Context-Aware LLM Inference.
         
         Args:
             user_input: The user's full input text
-            fields: List of field names to extract (e.g., ["Full Name", "Email", "Phone"])
+            fields: List of field definitions (Dicts) or field names (strings)
             
         Returns:
             Dict with extracted values, confidences, and source
         """
-        results = {}
-        normalized = self._normalize_input(user_input)
+        # Ensure initialization
+        self._initialize()
         
-        for field in fields:
-            result = self._extract_with_heuristics(normalized, field)
-            if result.get('value') and result.get('confidence', 0) > 0.3:
-                results[field] = result
+        # 1. Build the Schema Context
+        schema_lines = []
+        field_names = []
+        
+        for f in fields:
+            # Handle both dict objects and simple strings (backward compatibility)
+            if isinstance(f, dict):
+                name = f.get('name', 'Unknown')
+                label = f.get('label', name)
+                f_type = f.get('type', 'text')
+                options = f.get('options', [])
+                
+                desc = f"- {label} (Type: {f_type})"
+                if options:
+                    # Extract option labels/values
+                    opt_strs = [str(opt.get('label', opt.get('value', ''))) for opt in options]
+                    desc += f" [Options: {', '.join(opt_strs)}]"
+                schema_lines.append(desc)
+                field_names.append(name)
+            else:
+                schema_lines.append(f"- {str(f)}")
+                field_names.append(str(f))
+
+        schema_text = "\n".join(schema_lines)
+        
+        # 2. Construct the Smart Prompt
+        # We tell the LLM to map the speech to the fields, respecting options
+        prompt = f"""Instruct: You are a smart form-filling assistant. Map the user's speech to the following form fields.
+        
+FORM FIELDS:
+{schema_text}
+
+USER SPEECH:
+"{user_input}"
+
+INSTRUCTIONS:
+1. Extract values for any fields mentioned in the speech.
+2. For "Options" fields, map the speech to the closest valid option.
+3. Infer values from context if explicit labels are missing (e.g. name at start of speech).
+4. If a field is NOT mentioned, do not include it in the output.
+5. Output format: "Field Label: Value"
+6. Do NOT generate any code or extra text.
+
+Output:"""
+
+        # 3. Running Inference
+        inputs = self.tokenizer(prompt, return_tensors="pt")
+        if self.model.device.type == "cuda":
+            inputs = inputs.to("cuda")
+        
+        with torch.no_grad():
+            outputs = self.model.generate(
+                **inputs,
+                max_new_tokens=256,
+                temperature=0.1,
+                do_sample=False,
+                pad_token_id=self.tokenizer.eos_token_id,
+                repetition_penalty=1.1, # Prevent repetition
+                eos_token_id=self.tokenizer.eos_token_id
+            )
+        
+        response = self.tokenizer.decode(outputs[0], skip_special_tokens=True)
+        
+        # 4. Parse the Output
+        # Remove prompt to get just the generated text
+        try:
+            if "Output:" in response:
+                generated = response.split("Output:")[-1].strip()
+            else:
+                generated = response[len(prompt):].strip()
+        except:
+            generated = response[len(prompt):].strip()
+            
+        logger.info(f"LLM Batch Extraction Output:\n{generated}")
+        
+        extracted_values = {}
+        confidences = {}
+        
+        # Create a map of Label -> Field Name for easy lookup
+        # and normalize labels for matching
+        label_to_field = {}
+        for f in fields:
+            if isinstance(f, dict):
+                label_to_field[f.get('label', f.get('name')).lower().strip()] = f.get('name')
+                label_to_field[f.get('name').lower().strip()] = f.get('name')
+            else:
+                label_to_field[str(f).lower().strip()] = str(f)
+
+        # Parse "Label: Value" lines with support for multi-line values
+        current_field = None
+        current_value = []
+        
+        for line in generated.split('\n'):
+            line = line.strip()
+            if not line:
+                continue
+                
+            # Stop parsing if we hit code blocks or obvious hallucinations
+            if line.startswith("```") or line.startswith("def ") or line.startswith("import ") or line.startswith("#"):
+                break
+                
+            # Handle bullet points if present "- Name: Value"
+            if line.startswith("- "):
+                line = line[2:]
+            
+            # Check if this line looks like a field definition "Label: Value"
+            is_field_line = False
+            parts = None
+            
+            if ':' in line:
+                parts = line.split(':', 1)
+                potential_key = parts[0].strip().lower()
+                
+                # Heuristic: Is this likely a label?
+                # Labels are usually short (< 50 chars), no quotes, and mostly alphabetic
+                # This prevents "Note: I said..." from being treated as a field
+                if len(potential_key) < 50 and '"' not in potential_key and "'" not in potential_key:
+                    is_field_line = True
+
+            # Match against known fields
+            matched_field_name = None
+            if is_field_line:
+                for label, field_name in label_to_field.items():
+                    # Stricter matching: exact match or contained
+                    # BUT be careful with "company" in "other company"
+                    if label == potential_key:
+                        matched_field_name = field_name
+                        break
+                    elif label in potential_key:
+                        # Check if it's a "clean" containment (word boundary)
+                        # e.g. "company" in "my company" is ok
+                        # "age" in "message" is NOT ok
+                        if f" {label}" in f" {potential_key}" or f"{label} " in f"{potential_key} ":
+                             matched_field_name = field_name
+                             break
+
+            # Logic for field transition
+            if matched_field_name:
+                # It's a KNOWN field -> Save previous and start new
+                if current_field and current_value:
+                    # Save block
+                    full_val = " ".join(current_value).strip()
+                    if full_val and "\"" in full_val:
+                        full_val = full_val.replace("\"", "")
+                    
+                    is_type_echo = False
+                    for f in fields:
+                        if isinstance(f, dict) and f.get('name') == current_field:
+                            f_type = f.get('type', '').lower()
+                            if full_val.lower() == f_type or full_val.lower() == f"type: {f_type}":
+                                is_type_echo = True
+                    
+                    if not is_type_echo:
+                        extracted_values[current_field] = full_val
+                        confidences[current_field] = 0.85
+                
+                current_field = matched_field_name
+                current_value = [parts[1].strip()]
+            
+            elif is_field_line:
+                # It looks like a field "Key: Value" but UNKNOWN
+                # This implies the LLM hallucinated an extra field or extracted one not in this batch
+                # STOP capturing the previous field to avoid pollution
+                if current_field and current_value:
+                    # Save block
+                    full_val = " ".join(current_value).strip()
+                    if full_val and "\"" in full_val:
+                        full_val = full_val.replace("\"", "")
+                    
+                    is_type_echo = False
+                    for f in fields:
+                        if isinstance(f, dict) and f.get('name') == current_field:
+                            f_type = f.get('type', '').lower()
+                            if full_val.lower() == f_type or full_val.lower() == f"type: {f_type}":
+                                is_type_echo = True
+                    
+                    if not is_type_echo:
+                        extracted_values[current_field] = full_val
+                        confidences[current_field] = 0.85
+                
+                # We do NOT start a new current_field, effectively ignoring this unknown field and its value
+                current_field = None
+                current_value = []
+                
+            else:
+                # Not a field line (just text value)
+                if current_field:
+                    if not current_value or line != current_value[-1]:
+                        current_value.append(line)
+        
+        # Save the last field
+        if current_field and current_value:
+            full_val = " ".join(current_value).strip()
+            if full_val and "\"" in full_val:
+                full_val = full_val.replace("\"", "")
+                
+            is_type_echo = False
+            for f in fields:
+                if isinstance(f, dict) and f.get('name') == current_field:
+                    f_type = f.get('type', '').lower()
+                    if full_val.lower() == f_type or full_val.lower() == f"type: {f_type}":
+                        is_type_echo = True
+            
+            if not is_type_echo:
+                extracted_values[current_field] = full_val
+                confidences[current_field] = 0.85
         
         return {
-            "extracted": {k: v["value"] for k, v in results.items()},
-            "confidence": {k: v["confidence"] for k, v in results.items()},
-            "source": "batch_heuristic"
+            "extracted": extracted_values,
+            "confidence": confidences,
+            "source": "local_llm_batch"
         }
 
 

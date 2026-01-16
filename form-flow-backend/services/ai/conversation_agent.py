@@ -327,6 +327,10 @@ class ConversationAgent:
         # Get remaining fields and current batch
         remaining_fields = session.get_remaining_fields()
         
+        # DEBUG: Log session state
+        logger.info(f"🔍 Session Debug - Extracted: {list(session.extracted_fields.keys())}")
+        logger.info(f"🔍 Session Debug - Remaining ({len(remaining_fields)}): {[f.get('name') for f in remaining_fields]}")
+        
         # Determine max fields based on client type and feature flag
         # Web frontend gets grouped questions when SMART_GROUPING_ENABLED is True
         is_web_client = getattr(session, 'client_type', 'extension') == 'web'
@@ -538,17 +542,30 @@ class ConversationAgent:
         logger.info(f"Processing input: '{user_input[:100]}...'")
         logger.info(f"Current batch fields: {[f.get('name') for f in current_batch]}")
         
+        # Get full schema for extraction and refinement
+        all_fields = remaining_fields
+        if hasattr(session, 'form_schema') and session.form_schema:
+            raw_schema = session.form_schema
+            flattened = []
+            for item in raw_schema:
+                if isinstance(item, dict) and 'fields' in item:
+                    flattened.extend(item['fields'])
+                else:
+                    flattened.append(item)
+            all_fields = flattened
+        
         extracted, confidence_scores, message = await self._extract_values(
             session, user_input, current_batch, remaining_fields, is_voice
         )
         
         # 8. Refine and store extracted values using atomic FormDataManager
-        refined = self.value_refiner.refine_values(extracted, remaining_fields)
+        # Use simple cleaning without heavy NLP for speed, or pass True if AI refinement desired
+        refined = self.value_refiner.refine_values(extracted, all_fields)
         
         for field_name, value in refined.items():
-            # Get field info for pattern detection
+            # Get field info from ALL fields to ensure type logic applies
             field_info = next(
-                (f for f in remaining_fields if f.get('name') == field_name),
+                (f for f in all_fields if f.get('name') == field_name),
                 {}
             )
             
@@ -737,11 +754,26 @@ class ConversationAgent:
                 
                 # Prepare field list for extraction - use ALL remaining fields, not just current_batch
                 # This allows users to provide multiple fields at once (e.g., "my name is X and email is Y")
-                fields_to_extract = [
-                    field.get('label', field.get('name')) 
-                    for field in remaining_fields  # Use remaining_fields, not current_batch
-                    if field.get('name') not in extracted
-                ]
+                # Prepare field list for extraction - pass FULL objects for context-aware extraction
+                # This allows the LLM to see options, types, and labels
+                # CHANGE: Use session.form_schema (ALL fields) instead of remaining_fields
+                # This enables "Smart Update/Correction" where the user can update any field value at any time
+                if hasattr(session, 'form_schema') and session.form_schema:
+                    raw_schema = session.form_schema
+                    # Flatten schema: If it's a list provides forms with 'fields', extract them
+                    all_fields = []
+                    for item in raw_schema:
+                        if isinstance(item, dict) and 'fields' in item:
+                            all_fields.extend(item['fields'])
+                        else:
+                            all_fields.append(item)
+                    fields_to_extract = all_fields
+                else:
+                    fields_to_extract = remaining_fields
+                
+                # If form_schema is somehow empty (shouldn't be), fall back
+                if not fields_to_extract:
+                    fields_to_extract = remaining_fields
                 
                 logger.info(f"Extracting from {len(fields_to_extract)} fields: {fields_to_extract[:5]}...")
                 
@@ -756,16 +788,18 @@ class ConversationAgent:
                         logger.info(f"Local LLM raw extraction: {new_extracted}")
                         
                         # Update main extracted dict
-                        for label, value in new_extracted.items():
-                            # Find matching field name from label - search in remaining_fields
+                        # Update main extracted dict
+                        for key, value in new_extracted.items():
+                            # Find matching field name from key - search in fields_to_extract (which effectively covers everything)
+                            # This ensures we match against any field in the schema, not just remaining ones
                             field_match = next(
-                                (f for f in remaining_fields if f.get('label', f.get('name')) == label), 
+                                (f for f in fields_to_extract if f.get('name') == key or f.get('label') == key), 
                                 None
                             )
                             if field_match:
                                 field_name = field_match.get('name')
                                 extracted[field_name] = value
-                                confidence[field_name] = new_confidence.get(label, 0.8)
+                                confidence[field_name] = new_confidence.get(key, 0.8)
 
                 if extracted:
                     logger.info(f"Local LLM extracted: {list(extracted.keys())}")
@@ -773,15 +807,22 @@ class ConversationAgent:
                     # Generate confirmation message
                     extracted_labels = []
                     for field_name in extracted.keys():
-                        field_info = next((f for f in current_batch if f.get('name') == field_name), {})
+                        # Look up label in fields_to_extract to ensure we get labels for ANY field (even past ones)
+                        field_info = next((f for f in fields_to_extract if f.get('name') == field_name), {})
                         extracted_labels.append(field_info.get('label', field_name))
                     
                     if len(extracted_labels) == 1:
                         message = f"Got your {extracted_labels[0]}!"
                     else:
-                        message = f"Got your {', '.join(extracted_labels)}!"
+                        # Limit to first 3 to avoid super long messages
+                        if len(extracted_labels) > 3:
+                            message = f"Got your {', '.join(extracted_labels[:3])} and others!"
+                        else:
+                            message = f"Got your {', '.join(extracted_labels)}!"
                     
                     # Add next question if more fields remain
+                    # We accept that 'extracted' might contain fields NOT in 'remaining_fields' (updates)
+                    # So we just filter remaining_fields by what is now extracted
                     remaining_after = [f for f in remaining_fields if f.get('name') not in extracted]
                     if remaining_after:
                         next_batches = self.clusterer.create_batches(remaining_after)
