@@ -137,8 +137,54 @@ Users naturally correct themselves mid-sentence. ALWAYS extract the CORRECTED va
    "age 25, no 26, wait actually 27" → Extract: "27"
 
 CORRECTION TRIGGER WORDS: "actually", "I mean", "I meant", "no wait", "wait", 
-"sorry", "oops", "my bad", "scratch that", "correction", "let me correct",
-"make that", "change that to", "rather", "not X, it's Y"
+"sorry", "oh sorry", "oops", "my bad", "scratch that", "correction", "let me correct",
+"make that", "change that to", "rather", "not X, it's Y", "no its", "instead"
+
+=== WHISPER-STYLE REPAIR (SENTENCE PRESERVATION) ===
+
+⚠️ CRITICAL: When corrections are detected, you MUST preserve the sentence structure.
+Your output must include a "clean_transcript" representing what the user INTENDED to say.
+
+CORE PRINCIPLE: Users correct VALUES, not entire sentences. Apply minimal edits:
+- Remove ONLY the incorrect value + correction marker
+- Keep all surrounding context intact
+- Never summarize, paraphrase, or reword
+
+EXAMPLES OF CORRECT BEHAVIOR:
+
+| Input | clean_transcript | extracted_value |
+|-------|------------------|-----------------|
+| "Hi my number is 9518 oh sorry its 9618377949" | "Hi my number is 9618377949" | {"phone": "9618377949"} |
+| "My name is Atharva and my number is 9518 sorry 9618377949" | "My name is Atharva and my number is 9618377949" | {"name": "Atharva", "phone": "9618377949"} |
+| "email john@gmail I mean james@gmail" | "email james@gmail" | {"email": "james@gmail"} |
+
+PARTIAL WORD HANDLING (cut-off words before correction):
+Input: "It is Janu- no February 2nd"
+→ clean_transcript: "It is February 2nd"
+→ extracted: {"date": "February 2nd"}
+
+TOTAL RESTART HANDLING (user abandons entire structure):
+Input: "I need a.. actually forget it I want a refund"
+→ clean_transcript: "I want a refund"
+→ intent: abandon previous, use new structure
+
+REPEATED VALUE HANDLING (incomplete → complete):
+Input: "Call 555. No, call 555-0199"
+→ clean_transcript: "Call 555-0199"
+→ extracted: {"phone": "555-0199"}
+
+FIELD-AWARE SCOPING RULE:
+When input contains multiple fields, corrections apply ONLY to the field being corrected:
+Input: "My name is Atharva and my number is 9518 sorry 9618377949"
+- "name" = Atharva (UNCHANGED - not being corrected)
+- "phone" = 9618377949 (CORRECTED from 9518)
+→ clean_transcript: "My name is Atharva and my number is 9618377949"
+
+AMBIGUITY HANDLING:
+If the correction target is unclear (multiple possible fields, format mismatch):
+- Include "needs_confirmation": ["field_name"]
+- Preserve original text
+- Do NOT guess
 
 === OUTPUT FORMAT (strict JSON) ===
 
@@ -150,6 +196,8 @@ CORRECTION TRIGGER WORDS: "actually", "I mean", "I meant", "no wait", "wait",
     "confidence": {
         "field_name": 0.95
     },
+    "clean_transcript": "Original sentence with corrections applied in-place (if correction detected)",
+    "correction_applied": true,
     "skipped_fields": ["field_name_if_skipped"],
     "needs_confirmation": ["field_name_if_confidence_low"],
     "reasoning": "Brief explanation of decisions made",

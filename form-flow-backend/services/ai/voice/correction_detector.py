@@ -10,13 +10,12 @@ Features:
 - Nested correction handling
 - Restart pattern detection
 - Confidence scoring
-- Learning from user patterns
 """
 
 import re
 from enum import Enum
-from typing import Dict, List, Any, Optional, Tuple
-from dataclasses import dataclass, field
+from typing import Dict, List, Any, Optional
+from dataclasses import dataclass
 
 from utils.logging import get_logger
 
@@ -35,13 +34,11 @@ class CorrectionType(str, Enum):
 
 class CorrectionScope(str, Enum):
     """Scope of what's being corrected."""
-    FULL_VALUE = "full_value"       # Entire value replaced
-    EMAIL_DOMAIN = "email_domain"   # Just the domain part
-    EMAIL_LOCAL = "email_local"     # Just the local part
-    PHONE_PREFIX = "phone_prefix"   # Country/area code
-    PHONE_SUFFIX = "phone_suffix"   # Last digits
-    NAME_FIRST = "name_first"       # First name only
-    NAME_LAST = "name_last"         # Last name only
+    FULL_VALUE = "full_value"
+    EMAIL_DOMAIN = "email_domain"
+    EMAIL_LOCAL = "email_local"
+    PHONE_PREFIX = "phone_prefix"
+    PHONE_SUFFIX = "phone_suffix"
     UNKNOWN = "unknown"
 
 
@@ -51,8 +48,8 @@ class FieldContext:
     field_type: str = "text"
     field_name: str = ""
     field_label: str = ""
-    current_value: str = ""  # Value before this input
-    
+    current_value: str = ""
+
 
 @dataclass
 class CorrectionResult:
@@ -66,6 +63,7 @@ class CorrectionResult:
     confidence: float = 0.0
     scope: CorrectionScope = CorrectionScope.FULL_VALUE
     pattern_matched: str = ""       # Which pattern triggered detection
+    clean_transcript: str = ""      # LLM-generated clean sentence (populated downstream)
 
 
 class CorrectionDetector:
@@ -78,16 +76,17 @@ class CorrectionDetector:
     """
     
     # =========================================================================
-    # CORRECTION TRIGGER PATTERNS
-    # Ordered by priority - first match wins
+    # CORRECTION TRIGGER PATTERNS (Ordered by priority)
     # =========================================================================
     
     # Priority 1: Explicit strong correction markers
     EXPLICIT_STRONG_PATTERNS = [
-        # "let me correct that, X" / "correction: X"  
+        # "forget it" / "actually forget it" -> explicit restart
+        (r'(?:actually\s+)?forget\s+it[,\s]+(.+)$', 'forget_it'),
+        # "let me correct that, X"
         (r'let\s+me\s+correct(?:\s+that)?[,:\s]+(.+)$', 'let_me_correct'),
         (r'correction[:\s]+(.+)$', 'correction'),
-        # "actually X" at word boundary
+        # "actually X"
         (r'\bactually[,\s]+(.+)$', 'actually'),
         # "scratch that, X"
         (r'scratch\s+that[,\s]+(.+)$', 'scratch_that'),
@@ -95,60 +94,58 @@ class CorrectionDetector:
     
     # Priority 2: Medium strength correction markers
     EXPLICIT_MEDIUM_PATTERNS = [
-        # "oh sorry, its X" / "oh sorry its X" - COMMON in natural speech!
+        # "oh sorry, its X"
         (r'\boh\s+sorry[,\s]+(?:it\'?s\s+|its\s+)?(.+)$', 'oh_sorry'),
-        # "sorry, it's X" / "sorry its X"
+        # "sorry, it's X"
         (r'\bsorry[,\s]+(?:it\'?s\s+|its\s+)(.+)$', 'sorry_its'),
-        # "sorry, X" / "oops, X" / "my bad, X"
+        # "sorry X"
         (r'(?:sorry|oops|my\s+bad)[,\s]+(.+)$', 'sorry'),
-        # "I mean X" / "I meant X" (with optional "its")
+        # "I mean X"
         (r'\bi\s+mean[t]?[,\s]+(?:it\'?s\s+|its\s+)?(.+)$', 'i_mean'),
-        # "no wait, X" / "wait, X" (with optional "its")
+        # "no wait, X"
         (r'(?:no\s+)?wait[,\s]+(?:it\'?s\s+|its\s+)?(.+)$', 'no_wait'),
-        # "rather X" / "or rather X"
+        # "rather X"
         (r'(?:or\s+)?rather[,\s]+(.+)$', 'rather'),
         # "make that X"
         (r'make\s+that[,\s]+(.+)$', 'make_that'),
         # "change that to X"
         (r'change\s+(?:that|it)\s+to[,\s]+(.+)$', 'change_to'),
+        # "instead X"
+        (r'\binstead[,\s]+(.+)$', 'instead'),
     ]
     
-    # Priority 3: Negation patterns  
+    # Priority 3: Negation patterns
     NEGATION_PATTERNS = [
-        # "no its X" / "no it's X" - VERY COMMON!
+        # "no its X"
         (r'\bno[,\s]+(?:it\'?s|its)\s+(.+)$', 'no_its'),
-        # "no it is X" - slightly different pattern
+        # "no it is X"
         (r'\bno[,\s]+it\s+is\s+(.+)$', 'no_it_is'),
-        # "not X, it's Y" / "not X, its Y"
+        # "not X, it's Y" - two capture groups!
         (r'not\s+(\S+)[,\s]+(?:it\'?s|its|it\s+is)\s+(.+)$', 'not_its'),
-        # "no, X" / "nope, X" (fallback - not followed by problem/worries/etc)
-        (r'^(?:no|nope)[,\s]+(?!problem|worries|thanks|thank|issue|way)(.+)$', 'no_value'),
+        # "No, <value>" - handles mid-sentence "Call 555. No, call..."
+        (r'(?:^|[.!?]\s+)\b(?:no|nope)[,\s]+(?!problem|worries|thanks|thank|issue|way)(.+)$', 'no_value'),
     ]
     
     # Priority 4: Restart patterns (abandoned starts)
     RESTART_PATTERNS = [
-        # "j... james" (1-3 chars followed by ellipsis)
+        # "j... james" (Standard stutter)
         (r'(\w{1,3})\.{2,}\s*(\w{2,}.*)$', 'abandoned_start'),
-        # "jo- james" (hyphen interruption)
-        (r'(\w{1,4})-\s*(\w{2,}.*)$', 'hyphen_restart'),
+        # "Janu- no February" (Hyphenated cut-off with optional correction word)
+        (r'(\w+)-\s+(?:no\s+|sorry\s+|actually\s+)?(\w+.*)$', 'hyphen_restart'),
     ]
     
     # Priority 5: Partial correction patterns (field-type specific)
     PARTIAL_EMAIL_PATTERNS = [
-        # "@gmail... @yahoo" or "at gmail... at yahoo"
         (r'(?:@|at\s+)(\w+)[,.\s]+(?:actually|no|I\s+mean)[,\s]+(?:@|at\s+)?(\w+)', 'email_domain'),
     ]
     
     PARTIAL_PHONE_PATTERNS = [
-        # "1234... 4321" (suffix correction)
         (r'(\d{3,})[,.\s]+(?:actually|no|I\s+mean|wait)[,\s]+(\d{3,})$', 'phone_suffix'),
     ]
     
     # Words that look like corrections but shouldn't trigger
     FALSE_POSITIVE_GUARDS = [
-        # "Actually" as company name
         r'\bactually\s+(?:inc|llc|ltd|corp|co\.?)\b',
-        # "No" in expected phrases
         r'\bno\s+(?:problem|worries|thanks|thank\s+you|issue)\b',
     ]
     
@@ -169,11 +166,7 @@ class CorrectionDetector:
         }
         self._false_positive_guards = [re.compile(p, re.IGNORECASE) for p in self.FALSE_POSITIVE_GUARDS]
     
-    def detect(
-        self, 
-        text: str, 
-        field_context: Optional[FieldContext] = None
-    ) -> CorrectionResult:
+    def detect(self, text: str, field_context: Optional[FieldContext] = None) -> CorrectionResult:
         """
         Detect corrections in voice input.
         
@@ -194,42 +187,83 @@ class CorrectionDetector:
         if self._is_false_positive(text):
             return CorrectionResult(final_value=text)
         
-        # Check patterns in priority order
-        result = self._check_explicit_strong(text, field_context)
-        if result.has_correction:
-            return result
-        
-        result = self._check_explicit_medium(text, field_context)
-        if result.has_correction:
-            return result
-        
-        result = self._check_negation(text, field_context)
-        if result.has_correction:
-            return result
-        
-        # Check partial corrections based on field type
-        if field_context.field_type in ['email', 'e-mail']:
-            result = self._check_email_partial(text, field_context)
-            if result.has_correction:
-                return result
-        
-        if field_context.field_type in ['tel', 'phone', 'mobile']:
-            result = self._check_phone_partial(text, field_context)
-            if result.has_correction:
+        # Check all pattern groups in priority order
+        for group in ['explicit_strong', 'explicit_medium', 'negation']:
+            result = self._check_pattern_group(group, text)
+            if result:
                 return result
         
         # Check restart patterns
-        result = self._check_restart(text, field_context)
-        if result.has_correction:
+        result = self._check_pattern_group('restart', text)
+        if result:
             return result
         
+        # Field-specific partial corrections
+        if field_context.field_type in ['email', 'e-mail']:
+            result = self._check_pattern_group('email_partial', text, scope=CorrectionScope.EMAIL_DOMAIN)
+            if result:
+                return result
+        
+        if field_context.field_type in ['tel', 'phone', 'mobile']:
+            result = self._check_pattern_group('phone_partial', text, scope=CorrectionScope.PHONE_SUFFIX)
+            if result:
+                return result
+        
         # Check for nested/multiple corrections
-        result = self._check_nested_corrections(text, field_context)
-        if result.has_correction:
+        result = self._check_nested_corrections(text)
+        if result:
             return result
         
         # No correction detected
         return CorrectionResult(final_value=text)
+    
+    def _check_pattern_group(
+        self, 
+        group_name: str, 
+        text: str, 
+        scope: CorrectionScope = CorrectionScope.FULL_VALUE
+    ) -> Optional[CorrectionResult]:
+        """Generic pattern checker for all pattern groups."""
+        for pattern, name in self._compiled[group_name]:
+            match = pattern.search(text)
+            if match:
+                # Handle regex groups differently based on pattern complexity
+                if group_name == 'restart':
+                    # Restarts have (abandoned, kept)
+                    original = match.group(1)
+                    corrected = match.group(2).strip()
+                    ctype = CorrectionType.RESTART
+                elif name == 'not_its':
+                    # "not X, it's Y" has two groups: (X, Y)
+                    original = match.group(1)  # X (the wrong value)
+                    corrected = match.group(2).strip()  # Y (the correct value)
+                    ctype = CorrectionType.FULL
+                elif group_name in ['email_partial', 'phone_partial']:
+                    # Partial corrections have (old_part, new_part)
+                    original = match.group(1)
+                    corrected = match.group(2).strip()
+                    ctype = CorrectionType.PARTIAL
+                else:
+                    # Standard: Group 1 is the corrected value
+                    corrected = match.group(1).strip()
+                    original = text[:match.start()].strip()
+                    ctype = CorrectionType.FULL
+                
+                # Confidence based on pattern type
+                confidence = 0.95 if group_name == 'explicit_strong' else 0.90
+                
+                return CorrectionResult(
+                    has_correction=True,
+                    correction_type=ctype,
+                    original_segment=original,
+                    corrected_value=corrected,
+                    final_value=corrected,
+                    correction_marker=name,
+                    confidence=confidence,
+                    scope=scope,
+                    pattern_matched=name
+                )
+        return None
     
     def _is_false_positive(self, text: str) -> bool:
         """Check if text matches false positive patterns."""
@@ -239,231 +273,41 @@ class CorrectionDetector:
                 return True
         return False
     
-    def _check_explicit_strong(self, text: str, ctx: FieldContext) -> CorrectionResult:
-        """Check for strong explicit correction markers."""
-        for pattern, name in self._compiled['explicit_strong']:
-            match = pattern.search(text)
-            if match:
-                corrected = match.group(1).strip()
-                original = text[:match.start()].strip()
-                
-                return CorrectionResult(
-                    has_correction=True,
-                    correction_type=CorrectionType.FULL,
-                    original_segment=original,
-                    corrected_value=corrected,
-                    final_value=corrected,
-                    correction_marker=name,
-                    confidence=0.95,
-                    scope=CorrectionScope.FULL_VALUE,
-                    pattern_matched=name
-                )
-        return CorrectionResult()
-    
-    def _check_explicit_medium(self, text: str, ctx: FieldContext) -> CorrectionResult:
-        """Check for medium strength correction markers."""
-        for pattern, name in self._compiled['explicit_medium']:
-            match = pattern.search(text)
-            if match:
-                corrected = match.group(1).strip()
-                original = text[:match.start()].strip()
-                
-                return CorrectionResult(
-                    has_correction=True,
-                    correction_type=CorrectionType.FULL,
-                    original_segment=original,
-                    corrected_value=corrected,
-                    final_value=corrected,
-                    correction_marker=name,
-                    confidence=0.90,
-                    scope=CorrectionScope.FULL_VALUE,
-                    pattern_matched=name
-                )
-        return CorrectionResult()
-    
-    def _check_negation(self, text: str, ctx: FieldContext) -> CorrectionResult:
-        """Check for negation patterns."""
-        for pattern, name in self._compiled['negation']:
-            match = pattern.search(text)
-            if match:
-                groups = match.groups()
-                
-                if name == 'not_its':
-                    # "not X, it's Y" - groups are (X, Y)
-                    original = groups[0]
-                    corrected = groups[1].strip()
-                else:
-                    # "no, X" - single group
-                    corrected = groups[0].strip()
-                    original = ""
-                
-                return CorrectionResult(
-                    has_correction=True,
-                    correction_type=CorrectionType.FULL,
-                    original_segment=original,
-                    corrected_value=corrected,
-                    final_value=corrected,
-                    correction_marker=name,
-                    confidence=0.88,
-                    scope=CorrectionScope.FULL_VALUE,
-                    pattern_matched=name
-                )
-        return CorrectionResult()
-    
-    def _check_restart(self, text: str, ctx: FieldContext) -> CorrectionResult:
-        """Check for restart patterns (abandoned starts)."""
-        for pattern, name in self._compiled['restart']:
-            match = pattern.search(text)
-            if match:
-                abandoned = match.group(1)
-                completed = match.group(2).strip()
-                
-                # Verify the completed value starts similarly (it's a restart, not two values)
-                if completed.lower().startswith(abandoned.lower()[:1]):
-                    return CorrectionResult(
-                        has_correction=True,
-                        correction_type=CorrectionType.RESTART,
-                        original_segment=abandoned,
-                        corrected_value=completed,
-                        final_value=completed,
-                        correction_marker=name,
-                        confidence=0.80,
-                        scope=CorrectionScope.FULL_VALUE,
-                        pattern_matched=name
-                    )
-        return CorrectionResult()
-    
-    def _check_email_partial(self, text: str, ctx: FieldContext) -> CorrectionResult:
-        """Check for partial email corrections (domain changes)."""
-        for pattern, name in self._compiled['email_partial']:
-            match = pattern.search(text)
-            if match:
-                old_domain = match.group(1)
-                new_domain = match.group(2)
-                
-                # Extract the local part (before the correction)
-                before_match = text[:match.start()].strip()
-                local_part = self._extract_email_local(before_match)
-                
-                if local_part:
-                    # Construct corrected email
-                    corrected_email = f"{local_part}@{new_domain}.com"
-                    
-                    return CorrectionResult(
-                        has_correction=True,
-                        correction_type=CorrectionType.PARTIAL,
-                        original_segment=f"@{old_domain}",
-                        corrected_value=f"@{new_domain}",
-                        final_value=corrected_email,
-                        correction_marker=name,
-                        confidence=0.85,
-                        scope=CorrectionScope.EMAIL_DOMAIN,
-                        pattern_matched=name
-                    )
-        return CorrectionResult()
-    
-    def _check_phone_partial(self, text: str, ctx: FieldContext) -> CorrectionResult:
-        """Check for partial phone corrections (suffix changes)."""
-        for pattern, name in self._compiled['phone_partial']:
-            match = pattern.search(text)
-            if match:
-                old_suffix = match.group(1)
-                new_suffix = match.group(2)
-                
-                # Get prefix from context or extract from text
-                prefix = self._extract_phone_prefix(text[:match.start()], ctx)
-                
-                if prefix:
-                    corrected_phone = prefix + new_suffix
-                    return CorrectionResult(
-                        has_correction=True,
-                        correction_type=CorrectionType.PARTIAL,
-                        original_segment=old_suffix,
-                        corrected_value=new_suffix,
-                        final_value=corrected_phone,
-                        correction_marker=name,
-                        confidence=0.85,
-                        scope=CorrectionScope.PHONE_SUFFIX,
-                        pattern_matched=name
-                    )
-        return CorrectionResult()
-    
-    def _check_nested_corrections(self, text: str, ctx: FieldContext) -> CorrectionResult:
+    def _check_nested_corrections(self, text: str) -> Optional[CorrectionResult]:
         """
         Check for nested/multiple corrections - take the last one.
         
         Example: "John... James... actually Jake" → Jake
         """
-        # Count correction markers (including 'oh sorry')
         markers = ['actually', 'oh sorry', 'i mean', 'no wait', 'wait', 'sorry', 'no its', 'no,']
-        marker_positions = []
-        
         text_lower = text.lower()
+        
+        # Find LAST marker position
+        last_marker_info = None
         for marker in markers:
-            pos = text_lower.rfind(marker)  # Find LAST occurrence
+            pos = text_lower.rfind(marker)
             if pos != -1:
-                marker_positions.append((pos, marker))
+                if last_marker_info is None or pos > last_marker_info[0]:
+                    last_marker_info = (pos, marker)
         
-        if len(marker_positions) >= 2:
-            # Multiple corrections - use the last one
-            marker_positions.sort(key=lambda x: x[0], reverse=True)
-            last_pos, last_marker = marker_positions[0]
-            
-            # Extract value after last marker
-            after_marker = text[last_pos + len(last_marker):].strip()
-            # Clean up leading punctuation/whitespace
-            after_marker = re.sub(r'^[,\s]+', '', after_marker)
-            
-            if after_marker:
-                return CorrectionResult(
-                    has_correction=True,
-                    correction_type=CorrectionType.NESTED,
-                    original_segment=text[:last_pos].strip(),
-                    corrected_value=after_marker,
-                    final_value=after_marker,
-                    correction_marker=last_marker,
-                    confidence=0.92,  # High confidence when multiple corrections
-                    scope=CorrectionScope.FULL_VALUE,
-                    pattern_matched='nested_last'
-                )
-        
-        return CorrectionResult()
-    
-    def _extract_email_local(self, text: str) -> Optional[str]:
-        """Extract email local part from text."""
-        # Look for email-like patterns
-        patterns = [
-            r'([a-zA-Z0-9._+-]+)\s*(?:@|at)',
-            r'(?:email\s+(?:is\s+)?)?([a-zA-Z0-9._+-]+)\s*$',
-        ]
-        
-        for pattern in patterns:
-            match = re.search(pattern, text, re.IGNORECASE)
-            if match:
-                return match.group(1).lower()
-        
-        # Fallback: take last word-like segment
-        words = text.split()
-        if words:
-            last = words[-1].strip('.,!?')
-            if re.match(r'^[a-zA-Z0-9._+-]+$', last):
-                return last.lower()
-        
-        return None
-    
-    def _extract_phone_prefix(self, text: str, ctx: FieldContext) -> Optional[str]:
-        """Extract phone prefix from text or context."""
-        # First try context
-        if ctx.current_value:
-            digits = re.sub(r'\D', '', ctx.current_value)
-            if len(digits) >= 6:
-                return digits[:-4]  # All but last 4 digits
-        
-        # Extract from text
-        digits = re.sub(r'\D', '', text)
-        if len(digits) >= 6:
-            return digits[:6]  # First 6 digits as prefix
-        
+        if last_marker_info:
+            pos, marker = last_marker_info
+            # Heuristic: If marker is very early, it might not be a nested correction chain
+            if pos > 5:
+                corrected = text[pos + len(marker):].strip()
+                corrected = re.sub(r'^[,\s]+', '', corrected)
+                if corrected:
+                    return CorrectionResult(
+                        has_correction=True,
+                        correction_type=CorrectionType.NESTED,
+                        original_segment=text[:pos].strip(),
+                        corrected_value=corrected,
+                        final_value=corrected,
+                        correction_marker=marker,
+                        confidence=0.92,
+                        scope=CorrectionScope.FULL_VALUE,
+                        pattern_matched='nested_last'
+                    )
         return None
     
     def record_correction(self, result: CorrectionResult):
@@ -474,29 +318,22 @@ class CorrectionDetector:
             if len(self._correction_history) > 100:
                 self._correction_history = self._correction_history[-100:]
     
-    def get_user_patterns(self) -> Dict[str, int]:
-        """Get statistics on user's correction patterns."""
+    def get_statistics(self) -> Dict[str, Any]:
+        """Get detection statistics."""
         pattern_counts: Dict[str, int] = {}
+        type_counts: Dict[str, int] = {}
+        
         for result in self._correction_history:
             pattern = result.pattern_matched
             pattern_counts[pattern] = pattern_counts.get(pattern, 0) + 1
-        return pattern_counts
-    
-    def get_statistics(self) -> Dict[str, Any]:
-        """Get detection statistics."""
+            ctype = result.correction_type.value
+            type_counts[ctype] = type_counts.get(ctype, 0) + 1
+        
         return {
             'total_corrections': len(self._correction_history),
-            'pattern_usage': self.get_user_patterns(),
-            'by_type': self._count_by_type(),
+            'pattern_usage': pattern_counts,
+            'by_type': type_counts,
         }
-    
-    def _count_by_type(self) -> Dict[str, int]:
-        """Count corrections by type."""
-        counts: Dict[str, int] = {}
-        for result in self._correction_history:
-            ctype = result.correction_type.value
-            counts[ctype] = counts.get(ctype, 0) + 1
-        return counts
 
 
 # Singleton instance
