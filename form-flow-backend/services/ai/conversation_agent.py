@@ -104,6 +104,13 @@ try:
 except ImportError:
     LOCAL_LLM_AVAILABLE = False
 
+# Try to import OpenRouter LLM
+try:
+    from services.ai.openrouter_llm import get_openrouter_service
+    OPENROUTER_AVAILABLE = True
+except ImportError:
+    OPENROUTER_AVAILABLE = False
+
 # Constants
 LLM_MAX_RETRIES = 3
 LLM_RETRY_BASE_DELAY = 1.0
@@ -154,6 +161,13 @@ class ConversationAgent:
         self.llm = None
         self.llm_extractor = None
         self.local_llm = None
+        self.openrouter_llm = None
+        
+        # Initialize OpenRouter (Primary)
+        if OPENROUTER_AVAILABLE:
+            self.openrouter_llm = get_openrouter_service()
+            if self.openrouter_llm:
+                logger.info("✅ OpenRouter LLM initialized as PRIMARY engine")
         
         if LANGCHAIN_AVAILABLE and self.api_key:
             try:
@@ -272,6 +286,30 @@ class ConversationAgent:
         """Cleanup expired sessions from storage."""
         if self.session_manager:
             await self.session_manager.cleanup_local_cache()
+    
+    async def get_session_summary(self, session_id: str) -> Dict[str, Any]:
+        """
+        Get a summary of a conversation session.
+        
+        Args:
+            session_id: The session identifier
+            
+        Returns:
+            Dict with session summary or error
+        """
+        session = await self.get_session(session_id)
+        
+        if not session:
+            return {"error": "Session not found or expired"}
+        
+        return {
+            "session_id": session.id,
+            "form_url": session.form_url,
+            "extracted_fields": session.extracted_fields,
+            "remaining_count": len(session.get_remaining_fields()),
+            "is_complete": len([f for f in session.get_remaining_fields() if f.get('required', False)]) == 0,
+            "conversation_turns": len(session.conversation_history)
+        }
     
     # =========================================================================
     # Greeting Generation
@@ -745,7 +783,43 @@ class ConversationAgent:
         Returns:
             Tuple of (extracted_values, confidence_scores, message)
         """
-        # Try local LLM first (primary path - fast & free)
+        # Prepare field list for extraction - use ALL remaining fields (context aware)
+        if hasattr(session, 'form_schema') and session.form_schema:
+            raw_schema = session.form_schema
+            all_fields = []
+            for item in raw_schema:
+                if isinstance(item, dict) and 'fields' in item:
+                    all_fields.extend(item['fields'])
+                else:
+                    all_fields.append(item)
+            fields_to_extract = all_fields
+        else:
+            fields_to_extract = remaining_fields
+        
+        # Fallback if empty
+        if not fields_to_extract:
+            fields_to_extract = remaining_fields
+
+        # ------------------------------------------------------------------
+        # 1. Try OpenRouter (Primary - Fast & High Quality)
+        # ------------------------------------------------------------------
+        if self.openrouter_llm:
+            try:
+                logger.info("Using OpenRouter LLM (Primary)...")
+                batch_result = self.openrouter_llm.extract_all_fields(user_input, fields_to_extract)
+                
+                if batch_result.get('extracted'):
+                    logger.info(f"✅ OpenRouter extraction success: {batch_result['extracted']}")
+                    return batch_result['extracted'], batch_result['confidence'], ""
+                else:
+                    logger.info("OpenRouter returned no values, trying backup...")
+            except Exception as e:
+                logger.error(f"OpenRouter failed: {e}")
+                # Continue to backup
+
+        # ------------------------------------------------------------------
+        # 2. Try Local LLM (Backup - Free)
+        # ------------------------------------------------------------------
         if self.local_llm:
             try:
                 logger.info("Using Local LLM (primary)...")
@@ -754,22 +828,6 @@ class ConversationAgent:
                 
                 # Prepare field list for extraction - use ALL remaining fields, not just current_batch
                 # This allows users to provide multiple fields at once (e.g., "my name is X and email is Y")
-                # Prepare field list for extraction - pass FULL objects for context-aware extraction
-                # This allows the LLM to see options, types, and labels
-                # CHANGE: Use session.form_schema (ALL fields) instead of remaining_fields
-                # This enables "Smart Update/Correction" where the user can update any field value at any time
-                if hasattr(session, 'form_schema') and session.form_schema:
-                    raw_schema = session.form_schema
-                    # Flatten schema: If it's a list provides forms with 'fields', extract them
-                    all_fields = []
-                    for item in raw_schema:
-                        if isinstance(item, dict) and 'fields' in item:
-                            all_fields.extend(item['fields'])
-                        else:
-                            all_fields.append(item)
-                    fields_to_extract = all_fields
-                else:
-                    fields_to_extract = remaining_fields
                 
                 # If form_schema is somehow empty (shouldn't be), fall back
                 if not fields_to_extract:
