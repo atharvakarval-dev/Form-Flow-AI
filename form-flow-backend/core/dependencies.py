@@ -46,6 +46,8 @@ def _log_lazy_init(service_name: str) -> None:
 def get_voice_processor():
     """
     Get VoiceProcessor - LAZY loaded on first call.
+    
+    Uses OpenRouter API (Gemma 3 27B) for LLM-based voice processing.
     """
     global _voice_processor
     
@@ -54,8 +56,7 @@ def get_voice_processor():
         from services.voice.processor import VoiceProcessor
         
         _voice_processor = VoiceProcessor(
-            openai_key=settings.OPENAI_API_KEY,
-            gemini_key=settings.GOOGLE_API_KEY
+            openrouter_key=settings.OPENROUTER_API_KEY
         )
     
     return _voice_processor

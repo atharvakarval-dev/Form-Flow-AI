@@ -1,23 +1,36 @@
-import openai
-from google import genai
+from openai import OpenAI
 from typing import Dict, List, Any, Optional
 import json
 import re
 from services.form.parser import format_email_input
+from config.settings import settings
+
 
 class VoiceProcessor:
-    def __init__(self, openai_key: str = None, gemini_key: str = None):
-        self.openai_client = None
-        if openai_key:
+    """
+    Voice input processor using OpenRouter API for LLM-based extraction.
+    
+    Uses OpenRouter with Gemma 3 27B for fast, accurate voice input processing.
+    """
+    
+    def __init__(self, openrouter_key: str = None):
+        self.client = None
+        api_key = openrouter_key or settings.OPENROUTER_API_KEY
+        
+        if api_key:
             try:
-                self.openai_client = openai.OpenAI(api_key=openai_key)
-            except TypeError:
-                # Fallback if local httpx version is incompatible with the OpenAI SDK
-                self.openai_client = None
-        if gemini_key:
-            self.client = genai.Client(api_key=gemini_key)
+                self.client = OpenAI(
+                    base_url="https://openrouter.ai/api/v1",
+                    api_key=api_key,
+                    timeout=15.0
+                )
+                self.model = "google/gemma-3-27b-it"
+                print(f"✅ VoiceProcessor initialized with OpenRouter ({self.model})")
+            except Exception as e:
+                print(f"⚠️ Failed to initialize OpenRouter client: {e}")
+                self.client = None
         else:
-            self.client = None
+            print("⚠️ OPENROUTER_API_KEY not configured - LLM features disabled")
 
     def analyze_form_context(self, form_schema: List[Dict]) -> str:
         """Analyze form structure and create context for intelligent prompts"""
@@ -97,7 +110,7 @@ class VoiceProcessor:
         except Exception as e:
             print(f"⚠️ Local LLM skipped: {e}")
 
-        # 2. Fallback to Gemini (Cloud)
+        # 2. Fallback to OpenRouter (Cloud)
         if not self.client:
             processed_text = self._format_field_input(transcript, field_info)
             return {"processed_text": processed_text, "confidence": 0.5, "suggestions": []}
@@ -210,25 +223,41 @@ class VoiceProcessor:
         """
         
         try:
-            # Switch to 1.5-flash for speed (was 1.5-pro)
-            response = self.client.models.generate_content(
-                model='gemini-2.0-flash',
-                contents=prompt
+            # Use OpenRouter with Gemma 3 27B for fast inference
+            response = self.client.chat.completions.create(
+                extra_headers={
+                    "HTTP-Referer": "https://formflow.ai",
+                    "X-Title": "Form Flow AI Voice Processor",
+                },
+                model=self.model,
+                messages=[
+                    {"role": "system", "content": "You are a form-filling assistant. Process voice input and return JSON."},
+                    {"role": "user", "content": prompt}
+                ],
+                temperature=0.1,
+                response_format={"type": "json_object"}
             )
-            result = json.loads(response.text)
+            
+            result = json.loads(response.choices[0].message.content)
+            
             # Apply additional formatting for special field types
             if is_email:
-                result["processed_text"] = self._format_email_from_voice(result["processed_text"])
+                result["processed_text"] = self._format_email_from_voice(result.get("processed_text", ""))
             elif is_checkbox:
-                result["processed_text"] = self._format_checkbox_from_voice(result["processed_text"])
+                result["processed_text"] = self._format_checkbox_from_voice(result.get("processed_text", ""))
+            
+            result["source"] = "openrouter_gemma3"
             return result
+            
         except Exception as e:
+            print(f"⚠️ OpenRouter voice processing error: {e}")
             processed_text = self._format_field_input(transcript, field_info)
             return {
                 "processed_text": processed_text,
                 "confidence": 0.3,
                 "suggestions": [f"Could you repeat that for {field_name}?"],
-                "clarifying_questions": [f"I didn't catch that clearly. Could you repeat {field_name}?"]
+                "clarifying_questions": [f"I didn't catch that clearly. Could you repeat {field_name}?"],
+                "source": "fallback"
             }
 
     def handle_pause_suggestions(self, field_info: Dict, form_context: str) -> List[str]:
@@ -263,32 +292,40 @@ class VoiceProcessor:
             if not self.client:
                 return {"needs_confirmation": True, "suggestion": transcript}
                 
-            prompt = f"""
-            Field: {field_name}
-            User said: "{transcript}"
-            
-            Check if this looks correct for a {field_name} field.
-            If it seems like there might be pronunciation errors, suggest a correction.
-            For email fields, ensure proper format with @ and . symbols.
-            
-            Respond in JSON:
-            {{
-                "needs_confirmation": true/false,
-                "suggestion": "corrected version",
-                "confidence": 0.8
-            }}
-            """
+            prompt = f"""Field: {field_name}
+User said: "{transcript}"
+
+Check if this looks correct for a {field_name} field.
+If it seems like there might be pronunciation errors, suggest a correction.
+For email fields, ensure proper format with @ and . symbols.
+
+Respond in JSON:
+{{
+    "needs_confirmation": true/false,
+    "suggestion": "corrected version",
+    "confidence": 0.8
+}}"""
             
             try:
-                response = self.client.models.generate_content(
-                    model='gemini-2.5-pro',
-                    contents=prompt
+                response = self.client.chat.completions.create(
+                    extra_headers={
+                        "HTTP-Referer": "https://formflow.ai",
+                        "X-Title": "Form Flow AI Pronunciation Validator",
+                    },
+                    model=self.model,
+                    messages=[
+                        {"role": "system", "content": "You are a pronunciation validator. Return JSON only."},
+                        {"role": "user", "content": prompt}
+                    ],
+                    temperature=0.1,
+                    response_format={"type": "json_object"}
                 )
-                result = json.loads(response.text)
+                result = json.loads(response.choices[0].message.content)
                 if is_email:
-                    result["suggestion"] = self._format_email_from_voice(result["suggestion"])
+                    result["suggestion"] = self._format_email_from_voice(result.get("suggestion", ""))
                 return result
-            except:
+            except Exception as e:
+                print(f"⚠️ OpenRouter pronunciation validation error: {e}")
                 suggestion = self._format_field_input(transcript, field_info)
                 return {"needs_confirmation": True, "suggestion": suggestion, "confidence": 0.5}
         
@@ -446,13 +483,11 @@ class VoiceProcessor:
 _voice_processor_instance: Optional[VoiceProcessor] = None
 
 
-def get_voice_processor(openai_key: str = None, gemini_key: str = None) -> VoiceProcessor:
+def get_voice_processor(openrouter_key: str = None) -> VoiceProcessor:
     """Get singleton VoiceProcessor instance."""
     global _voice_processor_instance
     if _voice_processor_instance is None:
-        import os
         _voice_processor_instance = VoiceProcessor(
-            openai_key=openai_key or os.getenv("OPENAI_API_KEY"),
-            gemini_key=gemini_key or os.getenv("GOOGLE_API_KEY")
+            openrouter_key=openrouter_key or settings.OPENROUTER_API_KEY
         )
     return _voice_processor_instance
