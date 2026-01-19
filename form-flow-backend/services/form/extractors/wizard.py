@@ -9,6 +9,52 @@ from typing import List, Dict, Any
 from ..utils.constants import WIZARD_INDICATORS, WIZARD_NEXT_BUTTON_SELECTORS
 from ..utils.page_helpers import wait_for_dom_stability
 
+# RAG service for semantic field understanding
+try:
+    from services.ai.rag_service import get_rag_service
+    RAG_AVAILABLE = True
+except ImportError:
+    RAG_AVAILABLE = False
+
+
+def enrich_fields_with_rag(fields: List[Dict], form_id: str = "wizard_form") -> List[Dict]:
+    """
+    Use RAG to infer field purposes from labels via semantic matching.
+    
+    Args:
+        fields: List of extracted field dictionaries
+        form_id: Form identifier for RAG lookup
+        
+    Returns:
+        Enriched field list with inferred purposes
+    """
+    if not RAG_AVAILABLE or not fields:
+        return fields
+    
+    try:
+        rag = get_rag_service()
+        
+        for field in fields:
+            label = field.get('label', field.get('name', ''))
+            # Skip if field already has a purpose or label is empty
+            if not label or field.get('purpose'):
+                continue
+            
+            # Find semantically similar fields in RAG
+            similar = rag.find_similar_fields(label, n_results=1, form_id=form_id)
+            
+            if similar and similar[0].similarity > 0.7:
+                match = similar[0]
+                field['inferred_purpose'] = match.field_type
+                field['rag_match'] = match.label
+                field['rag_similarity'] = match.similarity
+        
+        return fields
+        
+    except Exception:
+        # Silently fail - RAG is optional enhancement
+        return fields
+
 
 async def detect_wizard_form(page) -> bool:
     """
@@ -217,5 +263,8 @@ async def navigate_wizard_and_extract(page, extract_fn) -> List[Dict]:
         await asyncio.sleep(0.3)
     
     print(f"✓ Collected fields from {len(visited_steps)} wizard steps")
+    
+    # Enrich fields with RAG semantic understanding
+    all_forms = enrich_fields_with_rag(all_forms, form_id="wizard_form")
     
     return all_forms

@@ -79,6 +79,9 @@ from services.ai.normalizers import (
 # Suggestion engine for contextual suggestions
 from services.ai.suggestion_engine import SuggestionEngine, PatternType
 
+# RAG service for semantic field matching and user preference learning
+from services.ai.rag_service import get_rag_service
+
 logger = get_logger(__name__)
 
 # Try to import LangChain
@@ -238,6 +241,15 @@ class ConversationAgent:
             extracted_fields=initial_data or {},
             client_type=client_type
         )
+        
+        # Embed form schema into RAG for semantic field matching
+        try:
+            rag = get_rag_service()
+            embedded_count = rag.embed_form_schema(form_schema, form_id=session.id)
+            if embedded_count > 0:
+                logger.info(f"Embedded {embedded_count} fields into RAG for session {session.id}")
+        except Exception as e:
+            logger.warning(f"RAG embedding skipped: {e}")
         
         await self._save_session(session)
         logger.info(f"Created session: {session.id}")

@@ -20,6 +20,13 @@ from collections import defaultdict
 from utils.logging import get_logger
 from utils.cache import get_cached, set_cached
 
+# RAG service for semantic field matching
+try:
+    from services.ai.rag_service import get_rag_service
+    RAG_AVAILABLE = True
+except ImportError:
+    RAG_AVAILABLE = False
+
 logger = get_logger(__name__)
 
 
@@ -112,6 +119,30 @@ class SmartAutofill:
                 s for s in suggestions
                 if s['value'].lower().startswith(current_value.lower())
             ]
+        
+        # Enhance with RAG if history is insufficient
+        if len(suggestions) < self.max_suggestions and RAG_AVAILABLE:
+            try:
+                rag = get_rag_service()
+                rag_suggestions = rag.get_suggested_values(
+                    user_id=user_id,
+                    field_pattern=field_type,
+                    n_results=self.max_suggestions - len(suggestions),
+                    partial_value=current_value or None
+                )
+                # Add RAG suggestions that aren't already in the list
+                existing_values = {s['value'].lower() for s in suggestions}
+                for val in rag_suggestions:
+                    if val.lower() not in existing_values:
+                        suggestions.append({
+                            'value': val,
+                            'confidence': 0.7,
+                            'source': 'rag',
+                            'label': f'📚 {val}'  # Mark as RAG-sourced
+                        })
+                        existing_values.add(val.lower())
+            except Exception as e:
+                logger.debug(f"RAG suggestion enhancement skipped: {e}")
         
         return suggestions[:self.max_suggestions]
 
