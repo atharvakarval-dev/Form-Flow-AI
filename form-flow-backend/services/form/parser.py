@@ -59,7 +59,12 @@ FIELD_PATTERNS = {
 # MAIN EXPORT FUNCTION
 # ============================================================================
 
-async def get_form_schema(url: str, generate_speech: bool = True, wait_for_dynamic: bool = True) -> Dict[str, Any]:
+async def get_form_schema(
+    url: str, 
+    generate_speech: bool = True, 
+    wait_for_dynamic: bool = True,
+    manual_fields: List[Dict] = None
+) -> Dict[str, Any]:
     """
     Scrape form fields from a URL. Supports Google Forms and standard HTML forms.
     
@@ -70,19 +75,25 @@ async def get_form_schema(url: str, generate_speech: bool = True, wait_for_dynam
         url: Target URL to scrape
         generate_speech: Whether to generate TTS for fields
         wait_for_dynamic: Whether to wait for JS content
+        manual_fields: Optional list of manually mapped fields to fallback to
     
     Returns:
         Dict with 'forms', 'url', 'is_google_form', 'total_forms', 'total_fields'
     """
     # On Windows, use sync Playwright to avoid asyncio subprocess issues
     if sys.platform == 'win32':
-        return await asyncio.to_thread(_sync_get_form_schema, url, generate_speech, wait_for_dynamic)
+        return await asyncio.to_thread(_sync_get_form_schema, url, generate_speech, wait_for_dynamic, manual_fields)
     
     # Non-Windows: use async Playwright as before
-    return await _async_get_form_schema(url, generate_speech, wait_for_dynamic)
+    return await _async_get_form_schema(url, generate_speech, wait_for_dynamic, manual_fields)
 
 
-def _sync_get_form_schema(url: str, generate_speech: bool = True, wait_for_dynamic: bool = True) -> Dict[str, Any]:
+def _sync_get_form_schema(
+    url: str, 
+    generate_speech: bool = True, 
+    wait_for_dynamic: bool = True,
+    manual_fields: List[Dict] = None
+) -> Dict[str, Any]:
     """Sync Playwright implementation for Windows."""
     is_google_form = 'docs.google.com/forms' in url
     
@@ -131,6 +142,10 @@ def _sync_get_form_schema(url: str, generate_speech: bool = True, wait_for_dynam
                 forms_data = _sync_extract_custom_dropdown_options(page, forms_data)
             
             browser.close()
+            
+            # Apply manual field overrides
+            if manual_fields:
+                forms_data = _merge_manual_fields(forms_data, manual_fields)
             
             # Process and enrich fields
             fields = _process_forms(forms_data)
@@ -293,7 +308,66 @@ def _get_standard_extraction_js():
     """
 
 
-async def _async_get_form_schema(url: str, generate_speech: bool = True, wait_for_dynamic: bool = True) -> Dict[str, Any]:
+
+def _merge_manual_fields(extracted_forms: List[Dict], manual_fields: List[Dict]) -> List[Dict]:
+    """
+    Merge manually defined fields with extracted forms.
+    Returns a new list of forms.
+    """
+    if not manual_fields:
+        return extracted_forms
+        
+    print(f"🛠️ Merging {len(manual_fields)} manual field(s)...")
+    
+    # Convert manual fields to standard format
+    formatted_manual = []
+    for mf in manual_fields:
+        field = {
+            'name': mf.get('field_name'),
+            'label': mf.get('label'),
+            'type': mf.get('field_type', 'text'),
+            'required': mf.get('required', False),
+            'options': [{'label': o, 'value': o} for o in mf.get('options', [])] if mf.get('options') else [],
+            'manual_override': True
+        }
+        # Add display name immediately for consistency
+        from services.form.processors.enrichment import generate_display_name
+        field['display_name'] = generate_display_name(field)
+        formatted_manual.append(field)
+
+    # If no forms extracted, create a synthetic one
+    if not extracted_forms:
+        return [{
+            'formIndex': 0,
+            'name': 'Manual Form',
+            'action': None,
+            'fields': formatted_manual,
+            'is_manual': True
+        }]
+    
+    # Otherwise append to the first/main form
+    # Logic: If a manual field has the same name as an extracted one, override it.
+    # Otherwise, append it.
+    main_form = extracted_forms[0]
+    existing_names = {f['name']: idx for idx, f in enumerate(main_form['fields']) if f.get('name')}
+    
+    for manual in formatted_manual:
+        name = manual['name']
+        if name in existing_names:
+            print(f"   Using manual override for field '{name}'")
+            main_form['fields'][existing_names[name]] = manual
+        else:
+            main_form['fields'].append(manual)
+            
+    return extracted_forms
+
+
+async def _async_get_form_schema(
+    url: str, 
+    generate_speech: bool = True, 
+    wait_for_dynamic: bool = True,
+    manual_fields: List[Dict] = None
+) -> Dict[str, Any]:
     """Original async Playwright implementation for non-Windows platforms."""
     is_google_form = 'docs.google.com/forms' in url
     
@@ -341,15 +415,25 @@ async def _async_get_form_schema(url: str, generate_speech: bool = True, wait_fo
                 pass
             await browser.close()
             
+            # Apply manual field overrides
+            if manual_fields:
+                forms_data = _merge_manual_fields(forms_data, manual_fields)
+            
             # Process and enrich fields
             fields = _process_forms(forms_data)
+            
+            # Extract warnings
+            warnings = []
+            if forms_data and '_extraction_warnings' in forms_data[0]:
+                warnings = forms_data[0]['_extraction_warnings']
             
             result = {
                 'forms': fields,
                 'url': url,
                 'is_google_form': is_google_form,
                 'total_forms': len(fields),
-                'total_fields': sum(len(f['fields']) for f in fields)
+                'total_fields': sum(len(f['fields']) for f in fields),
+                'warnings': warnings
             }
             
             # Generate speech if requested
@@ -447,8 +531,32 @@ async def _extract_custom_dropdown_options(page, forms_data: List[Dict]) -> List
 
 
 async def _extract_all_frames(page, url: str) -> List[Dict]:
-    """Extract forms from all frames, with deduplication."""
+    """Extract forms from all frames, with deduplication and third-party detection."""
     seen_urls, seen_fields, forms_data = set(), set(), []
+    third_party_warnings = []
+    
+    # Detect third-party embedded forms first
+    try:
+        from services.form.detectors.third_party import (
+            detect_third_party_forms,
+            get_third_party_warnings,
+            ProviderAccessibility
+        )
+        
+        third_party_forms = await detect_third_party_forms(page)
+        if third_party_forms:
+            blocked_providers = [f for f in third_party_forms 
+                               if f.accessibility == ProviderAccessibility.CROSS_ORIGIN]
+            if blocked_providers:
+                print(f"⚠️ Detected {len(blocked_providers)} third-party form provider(s):")
+                for tp in blocked_providers:
+                    print(f"   - {tp.provider}: {tp.warning_message}")
+        
+        third_party_warnings = await get_third_party_warnings(page)
+    except ImportError:
+        pass  # Third-party detection not available
+    except Exception as e:
+        print(f"⚠️ Third-party detection error: {e}")
     
     for frame in page.frames:
         if frame.url in seen_urls or frame.is_detached():
@@ -462,7 +570,16 @@ async def _extract_all_frames(page, url: str) -> List[Dict]:
                                   if not f.get('name') or (f['name'] not in seen_fields and not seen_fields.add(f['name']))]
             forms_data.extend([f for f in frame_forms if f.get('fields')])
         except Exception as e:
-            if 'cross-origin' not in str(e).lower():
+            error_str = str(e).lower()
+            if 'cross-origin' in error_str:
+                # Try to identify the blocked provider
+                for url_part in ['typeform', 'jotform', 'google.com/forms', 'hubspot']:
+                    if url_part in frame.url.lower():
+                        third_party_warnings.append(
+                            f"⚠️ Cannot extract from {url_part} iframe (cross-origin security)"
+                        )
+                        break
+            else:
                 print(f">> Frame error: {e}")
     
     # BeautifulSoup fallback
@@ -472,6 +589,18 @@ async def _extract_all_frames(page, url: str) -> List[Dict]:
             forms_data = _extract_with_beautifulsoup(await page.content())
         except:
             pass
+    
+    # Add warnings to forms metadata if needed
+    if third_party_warnings and forms_data:
+        forms_data[0]['_extraction_warnings'] = third_party_warnings
+    elif third_party_warnings and not forms_data:
+        # No forms found but we have warnings - return a placeholder
+        forms_data = [{
+            'formIndex': 0,
+            'fields': [],
+            '_extraction_warnings': third_party_warnings,
+            '_no_extractable_forms': True
+        }]
     
     return forms_data
 

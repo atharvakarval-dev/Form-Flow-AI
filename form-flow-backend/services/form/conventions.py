@@ -135,6 +135,15 @@ def is_confirm_password(field_name: str, field_label: str = "") -> bool:
 # === Schema Classes ===
 
 @dataclass
+class ManualFieldMapping:
+    """Schema for user-provided field mappings when auto-extraction fails."""
+    field_name: str
+    field_type: str  # text, email, phone, dropdown, etc.
+    label: str
+    required: bool = False
+    options: Optional[List[str]] = None  # For dropdowns
+
+@dataclass
 class FieldConvention:
     """Defines validation and formatting rules for a single field"""
     name: str

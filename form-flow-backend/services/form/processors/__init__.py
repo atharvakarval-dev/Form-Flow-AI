@@ -18,6 +18,14 @@ from .enrichment import (
     get_field_speech,
 )
 
+from .conditional_handler import (
+    detect_conditional_triggers,
+    trigger_cascade_fields,
+    get_suggested_fill_order,
+    TriggerStrategy,
+    ConditionalFieldResult,
+)
+
 __all__ = [
     'process_forms',
     'detect_purpose',
@@ -32,4 +40,11 @@ __all__ = [
     'format_field_value',
     'format_email_input',
     'get_field_speech',
+    # Conditional field handling
+    'detect_conditional_triggers',
+    'trigger_cascade_fields',
+    'get_suggested_fill_order',
+    'TriggerStrategy',
+    'ConditionalFieldResult',
 ]
+
