@@ -26,6 +26,9 @@ Usage:
 import os
 import json
 from typing import Dict, List, Any, Optional
+from dotenv import load_dotenv  # <--- Add this
+
+load_dotenv()
 
 from langchain_community.chat_models import ChatOpenAI
 from langchain_google_genai import ChatGoogleGenerativeAI
@@ -101,7 +104,7 @@ class GeminiService:
             logger.info("Detected OpenRouter API key. Switching to OpenRouter provider.")
             # Default to Gemma 2 9B if using OpenRouter and default model was passed
             if self.model in ("gemini-2.0-flash", "gemma-3-27b-it"):
-                self.model = "google/gemma-2-9b-it:free" # Use free tier
+                self.model = "google/gemma-3-27b-it:free" # Use free tier
             
             self.llm = ChatOpenAI(
                 model=self.model,
@@ -341,6 +344,9 @@ _service_instance: Optional[GeminiService] = None
 def get_gemini_service() -> GeminiService:
     """Get singleton GeminiService instance."""
     global _service_instance
+    print("Getting Gemini Service Instance")
+    api_key = os.getenv('GEMMA_API_KEY') or os.getenv('OPENROUTER_API_KEY') or os.getenv('GOOGLE_API_KEY')
+    print(f"Using API Key: {api_key[:8]}...")  # Print first 8 chars for debugging
     if _service_instance is None:
         try:
             _service_instance = GeminiService()
