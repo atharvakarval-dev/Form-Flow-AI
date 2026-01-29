@@ -17,7 +17,7 @@
         "build:types": "tsc --emitDeclarationOnly",
         "dev": "rollup -c -w",
         "test": "jest",
-        "lint": "eslint src --ext .ts,.tsx"
+        "lint": "eslint src --ext .js,.jsx"
     },
     "keywords": [
         "formflow",
@@ -42,10 +42,8 @@
         }
     },
     "devDependencies": {
-        "@types/react": "^18.2.0",
-        "rollup": "^4.0.0",
-        "rollup-plugin-terser": "^7.0.0",
-        "typescript": "^5.0.0"
+        "@rollup/plugin-terser": "^0.4.0",
+        "rollup": "^4.0.0"
     },
     "repository": {
         "type": "git",
