@@ -103,7 +103,7 @@ function StepBasicInfo({ onNext }) {
     };
 
     return (
-        <form onSubmit={handleSubmit(onSubmit)} className="space-y-8 py-2">
+        <form onSubmit={handleSubmit(onSubmit)} className="space-y-8">
             <div className="space-y-6">
                 <InputField
                     label="Plugin Identity"
@@ -192,7 +192,7 @@ function StepConnection({ onNext, onBack }) {
     };
 
     return (
-        <form onSubmit={handleSubmit(onSubmit)} className="space-y-8 py-2">
+        <form onSubmit={handleSubmit(onSubmit)} className="space-y-8">
             <div className="grid grid-cols-6 gap-5">
                 <div className="col-span-4">
                     <InputField label="Host Address" required placeholder="db.example.com" error={errors.host?.message} {...register('host')} />
@@ -254,7 +254,7 @@ function StepTables({ onNext, onBack }) {
     );
 
     return (
-        <div className="space-y-8 py-2">
+        <div className="space-y-8">
             <div className="space-y-6">
                 {tables.map((table, tableIdx) => (
                     <motion.div
@@ -389,7 +389,7 @@ function StepReview({ onBack, onSubmit, isSubmitting }) {
     const { name, database_type, connection_config, tables, getFormData } = usePluginForm();
 
     return (
-        <div className="space-y-8 py-2">
+        <div className="space-y-8">
             <div className={`
                 p-10 rounded-[3.5rem] border space-y-10 relative overflow-hidden
                 ${isDark ? 'bg-zinc-950/40 border-white/[0.05]' : 'bg-zinc-50/50 border-zinc-200 shadow-inner'}
@@ -498,7 +498,7 @@ function CreatePluginModalContent({ onClose, onSuccess }) {
     return (
         <div className="h-full flex flex-col">
             {/* Nav Header */}
-            <div className="flex items-center justify-between p-10 pb-4">
+            <div className="flex items-center justify-between p-10 pt-16 pb-2">
                 <div className="space-y-1">
                     <div className="flex items-center gap-3">
                         <div className="w-2.5 h-2.5 rounded-full bg-emerald-500 shadow-[0_0_15px_rgba(16,185,129,0.8)] animate-pulse" />
@@ -510,16 +510,12 @@ function CreatePluginModalContent({ onClose, onSuccess }) {
                         Initialize Engine
                     </h2>
                 </div>
-                <button
-                    onClick={onClose}
-                    className={`p-4 rounded-[1.5rem] transition-all duration-300 ${isDark ? 'bg-white/5 text-zinc-500 hover:text-white hover:bg-white/10' : 'bg-zinc-100 text-zinc-400 hover:text-zinc-900 shadow-sm'}`}
-                >
-                    <X className="w-7 h-7" />
-                </button>
+                {/* Internal close button removed to avoid nav bar overlap, replaced by floating external arrow */}
+                <div className="w-14" />
             </div>
 
             {/* Progress Segmented Pills */}
-            <div className="flex gap-3 px-10 py-4">
+            <div className="flex gap-3 px-10 py-2">
                 {steps.map((s, idx) => (
                     <div key={idx} className="flex-1 space-y-3">
                         <div className={`
@@ -537,7 +533,7 @@ function CreatePluginModalContent({ onClose, onSuccess }) {
             </div>
 
             {/* Content Context */}
-            <div className="flex-1 p-10 pt-2 overflow-y-auto custom-scrollbar">
+            <div className="flex-1 p-10 pt-0 overflow-y-auto custom-scrollbar">
                 <AnimatePresence mode="wait">
                     <motion.div
                         key={step}
@@ -579,7 +575,7 @@ export function CreatePluginModal({ isOpen, onClose, onSuccess }) {
     return (
         <AnimatePresence>
             {isOpen && (
-                <div className="fixed inset-0 z-[200] flex justify-end overflow-hidden">
+                <div className="fixed inset-0 z-[500] flex justify-end overflow-hidden">
                     {/* Immersive Backdrop */}
                     <motion.div
                         initial={{ opacity: 0 }}
@@ -601,10 +597,29 @@ export function CreatePluginModal({ isOpen, onClose, onSuccess }) {
                         role="dialog"
                         aria-modal="true"
                         className={`
-                            relative z-10 w-full max-w-3xl h-full shadow-[-40px_0_80px_rgba(0,0,0,0.5)] overflow-hidden border-l
+                            relative z-10 w-full max-w-3xl h-full shadow-[-40px_0_80px_rgba(0,0,0,0.5)] overflow-visible border-l
                             ${isDark ? 'bg-zinc-900/98 border-white/[0.05]' : 'bg-white/95 border-zinc-200/50 backdrop-blur-3xl'}
                         `}
                     >
+                        {/* Floating Back Arrow - External to white area */}
+                        <motion.button
+                            initial={{ opacity: 0, x: 20 }}
+                            animate={{ opacity: 1, x: 0 }}
+                            exit={{ opacity: 0, x: 20 }}
+                            transition={{ delay: 0.3 }}
+                            onClick={onClose}
+                            className={`
+                                absolute -left-16 top-10 w-12 h-12 rounded-full flex items-center justify-center transition-all hover:scale-110 active:scale-95 z-20
+                                ${isDark
+                                    ? 'bg-zinc-800/80 text-white hover:bg-zinc-700 border-white/10'
+                                    : 'bg-white/80 text-zinc-900 hover:bg-white shadow-2xl border-zinc-200'
+                                }
+                                backdrop-blur-xl border
+                            `}
+                        >
+                            <ChevronLeft className="w-6 h-6" />
+                        </motion.button>
+
                         <PluginFormProvider>
                             <CreatePluginModalContent onClose={onClose} onSuccess={onSuccess} />
                         </PluginFormProvider>

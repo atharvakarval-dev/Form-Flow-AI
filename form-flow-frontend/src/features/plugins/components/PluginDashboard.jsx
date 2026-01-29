@@ -7,7 +7,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { Toaster } from 'react-hot-toast';
 import { QueryClientProvider } from '@tanstack/react-query';
 import {
-    Search, Plus, Filter, LayoutGrid, List, RefreshCw, Puzzle
+    Search, Plus, Filter, LayoutGrid, List, RefreshCw, Puzzle, ChevronLeft, X
 } from 'lucide-react';
 import { useTheme } from '@/context/ThemeProvider';
 import queryClient from '@/lib/queryClient';
@@ -227,7 +227,7 @@ function PluginDashboardContent() {
                 {/* Side panel - Floating Drawer Style */}
                 <AnimatePresence>
                     {(showAPIKeys || showEmbedCode) && selectedPlugin && (
-                        <div className="fixed inset-0 z-[250] flex justify-end overflow-hidden">
+                        <div className="fixed inset-0 z-[500] flex justify-end overflow-hidden">
                             <motion.div
                                 initial={{ opacity: 0 }}
                                 animate={{ opacity: 1 }}
@@ -241,21 +241,35 @@ function PluginDashboardContent() {
                                 exit={{ x: '100%', filter: 'blur(30px)' }}
                                 transition={{ type: "spring", damping: 35, stiffness: 350 }}
                                 className={`
-                                    relative z-10 w-full max-w-2xl h-full shadow-[-40px_0_80px_rgba(0,0,0,0.5)] overflow-hidden border-l
+                                    relative z-10 w-full max-w-2xl h-full shadow-[-40px_0_80px_rgba(0,0,0,0.5)] overflow-visible border-l
                                     ${isDark ? 'bg-zinc-900/98 border-white/[0.05]' : 'bg-white/95 border-zinc-200/50 backdrop-blur-3xl'}
                                 `}
                             >
-                                <div className="p-10 h-full overflow-y-auto custom-scrollbar">
+                                {/* Floating Back Arrow - External to white area */}
+                                <motion.button
+                                    initial={{ opacity: 0, x: 20 }}
+                                    animate={{ opacity: 1, x: 0 }}
+                                    exit={{ opacity: 0, x: 20 }}
+                                    transition={{ delay: 0.3 }}
+                                    onClick={handleClosePanel}
+                                    className={`
+                                        absolute -left-16 top-10 w-12 h-12 rounded-full flex items-center justify-center transition-all hover:scale-110 active:scale-95 z-20
+                                        ${isDark
+                                            ? 'bg-zinc-800/80 text-white hover:bg-zinc-700 border-white/10'
+                                            : 'bg-white/80 text-zinc-900 hover:bg-white shadow-2xl border-zinc-200'
+                                        }
+                                        backdrop-blur-xl border
+                                    `}
+                                >
+                                    <ChevronLeft className="w-6 h-6" />
+                                </motion.button>
+
+                                <div className="p-10 pt-16 h-full overflow-y-auto custom-scrollbar">
                                     <div className="flex justify-between items-center mb-8">
                                         <h2 className={`text-4xl font-black tracking-tighter ${isDark ? 'text-white' : 'text-zinc-900'}`}>
                                             {showAPIKeys ? 'Credentials' : 'Embed Code'}
                                         </h2>
-                                        <button
-                                            onClick={handleClosePanel}
-                                            className={`p-4 rounded-[1.5rem] transition-all duration-300 ${isDark ? 'bg-white/5 text-zinc-500 hover:text-white hover:bg-white/10' : 'bg-zinc-100 text-zinc-400 hover:text-zinc-900'}`}
-                                        >
-                                            <X className="w-7 h-7" />
-                                        </button>
+                                        <div className="w-14" />
                                     </div>
                                     {showAPIKeys && (
                                         <APIKeyManager plugin={selectedPlugin} onClose={handleClosePanel} />

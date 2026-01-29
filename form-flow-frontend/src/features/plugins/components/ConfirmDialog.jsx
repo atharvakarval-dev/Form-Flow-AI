@@ -73,7 +73,7 @@ export function ConfirmDialog({
                         animate={{ opacity: 1 }}
                         exit={{ opacity: 0 }}
                         onClick={!isLoading ? onClose : undefined}
-                        className="fixed inset-0 z-50 bg-black/50 backdrop-blur-sm"
+                        className="fixed inset-0 z-[600] bg-black/50 backdrop-blur-sm"
                         aria-hidden="true"
                     />
 
@@ -89,7 +89,7 @@ export function ConfirmDialog({
                         aria-labelledby="confirm-dialog-title"
                         aria-describedby="confirm-dialog-message"
                         className={`
-              fixed left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 z-50
+              fixed left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 z-[600]
               w-full max-w-md p-6 rounded-2xl shadow-2xl
               ${isDark ? 'bg-zinc-900 border border-white/10' : 'bg-white'}
             `}
