@@ -3,7 +3,7 @@
  */
 
 // API Configuration
-export const API_BASE_URL = 'http://localhost:8000';
+export const API_BASE_URL = 'http://localhost:8001';
 
 // Aurora Background Colors
 // Light mode friendly colors (emerald/green theme)
@@ -20,6 +20,7 @@ export const ROUTES = {
     LOGIN: '/login',
     REGISTER: '/register',
     DASHBOARD: '/dashboard',
+    PLUGINS: '/plugins',
 };
 
 // Animation Titles for Hero Section

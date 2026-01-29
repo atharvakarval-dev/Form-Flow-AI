@@ -5,7 +5,7 @@ import { motion, AnimatePresence } from "framer-motion"
 import {
     Clock, ExternalLink, FileText, CheckCircle2, XCircle, TrendingUp,
     PieChart, BarChart3, User, Sparkles, Target, Zap, Activity,
-    ArrowUpRight, Trophy, Flame, Calendar
+    ArrowUpRight, Trophy, Flame, Calendar, Puzzle
 } from "lucide-react"
 import api, { getAnalytics } from '@/services/api'
 import { ROUTES } from '@/constants'
@@ -13,6 +13,7 @@ import { useTheme } from '@/context/ThemeProvider'
 import { SubmissionTrendChart, SuccessRateChart, FieldTypesChart, FormTypeChart, TopDomainsChart, ActivityHourlyChart } from './AnalyticsCharts'
 import { AIInsights } from './AIInsights'
 import { ProfileSettings } from './ProfileSettings'
+import { PluginDashboard } from '@/features/plugins'
 
 const ITEMS_PER_PAGE = 5;
 
@@ -224,6 +225,7 @@ export function Dashboard() {
     const tabs = [
         { id: 'analytics', label: 'Analytics', icon: TrendingUp },
         { id: 'history', label: 'History', icon: FileText },
+        { id: 'plugins', label: 'Plugins', icon: Puzzle },
         { id: 'profile', label: 'Profile', icon: User },
     ];
 
@@ -238,52 +240,66 @@ export function Dashboard() {
 
             <div className="max-w-7xl mx-auto px-6 py-8 space-y-8">
 
-                {/* Header */}
+                {/* Header Section */}
                 <motion.div
                     initial={{ opacity: 0, y: -20 }}
                     animate={{ opacity: 1, y: 0 }}
-                    className="flex flex-col md:flex-row md:items-end md:justify-between gap-4"
+                    className="flex flex-col lg:flex-row lg:items-end lg:justify-between gap-12 pt-8 pb-4"
                 >
-                    <div>
-                        <div className="flex items-center gap-2 mb-2">
-                            <Sparkles className={`w-5 h-5 ${isDark ? 'text-emerald-400' : 'text-emerald-600'}`} />
-                            <span className={`text-sm font-medium ${isDark ? 'text-emerald-400' : 'text-emerald-600'}`}>
-                                Welcome back
+                    <div className="space-y-4">
+                        <motion.div
+                            initial={{ opacity: 0, scale: 0.9 }}
+                            animate={{ opacity: 1, scale: 1 }}
+                            className={`
+                                inline-flex items-center gap-2.5 px-4 py-1.5 rounded-full border text-[10px] font-black uppercase tracking-[0.3em]
+                                ${isDark
+                                    ? 'bg-emerald-500/10 border-emerald-500/20 text-emerald-400'
+                                    : 'bg-emerald-50 border-emerald-200 text-emerald-600'
+                                }
+                            `}
+                        >
+                            <span className="relative flex h-2 w-2">
+                                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                                <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
                             </span>
-                        </div>
-                        <h1 className="text-4xl font-bold tracking-tight">
-                            {user?.first_name || 'User'}'s Dashboard
+                            Live System Status: Optimal
+                        </motion.div>
+
+                        <h1 className={`text-6xl md:text-7xl font-black tracking-tighter leading-[0.9] ${isDark ? 'text-white' : 'text-zinc-900'}`}>
+                            {user?.first_name || 'Commander'}'s <br />
+                            <span className="text-zinc-500">Command Center</span>
                         </h1>
-                        <p className={`mt-2 ${isDark ? 'text-white/50' : 'text-zinc-500'}`}>
-                            Your form automation command center
-                        </p>
                     </div>
 
-                    {/* Tab Switcher */}
+                    {/* Tab Switcher - Premium Fluid Style */}
                     <div className={`
-                        inline-flex items-center gap-1 p-1 rounded-xl
-                        ${isDark ? 'bg-white/5 border border-white/10' : 'bg-zinc-100 border border-zinc-200'}
+                        inline-flex items-center gap-1 p-1.5 rounded-[2rem] border backdrop-blur-2xl
+                        ${isDark
+                            ? 'bg-zinc-900/40 border-white/[0.05] shadow-2xl'
+                            : 'bg-white/60 border-zinc-200/50 shadow-xl shadow-zinc-200/20'
+                        }
                     `}>
                         {tabs.map(tab => (
                             <button
                                 key={tab.id}
                                 onClick={() => setActiveTab(tab.id)}
                                 className={`
-                                    flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all
+                                    relative flex items-center gap-2.5 px-6 py-3 rounded-full text-[10px] font-black uppercase tracking-[0.2em] transition-all duration-500
                                     ${activeTab === tab.id
-                                        ? `${isDark
-                                            ? 'bg-white/10 text-white shadow-lg'
-                                            : 'bg-white text-zinc-900 shadow-md'
-                                        }`
-                                        : `${isDark
-                                            ? 'text-white/50 hover:text-white/80'
-                                            : 'text-zinc-500 hover:text-zinc-700'
-                                        }`
+                                        ? isDark ? 'text-black' : 'text-white'
+                                        : isDark ? 'text-zinc-500 hover:text-white' : 'text-zinc-400 hover:text-zinc-900'
                                     }
                                 `}
                             >
-                                <tab.icon className="w-4 h-4" />
-                                {tab.label}
+                                {activeTab === tab.id && (
+                                    <motion.div
+                                        layoutId="dashboard-tab-bg"
+                                        className={`absolute inset-0 rounded-full z-0 shadow-lg ${isDark ? 'bg-white' : 'bg-zinc-900 shadow-zinc-900/40'}`}
+                                        transition={{ type: "spring", bounce: 0.1, duration: 0.6 }}
+                                    />
+                                )}
+                                <tab.icon className={`w-3.5 h-3.5 relative z-10 transition-transform duration-500 ${activeTab === tab.id ? 'scale-110' : 'group-hover:scale-110'}`} />
+                                <span className="relative z-10">{tab.label}</span>
                             </button>
                         ))}
                     </div>
@@ -596,6 +612,19 @@ export function Dashboard() {
                         </motion.div>
                     )}
 
+                    {/* Plugins Tab Content */}
+                    {activeTab === 'plugins' && (
+                        <motion.div
+                            key="plugins"
+                            initial={{ opacity: 0, y: 20 }}
+                            animate={{ opacity: 1, y: 0 }}
+                            exit={{ opacity: 0, y: -20 }}
+                            transition={{ duration: 0.3 }}
+                        >
+                            <PluginDashboard />
+                        </motion.div>
+                    )}
+
                     {/* Profile Tab Content */}
                     {activeTab === 'profile' && (
                         <motion.div
@@ -605,9 +634,7 @@ export function Dashboard() {
                             exit={{ opacity: 0, y: -20 }}
                             transition={{ duration: 0.3 }}
                         >
-                            <BentoCard size="xl">
-                                <ProfileSettings />
-                            </BentoCard>
+                            <ProfileSettings />
                         </motion.div>
                     )}
                 </AnimatePresence>
