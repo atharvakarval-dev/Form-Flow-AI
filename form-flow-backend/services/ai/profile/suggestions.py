@@ -10,6 +10,8 @@ from dataclasses import dataclass
 from sqlalchemy.ext.asyncio import AsyncSession
 from datetime import datetime
 import json
+from services.ai.gemini import get_gemini_service
+from pydantic import BaseModel, Field
 
 from utils.logging import get_logger
 
@@ -23,6 +25,7 @@ class SuggestionTier(Enum):
     PATTERN_ONLY = "pattern_only"        # Tier 3: Fast fallback
 
 
+from services.ai.form_intent import FormIntent, get_form_intent_inferrer
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.output_parsers import JsonOutputParser
 from pydantic import BaseModel, Field
@@ -63,6 +66,7 @@ class ProfileSuggestionEngine:
         form_context: Dict[str, Any],
         previous_answers: Dict[str, str],
         db: AsyncSession,
+        form_intent: Optional[FormIntent],
         n_results: int = 5
     ) -> List[IntelligentSuggestion]:
         """
@@ -84,7 +88,7 @@ class ProfileSuggestionEngine:
                 # STRICT: Always use Tier 1 if profile exists. Ignore confidence score.
                 logger.info(f"👤 [Lifecycle] Profile Found. Confidence: {getattr(profile, 'confidence_score', 0)}")
                 logger.info("🚀 [Lifecycle] FORCING Tier 1: PROFILE_BASED (Ignoring confidence score)")
-                return await self._tier1_profile_based(profile, field_context, form_context, previous_answers)
+                return await self._tier1_profile_based(profile, field_context, form_context, previous_answers, form_intent)
             else:
                 # STRICT: No profile = No suggestions.
                 logger.warning("⛔ [Lifecycle] No Profile found. Skipping Tier 3 fallback (returning empty).")
@@ -99,14 +103,15 @@ class ProfileSuggestionEngine:
         profile: Any,
         field_context: Dict[str, Any],
         form_context: Dict[str, Any],
-        previous_answers: Dict[str, str]
+        previous_answers: Dict[str, str],
+        form_intent: Optional[FormIntent]
     ) -> List[IntelligentSuggestion]:
         """Tier 1: Full profile-based suggestions with LLM."""
         logger.info(f"🧠 [Lifecycle] Tier 1: Initiating LLM generation for '{field_context.get('name')}'")
         
         # Try to generate suggestions via LLM
         try:
-            llm_suggestions = await self._generate_llm_suggestions(profile, field_context, form_context)
+            llm_suggestions = await self._generate_llm_suggestions(profile, field_context, form_context, form_intent)
             if llm_suggestions:
                 logger.info(f"✅ [Lifecycle] Tier 1: LLM Success. Returned {len(llm_suggestions)} suggestions.")
                 return llm_suggestions
@@ -121,7 +126,8 @@ class ProfileSuggestionEngine:
         self,
         profile: Any,
         field_context: Dict[str, Any],
-        form_context: Dict[str, Any]
+        form_context: Dict[str, Any],
+        form_intent: Optional[FormIntent]
     ) -> Optional[List[IntelligentSuggestion]]:
         """Generate suggestions using LLM and user profile."""
         from services.ai.gemini import get_gemini_service
@@ -137,8 +143,10 @@ class ProfileSuggestionEngine:
         # Context extraction
         field_name = field_context.get("name", "unknown")
         field_label = field_context.get("label", field_name)
-        form_purpose = form_context.get("purpose", "General Form")
-        
+        form_purpose = form_intent.intent if form_intent else form_context.get("purpose", "General Form")
+        persona = form_intent.persona if form_intent else "Customer"
+        form_type = form_intent.form_type if form_intent else "public_facing"
+
         logger.debug(f"🤖 [Lifecycle] LLM Prompting for '{field_label}'...")
 
         # ---------------------------------------------------------
@@ -146,26 +154,33 @@ class ProfileSuggestionEngine:
         # ---------------------------------------------------------
         prompt = ChatPromptTemplate.from_messages([
             ("system", """You are an intelligent form-filling assistant.
-Your goal is to infer the correct value for a specific form field based on a User Profile.
+Your goal is to generate a relevant and context-aware suggestion for a form field based on a user's profile and the form's intent.
 
 CONTEXT:
+- **Form Intent:** {form_intent}
 - **Field Label:** "{field_label}" (Internal Name: {field_name})
-- **Form Context:** {form_purpose}
+- **Persona to Adopt:** {persona}
 - **User Profile:** {profile}
 
 INSTRUCTIONS:
-1. **Analyze the Field:** - If the field is "Position", "Role", or "Title", interpret it as **Job Title**.
-   - If the field is "Company" or "Organization", look for the user's **Employer**.
-   - If the field is "Address", look for the user's **Home Address**.
+1.  **Adopt the Persona:** Generate suggestions from the perspective of the persona.
+    *   If the persona is "Customer" or "Applicant", use the first person (e.g., "I am interested in...").
+    *   If the persona is "Clinician", you may use the third person to describe observations.
 
-2. **Search Profile:** Look for direct matches or infer logical answers (e.g., infer State from City).
+2.  **Map Generic Fields:** For generic fields like "Description", "Message", or "Comments", tailor the suggestion to the Form Intent.
+    *   If Intent is "Business Lead" and field is "Description", generate a suggestion like: "I would like to inquire about your services."
+    *   If Intent is "Support Ticket" and field is "Description", generate a suggestion like: "I'm having an issue with..."
 
-3. **Output:** Return a JSON object with a list of 1-3 suggestions and your reasoning.
+3.  **Analyze Profile:** Use the user's profile to fill in specific details. For example, if the profile mentions "software developer", and the form is a job application, suggest relevant skills.
+
+4.  **Guardrail:** NEVER describe the user in the third person (e.g., "User exhibits...") unless the form_type is explicitly 'diagnostic_report'.
+
+5.  **Output:** Return a JSON object with a list of 1-3 suggestions and your reasoning. The reasoning MUST mention the detected Form Intent.
 
 FORMAT:
 {{
   "suggestions": ["String Value 1", "String Value 2"],
-  "reasoning": "Brief explanation of why this fits the profile"
+  "reasoning": "Based on the Form Intent ('{form_intent}') and the user's profile, these suggestions are..."
 }}
 """),
         ])
@@ -179,9 +194,10 @@ FORMAT:
             # Execute the prompt
             result = await chain.ainvoke({
                 "profile": profile_text,
-                "form_purpose": form_purpose,
+                "form_intent": form_purpose,
                 "field_label": field_label,
-                "field_name": field_name
+                "field_name": field_name,
+                "persona": persona,
             })
             
             duration = (datetime.now() - start_time).total_seconds()
@@ -194,7 +210,7 @@ FORMAT:
                         value=val,
                         confidence=0.85,
                         tier=SuggestionTier.PROFILE_BASED,
-                        reasoning=result.get("reasoning", "Inferred from profile"),
+                        reasoning=result.get("reasoning", f"Inferred from profile for form with intent: {form_purpose}"),
                         behavioral_match="llm_inference"
                     ))
                 return suggestions
@@ -203,7 +219,6 @@ FORMAT:
 
         except Exception as e:
             logger.error(f"❌ [Lifecycle] LLM Invocation Exception: {str(e)}")
-            logger.info("suggestion is", suggestions)
             return None
         
         return None
@@ -249,7 +264,8 @@ async def get_intelligent_suggestions(
     field_context: Dict[str, Any],
     form_context: Dict[str, Any],
     previous_answers: Dict[str, str],
-    db: AsyncSession
+    db: AsyncSession,
+    form_intent: Optional[FormIntent]
 ) -> List[IntelligentSuggestion]:
     """
     Convenience function to get intelligent suggestions.
@@ -260,5 +276,7 @@ async def get_intelligent_suggestions(
         field_context=field_context,
         form_context=form_context,
         previous_answers=previous_answers,
-        db=db
+        db=db,
+        n_results=5,  # Default value
+        form_intent=form_intent
     )

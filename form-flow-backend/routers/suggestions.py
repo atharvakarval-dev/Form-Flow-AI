@@ -1,19 +1,23 @@
-from fastapi import APIRouter, HTTPException, Depends, Request
+from fastapi import APIRouter, HTTPException, Depends, Request, BackgroundTasks
 from pydantic import BaseModel
 from typing import Optional, List, Dict, Any
 import logging
+import uuid
 
 from services.ai.suggestion_engine import SuggestionEngine, Suggestion
+
 from services.ai.profile.suggestions import (
     get_intelligent_suggestions,
     IntelligentSuggestion,
     SuggestionTier,
 )
+from services.ai.form_intent import get_form_intent_inferrer, FormIntent
 from core import database
 from sqlalchemy.ext.asyncio import AsyncSession
 import auth
 
 logger = logging.getLogger(__name__)
+
 
 # Singleton suggestion engine
 _suggestion_engine = None
@@ -53,6 +57,9 @@ class IntelligentSuggestionRequest(BaseModel):
     field_type: Optional[str] = "text"
     form_purpose: Optional[str] = "General"
     previous_answers: Optional[Dict[str, str]] = None
+    form_url: Optional[str] = None
+    all_field_labels: Optional[List[str]] = None
+    session_id: Optional[str] = None
 
 
 class IntelligentSuggestionItem(BaseModel):
@@ -133,6 +140,9 @@ async def get_suggestions(
 # Intelligent Profile-Based Suggestions (ChatGPT/Claude Level)
 # =============================================================================
 
+
+
+
 @router.post("/smart-suggestions", response_model=IntelligentSuggestionResponse)
 async def get_smart_suggestions(
     data: IntelligentSuggestionRequest,
@@ -156,8 +166,15 @@ async def get_smart_suggestions(
     Requires: Bearer token authentication (for profile lookup)
     """
     try:
+      
         logger.info(f"📥 [API] Smart suggestions request: {data.field_name} (Purpose: {data.form_purpose})")
         
+        # 1. Infer Form Intent once at the beginning of the request
+        form_intent = None
+        if data.form_url and data.all_field_labels:
+            intent_inferrer = get_form_intent_inferrer()
+            form_intent = await intent_inferrer.infer_intent(data.form_url, data.all_field_labels)
+
         # Get user from auth
         user_id = None
         profile_confidence = None
@@ -186,6 +203,8 @@ async def get_smart_suggestions(
         
         form_context = {
             "purpose": data.form_purpose or "General",
+            "url": data.form_url,
+            "field_labels": data.all_field_labels,
         }
         
         # Get intelligent suggestions
@@ -195,7 +214,8 @@ async def get_smart_suggestions(
                 field_context=field_context,
                 form_context=form_context,
                 previous_answers=data.previous_answers or {},
-                db=db
+                db=db,
+                form_intent=form_intent,
             )
         else:
             # Anonymous user - use pattern-only tier
