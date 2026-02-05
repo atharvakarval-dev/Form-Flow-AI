@@ -49,7 +49,7 @@ export function APIKeyManager({ plugin, onClose }) {
                 data,
             });
             // Show the newly created key (only shown once!)
-            setNewlyCreatedKey(result.plain_key || result.key);
+            setNewlyCreatedKey(result.api_key);
             setShowCreateForm(false);
             toast.success('API key created!');
         } catch (error) {

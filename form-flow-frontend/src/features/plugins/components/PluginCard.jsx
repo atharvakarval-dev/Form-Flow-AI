@@ -15,6 +15,7 @@ const PluginCard = memo(function PluginCard({
     plugin,
     onEdit,
     onAPIKeys,
+    onTest,
     onDelete,
     onPrefetch,
 }) {
@@ -141,6 +142,21 @@ const PluginCard = memo(function PluginCard({
                 >
                     <Settings className="w-3.5 h-3.5" />
                     Setup
+                </button>
+
+                <button
+                    onClick={(e) => { e.stopPropagation(); onTest?.(plugin); }}
+                    aria-label={`Test ${plugin.name}`}
+                    className={`
+                        flex-1 flex items-center justify-center gap-2 py-4 rounded-2xl text-[10px] font-black uppercase tracking-[0.2em] transition-all
+                        ${isDark
+                            ? 'bg-blue-500/10 text-blue-400 hover:bg-blue-500/20 shadow-lg shadow-blue-500/5'
+                            : 'bg-blue-50 text-blue-600 hover:bg-blue-100 shadow-lg shadow-blue-500/5'
+                        }
+                    `}
+                >
+                    <Activity className="w-3.5 h-3.5" />
+                    Test
                 </button>
 
                 <button

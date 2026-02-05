@@ -105,8 +105,14 @@ class ValueRefiner:
         Returns:
             Refined value
         """
-        if not value:
-            return value
+        if value is None:
+            return None
+            
+        # Ensure value is string
+        if not isinstance(value, str):
+            value = str(value)
+        if not value.strip():
+            return ""
         
         field_type = field_info.get('type', 'text')
         field_name = field_info.get('name', '').lower()

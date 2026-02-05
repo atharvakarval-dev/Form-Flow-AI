@@ -279,6 +279,8 @@ class PluginService:
         
         key_hash = hashlib.sha256(api_key.encode()).hexdigest()
         
+        logger.info(f"Validating Key: {api_key[:12]}... Hash: {key_hash}")
+        
         query = (
             select(PluginAPIKey)
             .options(

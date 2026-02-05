@@ -569,7 +569,11 @@ async def submit_session_input(
         await agent._save_session(agent_session)
     
     # Process input
-    result = await agent.process_user_input(session_id, body.input)
+    try:
+        result = await agent.process_user_input(session_id, body.input)
+    except Exception as e:
+        logger.error(f"Error processing plugin input: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Internal Plugin Error: {str(e)}")
     
     # Update session data
     session_data["extracted_fields"].update(result.extracted_values)
@@ -651,9 +655,29 @@ async def complete_plugin_session(
     except Exception as e:
         logger.error(f"Failed to complete session {session_id}: {e}")
         session_data["status"] = "failed"
+        
+        # Determine status code based on error type
+        error_msg = str(e)
+        status_code = 500
+        detail = f"Failed to save data: {error_msg}"
+        
+        # Check for common database errors
+        if "relation" in error_msg and "does not exist" in error_msg:
+            status_code = 400
+            detail = f"Database Configuration Error: The target table does not exist in your external database. Details: {error_msg}"
+        elif "password authentication failed" in error_msg:
+            status_code = 401
+            detail = "Database Authentication Error: Could not authenticate with external database. Please check your credentials."
+        elif "connection refused" in error_msg or "timeout" in error_msg.lower() or "not connect" in error_msg.lower():
+            status_code = 503
+            detail = "Database Connection Error: Could not connect to external database. Please check if it is reachable."
+        elif "column" in error_msg and "does not exist" in error_msg:
+             status_code = 400
+             detail = f"Database Schema Error: Target table is missing a required column. Details: {error_msg}"
+            
         raise HTTPException(
-            status_code=500,
-            detail=f"Failed to save data: {str(e)}"
+            status_code=status_code,
+            detail=detail
         )
 
 

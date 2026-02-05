@@ -18,6 +18,7 @@ import { ConfirmDialog } from './ConfirmDialog';
 import { CreatePluginModal } from './CreatePluginModal';
 import { APIKeyManager } from './APIKeyManager';
 import { SDKEmbedCode } from './SDKEmbedCode';
+import { PluginTester } from './PluginTester';
 
 // ============ Debounce Hook ============
 function useDebounce(value, delay = 500) {
@@ -43,6 +44,7 @@ function PluginDashboardContent() {
     const [pluginToDelete, setPluginToDelete] = useState(null);
     const [showAPIKeys, setShowAPIKeys] = useState(false);
     const [showEmbedCode, setShowEmbedCode] = useState(false);
+    const [showTester, setShowTester] = useState(false);
 
     // Debounced search
     const debouncedSearch = useDebounce(searchQuery, 500);
@@ -74,8 +76,7 @@ function PluginDashboardContent() {
 
     const handleEditPlugin = useCallback((plugin) => {
         setSelectedPlugin(plugin);
-        // For now, show API keys panel
-        setShowAPIKeys(true);
+        setShowEmbedCode(true); // Changed to show Embed Code (Setup)
     }, []);
 
     const handleAPIKeysClick = useCallback((plugin) => {
@@ -83,11 +84,18 @@ function PluginDashboardContent() {
         setShowAPIKeys(true);
     }, []);
 
+    const handleTestPlugin = useCallback((plugin) => {
+        setSelectedPlugin(plugin);
+        setShowTester(true);
+    }, []);
+
     const handleClosePanel = useCallback(() => {
         setShowAPIKeys(false);
         setShowEmbedCode(false);
+        setShowTester(false);
         setSelectedPlugin(null);
     }, []);
+
 
     // Plugins data
     const plugins = data?.plugins || data || [];
@@ -215,6 +223,7 @@ function PluginDashboardContent() {
                                         plugin={plugin}
                                         onEdit={handleEditPlugin}
                                         onAPIKeys={handleAPIKeysClick}
+                                        onTest={handleTestPlugin}
                                         onDelete={setPluginToDelete}
                                         onPrefetch={prefetchPlugin}
                                     />
@@ -226,7 +235,7 @@ function PluginDashboardContent() {
 
                 {/* Side panel - Floating Drawer Style */}
                 <AnimatePresence>
-                    {(showAPIKeys || showEmbedCode) && selectedPlugin && (
+                    {(showAPIKeys || showEmbedCode || showTester) && selectedPlugin && (
                         <div className="fixed inset-0 z-[500] flex justify-end overflow-hidden">
                             <motion.div
                                 initial={{ opacity: 0 }}
@@ -267,15 +276,17 @@ function PluginDashboardContent() {
                                 <div className="p-10 pt-16 h-full overflow-y-auto custom-scrollbar">
                                     <div className="flex justify-between items-center mb-8">
                                         <h2 className={`text-4xl font-black tracking-tighter ${isDark ? 'text-white' : 'text-zinc-900'}`}>
-                                            {showAPIKeys ? 'Credentials' : 'Embed Code'}
+                                            {showAPIKeys ? 'Credentials' : showTester ? 'Test Plugin' : 'Embed Code'}
                                         </h2>
-                                        <div className="w-14" />
                                     </div>
                                     {showAPIKeys && (
                                         <APIKeyManager plugin={selectedPlugin} onClose={handleClosePanel} />
                                     )}
                                     {showEmbedCode && (
                                         <SDKEmbedCode plugin={selectedPlugin} />
+                                    )}
+                                    {showTester && (
+                                        <PluginTester plugin={selectedPlugin} />
                                     )}
                                 </div>
                             </motion.div>
