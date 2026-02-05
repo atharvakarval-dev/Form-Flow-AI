@@ -253,6 +253,44 @@ class PluginSessionResponse(BaseModel):
     plugin_id: int
     questions: List[Dict[str, Any]]
     total_fields: int
+    current_question: Optional[str] = None
+
+
+class PluginSessionInput(BaseModel):
+    """Request to submit user input to a session."""
+    input: str = Field(..., min_length=1, description="User's voice transcription or text input")
+    request_id: Optional[str] = Field(None, description="Client-generated request ID for deduplication")
+
+
+class PluginSessionInputResponse(BaseModel):
+    """Response after processing user input."""
+    session_id: str
+    extracted_values: Dict[str, Any] = {}
+    next_question: Optional[str] = None
+    progress: float = 0  # 0-100
+    is_complete: bool = False
+    remaining_fields: int = 0
+
+
+class PluginSessionCompleteResponse(BaseModel):
+    """Response when session is completed."""
+    session_id: str
+    plugin_id: int
+    success: bool
+    records_created: int = 0
+    message: str = ""
+
+
+class PluginSessionStatus(BaseModel):
+    """Current status of a session."""
+    session_id: str
+    plugin_id: int
+    status: Literal["active", "completed", "expired", "failed"]
+    progress: float = 0
+    extracted_fields: Dict[str, Any] = {}
+    remaining_fields: int = 0
+    created_at: datetime
+    last_activity: datetime
 
 
 class WebhookPayload(BaseModel):

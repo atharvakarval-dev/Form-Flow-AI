@@ -122,10 +122,23 @@ class PluginService:
                 self.db.add(field)
         
         await self.db.commit()
-        await self.db.refresh(plugin)
         
-        logger.info(f"Created plugin {plugin.id} with {plugin.field_count} fields")
-        return plugin
+        # Compute field count from input data (avoid lazy loading after commit)
+        total_fields = sum(len(t.fields) for t in data.tables)
+        logger.info(f"Created plugin {plugin.id} with {total_fields} fields")
+        
+        # Re-fetch with eager loading for response serialization
+        # Using raw query instead of get_plugin to avoid ownership check on newly created plugin
+        query = (
+            select(Plugin)
+            .options(
+                selectinload(Plugin.tables).selectinload(PluginTable.fields),
+                selectinload(Plugin.api_keys)
+            )
+            .where(Plugin.id == plugin.id)
+        )
+        result = await self.db.execute(query)
+        return result.scalar_one()
     
     async def get_plugin(
         self,

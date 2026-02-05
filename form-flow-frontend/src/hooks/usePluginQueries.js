@@ -7,6 +7,51 @@ import { queryKeys } from '@/lib/queryClient';
 import pluginApi from '@/services/pluginApi';
 import toast from 'react-hot-toast';
 
+// Helper to safely extract error messages from backend responses
+const getErrorMessage = (error, defaultMessage) => {
+    try {
+        // Log the full error for debugging
+        console.error('Plugin Operation Error:', error);
+
+        if (!error) return defaultMessage;
+
+        // Direct string error
+        if (typeof error === 'string') return error;
+
+        const detail = error.response?.data?.detail;
+
+        if (!detail) {
+            return error.message || defaultMessage;
+        }
+
+        // Handle string detail
+        if (typeof detail === 'string') return detail;
+
+        // Handle array of errors (FastAPI validation errors)
+        if (Array.isArray(detail)) {
+            return detail
+                .map(err => {
+                    if (typeof err === 'object' && err !== null) {
+                        return err.msg || err.message || JSON.stringify(err);
+                    }
+                    return String(err);
+                })
+                .filter(Boolean)
+                .join('. ') || defaultMessage;
+        }
+
+        // Handle single object error (Pydantic/Generic)
+        if (typeof detail === 'object' && detail !== null) {
+            return detail.msg || detail.message || JSON.stringify(detail);
+        }
+
+        return String(detail);
+    } catch (e) {
+        console.error('Error parsing error message:', e);
+        return defaultMessage;
+    }
+};
+
 // ============ Plugin Queries ============
 
 /**
@@ -71,7 +116,7 @@ export const useCreatePlugin = () => {
             toast.success(`Plugin "${newPlugin.name}" created successfully!`);
         },
         onError: (error) => {
-            toast.error(error.response?.data?.detail || 'Failed to create plugin');
+            toast.error(getErrorMessage(error, 'Failed to create plugin'));
         },
     });
 };
@@ -106,7 +151,7 @@ export const useUpdatePlugin = () => {
             if (context?.previousPlugin) {
                 queryClient.setQueryData(queryKeys.plugins.detail(pluginId), context.previousPlugin);
             }
-            toast.error(error.response?.data?.detail || 'Failed to update plugin');
+            toast.error(getErrorMessage(error, 'Failed to update plugin'));
         },
         onSettled: (_, __, { pluginId }) => {
             // Refetch to ensure consistency
@@ -134,7 +179,7 @@ export const useDeletePlugin = () => {
             toast.success('Plugin deleted successfully!');
         },
         onError: (error) => {
-            toast.error(error.response?.data?.detail || 'Failed to delete plugin');
+            toast.error(getErrorMessage(error, 'Failed to delete plugin'));
         },
     });
 };
@@ -149,7 +194,7 @@ export const useTestConnection = () => {
             toast.success('Connection successful!');
         },
         onError: (error) => {
-            toast.error(error.response?.data?.detail || 'Connection failed');
+            toast.error(getErrorMessage(error, 'Connection failed'));
         },
     });
 };
@@ -182,7 +227,7 @@ export const useCreateAPIKey = () => {
             // Don't show toast here - let component handle showing the key
         },
         onError: (error) => {
-            toast.error(error.response?.data?.detail || 'Failed to create API key');
+            toast.error(getErrorMessage(error, 'Failed to create API key'));
         },
     });
 };
@@ -200,7 +245,7 @@ export const useRevokeAPIKey = () => {
             toast.success('API key revoked');
         },
         onError: (error) => {
-            toast.error(error.response?.data?.detail || 'Failed to revoke API key');
+            toast.error(getErrorMessage(error, 'Failed to revoke API key'));
         },
     });
 };

@@ -84,6 +84,80 @@ const CardSelector = ({ type, icon: Icon, isSelected, onClick, label, isDark }) 
     </motion.button>
 );
 
+const CustomSelect = ({ value, onChange, options, isDark }) => {
+    const [isOpen, setIsOpen] = useState(false);
+    const containerRef = useRef(null);
+
+    useEffect(() => {
+        const handleClickOutside = (event) => {
+            if (containerRef.current && !containerRef.current.contains(event.target)) {
+                setIsOpen(false);
+            }
+        };
+        document.addEventListener('mousedown', handleClickOutside);
+        return () => document.removeEventListener('mousedown', handleClickOutside);
+    }, []);
+
+    return (
+        <div className="relative h-full w-full" ref={containerRef}>
+            <button
+                type="button"
+                onClick={() => setIsOpen(!isOpen)}
+                className={`
+                    w-full h-full px-4 rounded-2xl border text-[11px] font-black uppercase tracking-wider transition-all flex items-center justify-between
+                    ${isDark ? 'bg-zinc-950/40 border-white/5 text-zinc-400 hover:border-emerald-500/20' : 'bg-white border-zinc-200 text-zinc-500 hover:border-emerald-200'}
+                    ${isOpen ? 'border-emerald-500/50 ring-4 ring-emerald-500/5' : ''}
+                `}
+            >
+                <span>{value || 'Select...'}</span>
+                <ChevronLeft className={`w-3 h-3 transition-transform duration-300 ${isOpen ? 'rotate-90' : '-rotate-90'}`} />
+            </button>
+
+            <AnimatePresence>
+                {isOpen && (
+                    <motion.div
+                        initial={{ opacity: 0, y: -10, scale: 0.95 }}
+                        animate={{ opacity: 1, y: 0, scale: 1 }}
+                        exit={{ opacity: 0, y: -10, scale: 0.95 }}
+                        transition={{ duration: 0.2 }}
+                        className={`
+                            absolute top-full mt-2 left-0 right-0 max-h-60 overflow-y-auto custom-scrollbar rounded-2xl border shadow-2xl z-[100]
+                            ${isDark ? 'bg-zinc-900 border-white/10' : 'bg-white border-zinc-100'}
+                        `}
+                    >
+                        <div className="p-1.5 space-y-1">
+                            {options.map((option) => (
+                                <motion.button
+                                    key={option}
+                                    type="button"
+                                    whileHover={{ scale: 1.02, x: 5 }}
+                                    whileTap={{ scale: 0.98 }}
+                                    onClick={() => {
+                                        onChange(option);
+                                        setIsOpen(false);
+                                    }}
+                                    className={`
+                                        w-full text-left px-4 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-wider transition-colors flex items-center justify-between
+                                        ${value === option
+                                            ? 'bg-emerald-500 text-white shadow-lg shadow-emerald-500/20'
+                                            : isDark
+                                                ? 'text-zinc-400 hover:bg-zinc-800 hover:text-white'
+                                                : 'text-zinc-500 hover:bg-zinc-50 hover:text-zinc-900'
+                                        }
+                                    `}
+                                >
+                                    {option}
+                                    {value === option && <CheckCircle2 className="w-3 h-3" />}
+                                </motion.button>
+                            ))}
+                        </div>
+                    </motion.div>
+                )}
+            </AnimatePresence>
+        </div>
+    );
+};
+
 // ============ Step Components ============
 
 function StepBasicInfo({ onNext }) {
@@ -298,17 +372,12 @@ function StepTables({ onNext, onBack }) {
                                         <InputField label="Voice Prompt" placeholder="Ask the user..." value={field.question_text} onChange={(e) => updateField(tableIdx, fieldIdx, { question_text: e.target.value })} />
                                     </div>
                                     <div className="col-span-2 h-[58px]">
-                                        <select
+                                        <CustomSelect
                                             value={field.column_type}
-                                            onChange={(e) => updateField(tableIdx, fieldIdx, { column_type: e.target.value })}
-                                            className={`
-                                                w-full h-full px-4 rounded-2xl border text-[11px] font-black uppercase tracking-wider transition-all
-                                                ${isDark ? 'bg-zinc-950 border-white/5 text-zinc-400' : 'bg-white border-zinc-200 text-zinc-500'}
-                                                focus:outline-none focus:border-emerald-500/50
-                                            `}
-                                        >
-                                            {columnTypes.map((type) => <option key={type} value={type}>{type}</option>)}
-                                        </select>
+                                            onChange={(value) => updateField(tableIdx, fieldIdx, { column_type: value })}
+                                            options={columnTypes}
+                                            isDark={isDark}
+                                        />
                                     </div>
                                     <div className="col-span-1 pb-1 flex justify-center">
                                         <button
@@ -478,12 +547,18 @@ function CreatePluginModalContent({ onClose, onSuccess }) {
 
     const handleSubmit = async (formData) => {
         try {
+            console.log('Submitting Plugin Payload:', JSON.stringify(formData, null, 2));
             await createPlugin.mutateAsync(formData);
             reset();
             onSuccess?.();
             onClose();
             toast.success('Plugin Architecture Deployed');
-        } catch (error) { }
+        } catch (error) {
+            console.error('Submission Failed:', error);
+            if (error.response?.data?.detail) {
+                console.error('Validation Details:', JSON.stringify(error.response.data.detail, null, 2));
+            }
+        }
     };
 
     const steps = [

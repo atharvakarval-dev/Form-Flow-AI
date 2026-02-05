@@ -36,6 +36,7 @@ export function SDKEmbedCode({ plugin, apiKey }) {
   FormFlow.init({
     apiKey: '${apiKey || 'YOUR_API_KEY'}',
     pluginId: '${plugin.id}',
+    apiBase: 'http://localhost:8001', // Local backend URL
     theme: 'auto', // 'light', 'dark', or 'auto'
     onComplete: (data) => {
       console.log('Data collected:', data);
@@ -53,6 +54,7 @@ function MyForm() {
   const { isReady, startSession, data, error } = useFormFlowPlugin({
     apiKey: '${apiKey || 'YOUR_API_KEY'}',
     pluginId: '${plugin.id}',
+    apiBase: 'http://localhost:8001', // Local backend URL
     onComplete: (collectedData) => {
       console.log('Data collected:', collectedData);
       // Save to your backend
@@ -74,6 +76,7 @@ export default MyForm;`,
 const formflow = new FormFlow({
   apiKey: '${apiKey || 'YOUR_API_KEY'}',
   pluginId: '${plugin.id}',
+  apiBase: 'http://localhost:8001', // Local backend URL
   container: document.getElementById('formflow-widget'),
 });
 
@@ -96,14 +99,12 @@ formflow.on('error', (error) => {
 });`,
 
     curl: `# Test your plugin API
-curl -X POST https://api.formflow.ai/v1/session/start \\
+curl -X POST http://localhost:8001/plugins/sessions \\
   -H "Content-Type: application/json" \\
-  -H "Authorization: Bearer ${apiKey || 'YOUR_API_KEY'}" \\
+  -H "X-API-Key: ${apiKey || 'YOUR_API_KEY'}" \\
+  -H "X-Plugin-ID: ${plugin.id}" \\
   -d '{
-    "plugin_id": "${plugin.id}",
-    "metadata": {
-      "user_agent": "curl/test"
-    }
+    "source_url": "http://localhost"
   }'
 
 # Response:
