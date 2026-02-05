@@ -40,8 +40,16 @@ const getTooltipStyle = (isDark) => ({
     backdropFilter: 'blur(8px)',
 });
 
-export function SubmissionTrendChart({ data }) {
+export function SubmissionTrendChart({ data = [] }) {
     const { isDark } = useTheme();
+
+    if (!data || data.length === 0) {
+        return (
+            <div className={`h-full w-full flex items-center justify-center ${isDark ? 'text-white/30' : 'text-zinc-300'}`}>
+                No trend data
+            </div>
+        );
+    }
 
     return (
         <div className="h-full w-full">
@@ -96,11 +104,14 @@ export function SubmissionTrendChart({ data }) {
     );
 }
 
-export function SuccessRateChart({ successRate }) {
+export function SuccessRateChart({ successRate = 0 }) {
     const { isDark } = useTheme();
+    // Ensure successRate is a number
+    const rate = typeof successRate === 'number' ? successRate : 0;
+
     const data = [
-        { name: 'Success', value: successRate },
-        { name: 'Failed', value: 100 - successRate },
+        { name: 'Success', value: rate },
+        { name: 'Failed', value: Math.max(0, 100 - rate) },
     ];
 
     return (
@@ -109,7 +120,7 @@ export function SuccessRateChart({ successRate }) {
             <div className="absolute inset-0 flex items-center justify-center pointer-events-none z-10">
                 <div className="text-center">
                     <div className={`text-3xl font-bold ${isDark ? 'text-white' : 'text-zinc-900'}`}>
-                        {successRate}%
+                        {rate}%
                     </div>
                     <div className={`text-xs ${isDark ? 'text-white/40' : 'text-zinc-500'}`}>
                         Success
@@ -150,7 +161,7 @@ export function SuccessRateChart({ successRate }) {
 }
 
 // Horizontal stacked bar for Field Types (Composition)
-export function FieldTypesChart({ data }) {
+export function FieldTypesChart({ data = [] }) {
     const { isDark } = useTheme();
 
     if (!data || data.length === 0) {
@@ -171,7 +182,7 @@ export function FieldTypesChart({ data }) {
 
                     return (
                         <div
-                            key={entry.name}
+                            key={entry.name || index}
                             className="h-full transition-all duration-500 hover:opacity-80 relative group"
                             style={{
                                 width: `${percentage}%`,
@@ -192,8 +203,16 @@ export function FieldTypesChart({ data }) {
     );
 }
 
-export function FormTypeChart({ data }) {
+export function FormTypeChart({ data = [] }) {
     const { isDark } = useTheme();
+
+    if (!data || data.length === 0) {
+        return (
+            <div className={`h-full w-full flex items-center justify-center ${isDark ? 'text-white/30' : 'text-zinc-300'}`}>
+                No data available
+            </div>
+        );
+    }
 
     return (
         <div className="h-full w-full">
@@ -237,7 +256,7 @@ export function FormTypeChart({ data }) {
     );
 }
 
-export function TopDomainsChart({ data }) {
+export function TopDomainsChart({ data = [] }) {
     const { isDark } = useTheme();
 
     if (!data || data.length === 0) {
@@ -288,8 +307,16 @@ export function TopDomainsChart({ data }) {
     );
 }
 
-export function ActivityHourlyChart({ data }) {
+export function ActivityHourlyChart({ data = [] }) {
     const { isDark } = useTheme();
+
+    if (!data || data.length === 0) {
+        return (
+            <div className={`h-full w-full flex items-center justify-center ${isDark ? 'text-white/30' : 'text-zinc-300'}`}>
+                No activity data
+            </div>
+        );
+    }
 
     return (
         <div className="h-full w-full">
