@@ -18,6 +18,7 @@ from services.plugin.database.base import (
     TableInfo, ColumnInfo
 )
 from utils.logging import get_logger
+import aiomysql
 
 logger = get_logger(__name__)
 
@@ -36,7 +37,6 @@ class MySQLConnector(DatabaseConnector):
     
     async def _create_pool(self) -> Any:
         """Create aiomysql connection pool."""
-        import aiomysql
         
         # SSL configuration
         ssl_context = None
@@ -93,7 +93,6 @@ class MySQLConnector(DatabaseConnector):
         
         Uses information_schema for portability.
         """
-        import aiomysql
         
         query = """
             SELECT 
@@ -137,8 +136,6 @@ class MySQLConnector(DatabaseConnector):
         params: Dict[str, Any]
     ) -> Optional[int]:
         """Execute insert and get LAST_INSERT_ID."""
-        import aiomysql
-        
         param_values = tuple(params.values())
         
         async with self._pool.acquire() as conn:
@@ -165,8 +162,6 @@ class MySQLConnector(DatabaseConnector):
         rows: List[Dict[str, Any]]
     ) -> int:
         """Batch insert using executemany."""
-        import aiomysql
-        
         placeholders = self._get_placeholders(columns)
         quoted_columns = ", ".join(self._quote_identifier(c) for c in columns)
         query = f"INSERT INTO {self._quote_identifier(table)} ({quoted_columns}) VALUES ({placeholders})"
@@ -182,8 +177,6 @@ class MySQLConnector(DatabaseConnector):
     @asynccontextmanager
     async def _get_transaction_context(self):
         """MySQL transaction context."""
-        import aiomysql
-        
         async with self._pool.acquire() as conn:
             await conn.begin()
             # Create a wrapper pool for this transaction

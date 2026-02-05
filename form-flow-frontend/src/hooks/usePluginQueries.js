@@ -3,7 +3,7 @@
  * Server state management with caching, mutations, and optimistic updates
  */
 import { useQuery, useMutation, useQueryClient, useInfiniteQuery } from '@tanstack/react-query';
-import { queryKeys } from '@/lib/queryClient';
+import { queryKeys } from '@/lib/reactQueryClient';
 import pluginApi from '@/services/pluginApi';
 import toast from 'react-hot-toast';
 

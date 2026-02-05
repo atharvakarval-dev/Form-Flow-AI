@@ -21,6 +21,7 @@ from services.plugin.database import (
     get_connector_factory
 )
 from services.plugin.security.encryption import get_encryption_service
+from services.plugin.population.dead_letter import DeadLetterQueue
 from utils.logging import get_logger
 
 logger = get_logger(__name__)
@@ -106,7 +107,7 @@ class PopulationService:
         )
     """
     
-    def __init__(self, dead_letter_queue: Optional["DeadLetterQueue"] = None):
+    def __init__(self, dead_letter_queue: Optional[DeadLetterQueue] = None):
         """
         Initialize population service.
         
@@ -323,7 +324,7 @@ _population_service: Optional[PopulationService] = None
 
 
 def get_population_service(
-    dead_letter_queue: Optional["DeadLetterQueue"] = None
+    dead_letter_queue: Optional[DeadLetterQueue] = None
 ) -> PopulationService:
     """Get singleton population service."""
     global _population_service
