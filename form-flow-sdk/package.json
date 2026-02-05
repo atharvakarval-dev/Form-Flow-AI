@@ -1,0 +1,52 @@
+{
+    "name": "@formflow/plugin-sdk",
+    "version": "1.0.0",
+    "description": "FormFlow Plugin SDK - Embeddable voice-driven data collection widget",
+    "main": "dist/formflow-plugin.umd.js",
+    "module": "dist/formflow-plugin.esm.js",
+    "types": "dist/types/index.d.ts",
+    "unpkg": "dist/formflow-plugin.min.js",
+    "jsdelivr": "dist/formflow-plugin.min.js",
+    "files": [
+        "dist",
+        "react",
+        "README.md"
+    ],
+    "scripts": {
+        "build": "rollup -c",
+        "build:types": "tsc --emitDeclarationOnly",
+        "dev": "rollup -c -w",
+        "test": "jest",
+        "lint": "eslint src --ext .js,.jsx"
+    },
+    "keywords": [
+        "formflow",
+        "voice",
+        "data-collection",
+        "plugin",
+        "widget",
+        "sdk"
+    ],
+    "author": "FormFlow",
+    "license": "MIT",
+    "peerDependencies": {
+        "react": ">=16.8.0",
+        "react-dom": ">=16.8.0"
+    },
+    "peerDependenciesMeta": {
+        "react": {
+            "optional": true
+        },
+        "react-dom": {
+            "optional": true
+        }
+    },
+    "devDependencies": {
+        "@rollup/plugin-terser": "^0.4.0",
+        "rollup": "^4.0.0"
+    },
+    "repository": {
+        "type": "git",
+        "url": "https://github.com/formflow/plugin-sdk"
+    }
+}

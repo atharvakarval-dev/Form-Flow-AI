@@ -378,7 +378,7 @@ copy .env.example .env  # Windows
 # cp .env.example .env  # Linux/Mac
 
 # Start server
-uvicorn main:app --reload
+python -m uvicorn main:app --reload --port 8001
 ```
 
 Edit `.env` with your API keys:

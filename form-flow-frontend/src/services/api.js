@@ -5,7 +5,7 @@
 import axios from 'axios';
 
 // Base API configuration - uses environment variable with fallback
-export const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
+export const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8001';
 
 // Create axios instance with default config (no global timeout)
 const api = axios.create({
