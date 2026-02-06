@@ -1,9 +1,9 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { Mic, MicOff, ChevronLeft, ChevronRight, SkipForward, Send, Volume2, Keyboard, Terminal, Activity, CheckCircle, Sparkles, X, Brain, Lightbulb } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
-import api, { API_BASE_URL, refineText, startConversationSession, sendConversationMessage, getSuggestions, getSmartSuggestions } from '@/services/api';
+import api, { API_BASE_URL, refineText, sendConversationMessage, getSuggestions, getSmartSuggestions } from '@/services/api';
 
-const VoiceFormFiller = ({ formSchema, formContext, onComplete, onClose }) => {
+const VoiceFormFiller = ({ formSchema, formContext, formUrl, onComplete, onClose }) => {
     const [isListening, setIsListening] = useState(false);
     const [currentFieldIndex, setCurrentFieldIndex] = useState(0);
     const [formData, setFormData] = useState({});
@@ -145,6 +145,10 @@ const VoiceFormFiller = ({ formSchema, formContext, onComplete, onClose }) => {
             let currentData = { ...formDataRef.current };
 
             // -- 1. Trigger Magic Fill (SEQUENTIAL: Wait for it) --
+            /* The following Magic Fill block has been commented out for testing smart suggestions.
+             * This ensures the form starts empty, allowing direct testing of the smart suggestions
+             * without pre-filled data influencing them.
+             */
             if (userProfile && !sessionId && magicFillLoading) {
                 try {
                     console.log('✨ Starting Magic Fill (Sequential)...');
@@ -177,11 +181,15 @@ const VoiceFormFiller = ({ formSchema, formContext, onComplete, onClose }) => {
                 } catch (e) {
                     console.error('❌ Magic Fill failed:', e);
                 } finally {
-                    setMagicFillLoading(false);
+                    // setMagicFillLoading(false); // This would have been called here
                 }
             } else {
-                setMagicFillLoading(false);
+                // setMagicFillLoading(false); // This would have been called here
             }
+            /* End of Magic Fill block. */
+
+            // Ensure magicFillLoading is set to false regardless, so the UI proceeds.
+            setMagicFillLoading(false);
 
             // -- 2. Start Conversation Session (After Magic Fill) --
             if (!sessionId) {
@@ -584,12 +592,15 @@ const VoiceFormFiller = ({ formSchema, formContext, onComplete, onClose }) => {
     const fetchSmartSuggestions = async (field) => {
         try {
             console.log('🧠 Fetching smart suggestions for:', field.name);
+            const all_field_labels = allFields.map(f => f.label || f.name);
             const result = await getSmartSuggestions(
                 field.name,
                 field.label || field.display_name,
                 inferFieldType(field),
-                formContext || 'Form filling',
-                formDataRef.current  // Pass already answered fields
+                formContext?.purpose || 'Form filling',
+                formDataRef.current,  // Pass already answered fields
+                formUrl,
+                all_field_labels
             );
 
             if (result.suggestions && result.suggestions.length > 0 && result.tier_used !== 'error') {
@@ -624,7 +635,8 @@ const VoiceFormFiller = ({ formSchema, formContext, onComplete, onClose }) => {
         setShowSmartSuggestions(false);
 
         // Progressive delay: 5 seconds for new users, 3 seconds after 5 questions
-        const delay = questionsAnsweredRef.current >= 5 ? 3000 : 5000;
+        // UPDATED: Faster response (2.5s -> 1.5s) to feel smarter
+        const delay = questionsAnsweredRef.current >= 5 ? 1500 : 2500;
 
         hesitationTimerRef.current = setTimeout(() => {
             // Only show if field is still empty and not processing

@@ -144,6 +144,8 @@ class Suggestion:
 # Suggestion Engine
 # =============================================================================
 
+
+
 class SuggestionEngine:
     """
     Contextual suggestion engine for intelligent form-filling assistance.
