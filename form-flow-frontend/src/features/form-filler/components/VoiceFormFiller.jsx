@@ -1,9 +1,10 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { Mic, MicOff, ChevronLeft, ChevronRight, SkipForward, Send, Volume2, Keyboard, Terminal, Activity, CheckCircle, Sparkles, X, Brain, Lightbulb } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
-import api, { API_BASE_URL, refineText, sendConversationMessage, getSuggestions, getSmartSuggestions } from '@/services/api';
+import api, { API_BASE_URL, refineText, sendConversationMessage, getSuggestions, getSmartSuggestions, startConversationSession } from '@/services/api';
+import { instantFillFromProfile, extractFillableFields } from '../utils/instantFill';
 
-const VoiceFormFiller = ({ formSchema, formContext, formUrl, onComplete, onClose }) => {
+const VoiceFormFiller = ({ formSchema, formContext, formUrl, initialFilledData, onComplete, onClose }) => {
     const [isListening, setIsListening] = useState(false);
     const [currentFieldIndex, setCurrentFieldIndex] = useState(0);
     const [formData, setFormData] = useState({});
@@ -22,9 +23,10 @@ const VoiceFormFiller = ({ formSchema, formContext, formUrl, onComplete, onClose
     const hesitationTimerRef = useRef(null);
     const questionsAnsweredRef = useRef(0);
 
-    // Magic Fill State
-    const [magicFillLoading, setMagicFillLoading] = useState(true);
+    // Magic Fill State - Now starts as FALSE for instant load
+    const [magicFillLoading, setMagicFillLoading] = useState(false);
     const [magicFillSummary, setMagicFillSummary] = useState('');
+    const [aiEnhancing, setAiEnhancing] = useState(false); // Background AI status
 
     // Refs
     const recognitionRef = useRef(null);
@@ -135,107 +137,124 @@ const VoiceFormFiller = ({ formSchema, formContext, formUrl, onComplete, onClose
         load();
     }, []);
 
-    // 🪄 MAGIC FILL & CONVERSATION START
+    // 🪄 INSTANT FILL + BACKGROUND AI ENHANCEMENT
     useEffect(() => {
         const init = async () => {
             if (!formSchema?.length) return;
-            // Only wait for profile if we are actually intending to use it for magic fill
-            if (magicFillLoading && userProfile === null) return;
+            if (sessionId) return; // Already initialized
 
             let currentData = { ...formDataRef.current };
 
-            // -- 1. Trigger Magic Fill (SEQUENTIAL: Wait for it) --
-            /* The following Magic Fill block has been commented out for testing smart suggestions.
-             * This ensures the form starts empty, allowing direct testing of the smart suggestions
-             * without pre-filled data influencing them.
-             */
-            if (userProfile && !sessionId && magicFillLoading) {
-                try {
-                    console.log('✨ Starting Magic Fill (Sequential)...');
-                    // We AWAIT this now, per user request, to ensure Agent knows about filled data
-                    // With 1.5-flash, this should only take ~3-4 seconds.
-                    const response = await api.post('/magic-fill', {
-                        form_schema: formSchema,
-                        user_profile: userProfile
-                    });
+            // -- STEP 1: INSTANT RULE-BASED FILL (No waiting!) --
+            if (userProfile) {
+                console.log('⚡ Applying Instant Fill...');
+                const fields = extractFillableFields(formSchema);
+                const { filled, matched } = instantFillFromProfile(fields, userProfile);
 
+                if (matched > 0) {
+                    setAutoFilledFields(prev => ({ ...prev, ...filled }));
+                    setFormData(prev => ({ ...prev, ...filled }));
+                    formDataRef.current = { ...formDataRef.current, ...filled };
+                    currentData = { ...currentData, ...filled };
+                    setMagicFillSummary(`Instantly filled ${matched} fields`);
+
+                    // Smart jump to first unfilled field
+                    const firstUnfilled = allFields.findIndex(f => !filled[f.name] && !formDataRef.current[f.name]);
+                    if (firstUnfilled > 0 && currentFieldIndex === 0) {
+                        setCurrentFieldIndex(firstUnfilled);
+                        indexRef.current = firstUnfilled;
+                    }
+                }
+            }
+
+            // -- STEP 2: START CONVERSATION SESSION IMMEDIATELY --
+            try {
+                console.log('💬 Starting Conversation Session...');
+                const sessionRes = await startConversationSession(formSchema, window.location.href, currentData, 'web');
+                console.log('💬 Session Started:', sessionRes);
+                setSessionId(sessionRes.session_id);
+
+                if (sessionRes.next_questions?.length > 0) {
+                    console.log('🎯 Initial Batch:', sessionRes.next_questions.map(f => f.name));
+                    setCurrentBatch(sessionRes.next_questions);
+                    const initialStatus = {};
+                    sessionRes.next_questions.forEach(f => {
+                        initialStatus[f.name] = formDataRef.current[f.name] ? 'filled' : 'pending';
+                    });
+                    setBatchStatus(initialStatus);
+                }
+
+                if (sessionRes.greeting) {
+                    if (audioRef.current) {
+                        audioRef.current.pause();
+                        audioRef.current = null;
+                    }
+                    clearTimeout(idleTimeoutRef.current);
+                    window.speechSynthesis.cancel();
+                    const utter = new SpeechSynthesisUtterance(sessionRes.greeting);
+                    window.speechSynthesis.speak(utter);
+                    setAiResponse(sessionRes.greeting);
+                }
+            } catch (e) {
+                console.error('❌ Failed to start conversation session:', e);
+            }
+
+            // -- STEP 3: RUN AI MAGIC FILL IN BACKGROUND (Non-blocking) --
+            if (userProfile && !initialFilledData?.success) {
+                setAiEnhancing(true);
+                console.log('🤖 Starting background AI enhancement...');
+
+                // Fire and forget - don't await
+                api.post('/magic-fill', {
+                    form_schema: formSchema,
+                    user_profile: userProfile
+                }).then(response => {
                     if (response.data?.success && response.data.filled) {
                         const filled = response.data.filled;
-                        console.log('✨ Magic Fill Completed:', Object.keys(filled).length);
+                        console.log('🤖 AI Enhancement complete:', Object.keys(filled).length, 'fields');
 
-                        setAutoFilledFields(prev => ({ ...prev, ...filled }));
-                        setFormData(prev => ({ ...prev, ...filled }));
-                        formDataRef.current = { ...formDataRef.current, ...filled };
-                        currentData = { ...currentData, ...filled };
-
-                        // Smart jump
-                        const firstUnfilled = allFields.findIndex(f => !filled[f.name] && !formDataRef.current[f.name]);
-                        if (firstUnfilled > 0 && currentFieldIndex === 0) {
-                            setCurrentFieldIndex(firstUnfilled);
-                            // Update ref for session start
-                            indexRef.current = firstUnfilled;
+                        // Only update fields that weren't already filled
+                        const newFills = {};
+                        for (const [key, value] of Object.entries(filled)) {
+                            if (!formDataRef.current[key]) {
+                                newFills[key] = value;
+                            }
                         }
 
-                        setMagicFillSummary(response.data.summary || `Filled ${Object.keys(filled).length} fields`);
+                        if (Object.keys(newFills).length > 0) {
+                            setAutoFilledFields(prev => ({ ...prev, ...newFills }));
+                            setFormData(prev => ({ ...prev, ...newFills }));
+                            formDataRef.current = { ...formDataRef.current, ...newFills };
+                            setMagicFillSummary(prev => prev + ` + AI added ${Object.keys(newFills).length} more`);
+                        }
                     }
-                } catch (e) {
-                    console.error('❌ Magic Fill failed:', e);
-                } finally {
-                    // setMagicFillLoading(false); // This would have been called here
+                }).catch(e => {
+                    console.warn('⚠️ AI enhancement failed:', e.message);
+                }).finally(() => {
+                    setAiEnhancing(false);
+                });
+            } else if (initialFilledData?.success && initialFilledData?.filled) {
+                // Use pre-calculated data if available
+                console.log('✨ Using pre-calculated Magic Fill data');
+                const filled = initialFilledData.filled;
+                const newFills = {};
+                for (const [key, value] of Object.entries(filled)) {
+                    if (!formDataRef.current[key]) {
+                        newFills[key] = value;
+                    }
                 }
-            } else {
-                // setMagicFillLoading(false); // This would have been called here
-            }
-            /* End of Magic Fill block. */
-
-            // Ensure magicFillLoading is set to false regardless, so the UI proceeds.
-            setMagicFillLoading(false);
-
-            // -- 2. Start Conversation Session (After Magic Fill) --
-            if (!sessionId) {
-                try {
-                    console.log('💬 Starting Conversation Session...');
-                    // Pass the FULLY FILLED data to the agent so it doesn't ask redundant questions
-                    // And pass clientType='web' to ensure single-field questions
-                    const sessionRes = await startConversationSession(formSchema, window.location.href, currentData, 'web');
-                    console.log('💬 Session Started:', sessionRes);
-                    setSessionId(sessionRes.session_id);
-
-                    // Smart Grouping: Initialize current batch from backend
-                    if (sessionRes.next_questions?.length > 0) {
-                        console.log('🎯 Initial Batch:', sessionRes.next_questions.map(f => f.name));
-                        setCurrentBatch(sessionRes.next_questions);
-                        // Initialize batch status
-                        const initialStatus = {};
-                        sessionRes.next_questions.forEach(f => {
-                            initialStatus[f.name] = formDataRef.current[f.name] ? 'filled' : 'pending';
-                        });
-                        setBatchStatus(initialStatus);
-                    }
-
-                    if (sessionRes.greeting) {
-                        // FIX: Cancel any playing prompt audio before agent speaks
-                        if (audioRef.current) {
-                            audioRef.current.pause();
-                            audioRef.current = null;
-                        }
-                        clearTimeout(idleTimeoutRef.current);
-
-                        window.speechSynthesis.cancel();
-                        const utter = new SpeechSynthesisUtterance(sessionRes.greeting);
-                        window.speechSynthesis.speak(utter);
-                        setAiResponse(sessionRes.greeting);
-                    }
-                } catch (e) {
-                    console.error('❌ Failed to start conversation session:', e);
+                if (Object.keys(newFills).length > 0) {
+                    setAutoFilledFields(prev => ({ ...prev, ...newFills }));
+                    setFormData(prev => ({ ...prev, ...newFills }));
+                    formDataRef.current = { ...formDataRef.current, ...newFills };
                 }
             }
         };
 
-        if (!sessionId) {
+        if (!sessionId && userProfile !== null) {
             init();
         }
-    }, [formSchema, userProfile]);
+    }, [formSchema, userProfile, sessionId]);
 
     // Fallback: Simple profile mapping (runs if Magic Fill doesn't cover everything)
     useEffect(() => {

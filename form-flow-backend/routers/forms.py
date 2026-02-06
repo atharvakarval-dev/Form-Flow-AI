@@ -124,6 +124,8 @@ async def _process_scraped_form(
 @router.post("/scrape")
 async def scrape_form(
     data: ScrapeRequest,
+    request: Request,
+    db: AsyncSession = Depends(database.get_db),
     voice_processor: VoiceProcessor = Depends(get_voice_processor),
     speech_service: SpeechService = Depends(get_speech_service),
     gemini_service: GeminiService = Depends(get_gemini_service)
@@ -147,10 +149,76 @@ async def scrape_form(
         # Use shared helper
         processed_data = await _process_scraped_form(url, voice_processor, speech_service)
         
+        # --- OPTIMIZATION: Attempt Magic Fill during loading ---
+        magic_fill_result = None
+        user_profile = None
+        
+        auth_header = request.headers.get('Authorization')
+        print(f"🔍 Auth header present: {bool(auth_header)}")
+        if auth_header and auth_header.startswith('Bearer '):
+            try:
+                token = auth_header.split(' ')[1]
+                payload = auth.decode_access_token(token)
+                print(f"🔍 Token decoded, payload: {bool(payload)}")
+                if payload:
+                    email = payload.get("sub")
+                    print(f"🔍 Email from token: {email}")
+                    if email:
+                        result = await db.execute(select(models.User).filter(models.User.email == email))
+                        user = result.scalars().first()
+                        print(f"🔍 User found in DB: {bool(user)}")
+                        if user:
+                            # Build profile
+                            user_profile = {
+                                "first_name": user.first_name,
+                                "last_name": user.last_name,
+                                "email": user.email,
+                                "mobile": user.mobile,
+                                "city": user.city,
+                                "state": user.state,
+                                "country": user.country,
+                                "fullname": f"{user.first_name} {user.last_name}".strip()
+                            }
+                            
+                            # Merge learned history
+                            try:
+                                history_profile = await get_smart_autofill().get_profile_from_history(str(user.id))
+                                if history_profile:
+                                    user_profile = {**history_profile, **user_profile}
+                            except Exception as e:
+                                print(f"⚠️ History merge failed during scrape: {e}")
+                                
+                            # Execute Magic Fill
+                            if user_profile and gemini_service:
+                                print("✨ Triggering Magic Fill during scrape...")
+                                filler = SmartFormFillerChain(gemini_service.llm)
+                                magic_fill_result = await filler.fill(
+                                    user_profile=user_profile,
+                                    form_schema=processed_data['form_schema'],
+                                    min_confidence=0.5
+                                )
+                                print(f"✨ Magic Fill pre-calculated: {len(magic_fill_result.get('filled', {}))} fields")
+                            else:
+                                print(f"⚠️ Cannot run magic fill: user_profile={bool(user_profile)}, gemini_service={bool(gemini_service)}")
+                        else:
+                            print(f"⚠️ User not found in database for email: {email}")
+                    else:
+                        print("⚠️ No email in token payload")
+                else:
+                    print("⚠️ Token decode returned no payload")
+            except Exception as e:
+                print(f"⚠️ Pre-fill failed: {e}")
+                import traceback
+                traceback.print_exc()
+        else:
+            print("⚠️ No Bearer token in request - user not logged in")
+
+
         return {
             "message": "Form scraped and analyzed successfully",
             **processed_data,
-            "gemini_ready": gemini_service is not None
+            "gemini_ready": gemini_service is not None,
+            "magic_fill_data": magic_fill_result
         }
 
     except HTTPException as he:

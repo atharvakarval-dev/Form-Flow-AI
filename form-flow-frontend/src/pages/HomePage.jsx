@@ -155,7 +155,9 @@ const HomePage = () => {
                 formSchema={result.form_schema}
                 formContext={result.form_context}
                 pdfId={pdfId}
+                initialFilledData={result.magic_fill_data}
                 onComplete={handleVoiceComplete}
+                onClose={() => setShowVoiceForm(false)}
             />
         );
     }
