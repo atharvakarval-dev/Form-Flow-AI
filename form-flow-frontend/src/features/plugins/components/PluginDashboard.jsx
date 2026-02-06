@@ -10,7 +10,7 @@ import {
     Search, Plus, Filter, LayoutGrid, List, RefreshCw, Puzzle, ChevronLeft, X
 } from 'lucide-react';
 import { useTheme } from '@/context/ThemeProvider';
-import queryClient from '@/lib/reactQueryClient';
+import queryClient from '@/lib/reactQueryClient.js';
 import { usePlugins, useDeletePlugin, usePrefetchPlugin } from '@/hooks/usePluginQueries';
 import PluginCard, { PluginCardSkeleton } from './PluginCard';
 import { EmptyState, ErrorState } from './EmptyState';
