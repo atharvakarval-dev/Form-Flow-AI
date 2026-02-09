@@ -93,6 +93,23 @@ export const uploadDocx = async (file) => {
 };
 
 /**
+ * Upload an attachment file
+ * @param {File} file - File to upload
+ * @returns {Promise<{success, file_id, url}>}
+ */
+export const uploadAttachment = async (file) => {
+    const formData = new FormData();
+    formData.append('file', file);
+
+    const response = await api.post('/attachments/upload', formData, {
+        headers: {
+            'Content-Type': 'multipart/form-data',
+        },
+    });
+    return response.data;
+};
+
+/**
  * Get AI subsystem health status
  * @returns {Promise<{mode, dependencies}>} - AI mode and dependency status  
  */

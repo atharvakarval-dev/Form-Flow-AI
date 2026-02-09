@@ -3,6 +3,7 @@ import { Mic, MicOff, ChevronLeft, ChevronRight, SkipForward, Send, Volume2, Key
 import { motion, AnimatePresence } from 'framer-motion';
 import api, { API_BASE_URL, refineText, sendConversationMessage, getSuggestions, getSmartSuggestions, startConversationSession } from '@/services/api';
 import { instantFillFromProfile, extractFillableFields } from '../utils/instantFill';
+import AttachmentField from './AttachmentField';
 
 const VoiceFormFiller = ({ formSchema, formContext, formUrl, initialFilledData, onComplete, onClose }) => {
     const [isListening, setIsListening] = useState(false);
@@ -1062,6 +1063,28 @@ const VoiceFormFiller = ({ formSchema, formContext, formUrl, initialFilledData, 
                                         })}
                                     </div>
                                 </div>
+
+                            ) : (currentField.type === 'file' || currentField.type === 'attachment') ? (
+                                /* CASE A.5: ATTACHMENT FIELD */
+                                <div className="w-full flex flex-col justify-center items-center h-full max-w-md mx-auto">
+                                    <AttachmentField
+                                        label={currentField.label || currentField.name}
+                                        value={formData[currentField.name]}
+                                        onChange={(fileData) => {
+                                            updateField(currentField, fileData);
+                                            // Optional: auto-advance if file is uploaded
+                                            if (fileData) {
+                                                setTimeout(() => handleNext(currentFieldIndex), 800);
+                                            }
+                                        }}
+                                        required={currentField.required}
+                                        accept={currentField.accept}
+                                        error={null} // Pass error state if available
+                                    />
+                                    <p className="mt-6 text-white/40 text-sm text-center">
+                                        {formData[currentField.name] ? "File attached. Say 'Next' to continue." : "Upload a file or say 'Skip' if optional."}
+                                    </p>
+                                </div>
                             ) : (
                                 (!singleFieldMode && currentBatch.length > 1 && isCurrentFieldInBatch) ? (
                                     /* CASE B: GROUP VIEW */
@@ -1362,7 +1385,7 @@ const VoiceFormFiller = ({ formSchema, formContext, formUrl, initialFilledData, 
                     )}
                 </AnimatePresence>
             </div>
-        </div>
+        </div >
     );
 };
 
