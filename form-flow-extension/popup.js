@@ -134,7 +134,8 @@ document.addEventListener('DOMContentLoaded', async () => {
         ui.actionText.textContent = "INJECTING...";
 
         try {
-            const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+            const tabs = await chrome.tabs.query({ active: true, currentWindow: true });
+            const tab = tabs[0];
 
             if (tab.url.includes('docs.google.com/forms')) {
                 State.addLog('Google Forms Protocol Active', 'SYS');
@@ -160,6 +161,14 @@ document.addEventListener('DOMContentLoaded', async () => {
             State.addLog(`Injection Error: ${err.message}`, 'ERR');
         }
     });
+
+    // Vocabulary Manager Button
+    const vocabBtn = document.getElementById('openVocabManager');
+    if (vocabBtn) {
+        vocabBtn.addEventListener('click', () => {
+            chrome.tabs.create({ url: 'vocabulary-dashboard.html' });
+        });
+    }
 
     // Start
     runBootSequence();

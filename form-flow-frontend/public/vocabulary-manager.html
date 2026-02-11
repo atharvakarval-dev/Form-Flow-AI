@@ -1,0 +1,418 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Vocabulary Manager - FormFlow AI</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Inter', system-ui, -apple-system, sans-serif;
+            background: linear-gradient(135deg, #0d0d0d 0%, #1a1a1a 100%);
+            color: #f3f4f6;
+            min-height: 100vh;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+
+        header {
+            text-align: center;
+            margin-bottom: 40px;
+        }
+
+        h1 {
+            font-size: 2.5rem;
+            background: linear-gradient(135deg, #10b981, #059669);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            margin-bottom: 10px;
+        }
+
+        .subtitle {
+            color: #9CA3AF;
+            font-size: 1.1rem;
+        }
+
+        .card {
+            background: rgba(26, 26, 26, 0.8);
+            border: 1px solid #2a2a2a;
+            border-radius: 16px;
+            padding: 24px;
+            margin-bottom: 24px;
+            backdrop-filter: blur(10px);
+        }
+
+        .card-title {
+            font-size: 1.5rem;
+            margin-bottom: 20px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .icon {
+            width: 24px;
+            height: 24px;
+        }
+
+        .form-group {
+            margin-bottom: 16px;
+        }
+
+        label {
+            display: block;
+            margin-bottom: 8px;
+            color: #9CA3AF;
+            font-weight: 500;
+        }
+
+        input,
+        textarea {
+            width: 100%;
+            padding: 12px 16px;
+            background: #0d0d0d;
+            border: 1px solid #2a2a2a;
+            border-radius: 8px;
+            color: #f3f4f6;
+            font-size: 14px;
+            transition: border-color 0.3s;
+        }
+
+        input:focus,
+        textarea:focus {
+            outline: none;
+            border-color: #10b981;
+        }
+
+        .btn {
+            padding: 12px 24px;
+            border: none;
+            border-radius: 8px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s;
+            font-size: 14px;
+        }
+
+        .btn-primary {
+            background: linear-gradient(135deg, #10b981, #059669);
+            color: white;
+        }
+
+        .btn-primary:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 8px 20px rgba(16, 185, 129, 0.3);
+        }
+
+        .btn-danger {
+            background: #ef4444;
+            color: white;
+        }
+
+        .btn-danger:hover {
+            background: #dc2626;
+        }
+
+        .corrections-list {
+            display: grid;
+            gap: 12px;
+        }
+
+        .correction-item {
+            background: #0d0d0d;
+            border: 1px solid #2a2a2a;
+            border-radius: 8px;
+            padding: 16px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            transition: border-color 0.3s;
+        }
+
+        .correction-item:hover {
+            border-color: #10b981;
+        }
+
+        .correction-content {
+            flex: 1;
+        }
+
+        .correction-heard {
+            color: #ef4444;
+            font-weight: 600;
+            text-decoration: line-through;
+        }
+
+        .correction-arrow {
+            margin: 0 12px;
+            color: #9CA3AF;
+        }
+
+        .correction-correct {
+            color: #10b981;
+            font-weight: 600;
+        }
+
+        .correction-meta {
+            color: #6B7280;
+            font-size: 12px;
+            margin-top: 4px;
+        }
+
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 16px;
+            margin-bottom: 24px;
+        }
+
+        .stat-card {
+            background: linear-gradient(135deg, #1a1a1a, #262626);
+            border: 1px solid #2a2a2a;
+            border-radius: 12px;
+            padding: 20px;
+            text-align: center;
+        }
+
+        .stat-value {
+            font-size: 2rem;
+            font-weight: 700;
+            color: #10b981;
+            margin-bottom: 8px;
+        }
+
+        .stat-label {
+            color: #9CA3AF;
+            font-size: 14px;
+        }
+
+        .empty-state {
+            text-align: center;
+            padding: 40px;
+            color: #6B7280;
+        }
+
+        .toast {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            background: #10b981;
+            color: white;
+            padding: 16px 24px;
+            border-radius: 8px;
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
+            transform: translateX(400px);
+            transition: transform 0.3s;
+            z-index: 1000;
+        }
+
+        .toast.show {
+            transform: translateX(0);
+        }
+    </style>
+</head>
+
+<body>
+    <div class="container">
+        <header>
+            <h1>🎯 Vocabulary Manager</h1>
+            <p class="subtitle">Teach FormFlow AI your custom vocabulary</p>
+        </header>
+
+        <!-- Analytics -->
+        <div class="stats-grid" id="stats">
+            <div class="stat-card">
+                <div class="stat-value" id="totalCorrections">0</div>
+                <div class="stat-label">Total Corrections</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-value" id="totalUsage">0</div>
+                <div class="stat-label">Times Applied</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-value" id="avgUsage">0</div>
+                <div class="stat-label">Avg Usage</div>
+            </div>
+        </div>
+
+        <!-- Add Correction Form -->
+        <div class="card">
+            <h2 class="card-title">
+                <svg class="icon" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" />
+                </svg>
+                Add New Correction
+            </h2>
+
+            <form id="addForm">
+                <div class="form-group">
+                    <label for="heard">What STT Heard (Incorrect)</label>
+                    <input type="text" id="heard" placeholder="e.g., Karval, John Dough" required>
+                </div>
+
+                <div class="form-group">
+                    <label for="correct">Correct Value</label>
+                    <input type="text" id="correct" placeholder="e.g., Karwal, John Doe" required>
+                </div>
+
+                <div class="form-group">
+                    <label for="context">Context (Optional)</label>
+                    <input type="text" id="context" placeholder="e.g., name, company, technical term">
+                </div>
+
+                <button type="submit" class="btn btn-primary">Add Correction</button>
+            </form>
+        </div>
+
+        <!-- Corrections List -->
+        <div class="card">
+            <h2 class="card-title">
+                <svg class="icon" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                        d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
+                </svg>
+                Your Corrections
+            </h2>
+
+            <div class="corrections-list" id="correctionsList">
+                <div class="empty-state">
+                    <p>No corrections yet. Add your first one above!</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="toast" id="toast"></div>
+
+    <script>
+        const API_URL = 'http://localhost:8001';
+
+        // Load corrections on page load
+        document.addEventListener('DOMContentLoaded', () => {
+            loadCorrections();
+            loadAnalytics();
+        });
+
+        // Add correction form
+        document.getElementById('addForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+
+            const data = {
+                heard: document.getElementById('heard').value,
+                correct: document.getElementById('correct').value,
+                context: document.getElementById('context').value || null
+            };
+
+            try {
+                const response = await fetch(`${API_URL}/vocabulary/correction`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(data)
+                });
+
+                if (response.ok) {
+                    showToast('✓ Correction added successfully!');
+                    document.getElementById('addForm').reset();
+                    loadCorrections();
+                    loadAnalytics();
+                } else {
+                    showToast('❌ Failed to add correction', 'error');
+                }
+            } catch (error) {
+                showToast('❌ Connection error', 'error');
+            }
+        });
+
+        async function loadCorrections() {
+            try {
+                const response = await fetch(`${API_URL}/vocabulary/corrections`);
+                const corrections = await response.json();
+
+                const list = document.getElementById('correctionsList');
+
+                if (corrections.length === 0) {
+                    list.innerHTML = '<div class="empty-state"><p>No corrections yet. Add your first one above!</p></div>';
+                    return;
+                }
+
+                list.innerHTML = corrections.map(c => `
+                    <div class="correction-item">
+                        <div class="correction-content">
+                            <div>
+                                <span class="correction-heard">${c.heard}</span>
+                                <span class="correction-arrow">→</span>
+                                <span class="correction-correct">${c.correct}</span>
+                            </div>
+                            <div class="correction-meta">
+                                ${c.context ? `Context: ${c.context} • ` : ''}
+                                Used ${c.usage_count} times
+                            </div>
+                        </div>
+                        <button class="btn btn-danger" onclick="deleteCorrection(${c.id})">Delete</button>
+                    </div>
+                `).join('');
+            } catch (error) {
+                console.error('Failed to load corrections:', error);
+            }
+        }
+
+        async function loadAnalytics() {
+            try {
+                const response = await fetch(`${API_URL}/vocabulary/analytics`);
+                const data = await response.json();
+
+                document.getElementById('totalCorrections').textContent = data.total_corrections;
+                document.getElementById('totalUsage').textContent = data.total_usage;
+                document.getElementById('avgUsage').textContent =
+                    data.total_corrections > 0
+                        ? (data.total_usage / data.total_corrections).toFixed(1)
+                        : '0';
+            } catch (error) {
+                console.error('Failed to load analytics:', error);
+            }
+        }
+
+        async function deleteCorrection(id) {
+            if (!confirm('Delete this correction?')) return;
+
+            try {
+                const response = await fetch(`${API_URL}/vocabulary/correction/${id}`, {
+                    method: 'DELETE'
+                });
+
+                if (response.ok) {
+                    showToast('✓ Correction deleted');
+                    loadCorrections();
+                    loadAnalytics();
+                } else {
+                    showToast('❌ Failed to delete', 'error');
+                }
+            } catch (error) {
+                showToast('❌ Connection error', 'error');
+            }
+        }
+
+        function showToast(message, type = 'success') {
+            const toast = document.getElementById('toast');
+            toast.textContent = message;
+            toast.style.background = type === 'error' ? '#ef4444' : '#10b981';
+            toast.classList.add('show');
+
+            setTimeout(() => {
+                toast.classList.remove('show');
+            }, 3000);
+        }
+    </script>
+</body>
+
+</html>

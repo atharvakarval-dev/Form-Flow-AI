@@ -89,6 +89,20 @@ class VoiceProcessor:
     def process_voice_input(self, transcript: str, field_info: Dict, form_context: str) -> Dict:
         """Process voice input using Local LLM (speed) with Gemini fallback (accuracy)"""
         
+        # 0. Apply Vocabulary Corrections (Custom Dictionary)
+        try:
+            from services.voice.vocabulary import get_vocabulary_service
+            vocab_service = get_vocabulary_service()
+            
+            # Apply corrections synchronously (fast in-memory cache)
+            correction_result = vocab_service.apply_corrections(transcript)
+            if correction_result['applied']:
+                original_transcript = transcript
+                transcript = correction_result['corrected']
+                print(f"✨ Vocabulary Correction: '{original_transcript}' -> '{transcript}'")
+        except Exception as e:
+            print(f"⚠️ Vocabulary correction failed: {e}")
+
         # 1. Try Local LLM first (Fastest Response)
         try:
             from services.ai.local_llm import get_local_llm_service
