@@ -33,11 +33,11 @@ class VoiceProcessRequest(BaseModel):
 
 class FormFillRequest(BaseModel):
     url: str
-    form_data: Dict[str, str]
+    form_data: Dict[str, Any]
 
 class FormSubmitRequest(BaseModel):
     url: str
-    form_data: Dict[str, str]
+    form_data: Dict[str, Any]
     form_schema: List[Dict[str, Any]]
     use_cdp: bool = False  # If True, connect to user's browser via Chrome DevTools Protocol
 

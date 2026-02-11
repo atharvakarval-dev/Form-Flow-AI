@@ -30,7 +30,8 @@ from dotenv import load_dotenv  # <--- Add this
 
 load_dotenv()
 
-from langchain_community.chat_models import ChatOpenAI
+# from langchain_community.chat_models import ChatOpenAI # Moved to inside __init__ to avoid heavy load
+
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.output_parsers import JsonOutputParser
@@ -106,6 +107,7 @@ class GeminiService:
             if self.model in ("gemini-2.0-flash", "gemma-2-9b-it"):
                 self.model = "google/gemma-2-9b-it" # Use free tier
             
+            from langchain_community.chat_models import ChatOpenAI
             self.llm = ChatOpenAI(
                 model=self.model,
                 api_key=self.api_key,

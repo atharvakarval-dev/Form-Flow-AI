@@ -375,7 +375,6 @@ playwright install chromium
 
 # Configure environment
 copy .env.example .env  # Windows
-# cp .env.example .env  # Linux/Mac
 
 # Start server
 python -m uvicorn main:app --reload --port 8001

@@ -295,8 +295,14 @@ const VoiceFormFiller = ({ formSchema, formContext, formUrl, initialFilledData, 
             const field = allFields[currentFieldIndex];
             const preFilledValue = formDataRef.current[field.name] || autoFilledFields[field.name];
 
-            setTranscript(preFilledValue || '');
-            setTextInputValue(preFilledValue || '');
+
+            let safeValue = preFilledValue || '';
+            if (typeof preFilledValue === 'object' && preFilledValue !== null) {
+                safeValue = preFilledValue.name || preFilledValue.file_name || '';
+            }
+
+            setTranscript(safeValue);
+            setTextInputValue(safeValue);
             setShowTextInput(false);
 
             // FIX: Only play backend audio prompt when NO conversation session exists
@@ -1125,7 +1131,9 @@ const VoiceFormFiller = ({ formSchema, formContext, formUrl, initialFilledData, 
                                                                 {isFilled && <CheckCircle size={14} className="text-emerald-400" />}
                                                             </div>
                                                             <div className="text-lg font-medium text-white truncate">
-                                                                {val || <span className="text-white/20 italic">Waiting...</span>}
+                                                                {val ? (
+                                                                    typeof val === 'object' ? (val.name || val.file_name || "File attached") : val
+                                                                ) : <span className="text-white/20 italic">Waiting...</span>}
                                                             </div>
                                                         </div>
                                                     );
@@ -1379,7 +1387,11 @@ const VoiceFormFiller = ({ formSchema, formContext, formUrl, initialFilledData, 
                                 <CheckCircle size={12} className="text-emerald-500" />
                             </div>
                             <span className="text-white/80 font-mono text-sm">
-                                Saved <span className="text-white font-bold text-shadow-sm">{lastFilled.value}</span>
+                                Saved <span className="text-white font-bold text-shadow-sm">
+                                    {typeof lastFilled.value === 'object' && lastFilled.value !== null
+                                        ? (lastFilled.value.name || lastFilled.value.file_name || "File")
+                                        : lastFilled.value}
+                                </span>
                             </span>
                         </motion.div>
                     )}

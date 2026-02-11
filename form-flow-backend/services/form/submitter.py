@@ -399,15 +399,91 @@ class FormSubmitter:
         return True
 
     async def _fill_file(self, element, value) -> bool:
-        """Handle file upload."""
+        """
+        Handle file upload.
+        Supports:
+        1. List of file paths (original)
+        2. Single file path (original)
+        3. File objects from frontend (new) {file_id, name}
+        
+        CRITICAL: Backend stores files in `storage/attachments/{file_id}` (no extension in filename on disk, but we might need to handle that).
+        Actually, `routers/attachments.py` does: `file_path = ATTACHMENTS_DIR / file_id`
+        So the file on disk is literally named just the UUID.
+        However, browsers often need the extension to detect MIME type correctly.
+        We might need to copy it to a temp file with the correct name.
+        """
+        import shutil
+        import os
+
         files = value if isinstance(value, list) else [value]
-        valid_files = [f for f in files if os.path.exists(f)]
-        if valid_files:
-            await element.set_input_files(valid_files)
-            await asyncio.sleep(0.5)
-            print(f"✅ Uploaded {len(valid_files)} file(s)")
-            return True
-        print(f"⚠️ No valid files found")
+        resolved_files = []
+        temp_files_created = []
+
+        print(f"📂 _fill_file called with {len(files)} item(s)")
+
+        for f in files:
+            path_to_upload = None
+            
+            if isinstance(f, str):
+                if os.path.exists(f):
+                    path_to_upload = f
+                else:
+                     print(f"⚠️ File path not found: {f}")
+
+            elif isinstance(f, dict) and 'file_id' in f:
+                 # Handle file object from frontend
+                 file_id = f['file_id']
+                 original_name = f.get('name') or f.get('file_name') or 'attachment'
+                 
+                 # 1. Try direct path (if it happens to be valid)
+                 # 2. Try backend storage path
+                 storage_path = os.path.abspath(os.path.join("storage", "attachments", file_id))
+                 
+                 if os.path.exists(storage_path):
+                     print(f"✅ Found file in storage: {storage_path}")
+                     
+                     # Create a temp copy with the correct filename so the browser sees the extension
+                     # This is crucial for some forms to accept the file validation
+                     try:
+                         temp_dir = os.path.abspath(os.path.join("storage", "temp_uploads"))
+                         os.makedirs(temp_dir, exist_ok=True)
+                         temp_path = os.path.join(temp_dir, original_name)
+                         
+                         # Copy to preserve original
+                         shutil.copy2(storage_path, temp_path)
+                         path_to_upload = temp_path
+                         temp_files_created.append(temp_path)
+                         print(f"✅ Created temp file with correct name: {temp_path}")
+                     except Exception as e:
+                         print(f"⚠️ Failed to create temp file: {e}")
+                         # Fallback to storage path (might fail MIME check on some sites)
+                         path_to_upload = storage_path
+                 else:
+                     print(f"❌ File object not found in storage: {storage_path}")
+            
+            if path_to_upload:
+                resolved_files.append(path_to_upload)
+
+        if resolved_files:
+            try:
+                print(f"📤 Uploading {len(resolved_files)} file(s) to input element...")
+                # Playwright expects absolute paths
+                await element.set_input_files(resolved_files)
+                await asyncio.sleep(1) # Give browser time to process
+                
+                # Verify value
+                val = await element.evaluate("el => el.value")
+                print(f"✅ Input value after upload: {val}")
+                
+                return True
+            except Exception as e:
+                print(f"❌ Playwright upload failed: {e}")
+                return False
+        
+        print(f"⚠️ No valid files found to upload.")
+        return False
+                
+        print(f"⚠️ No valid files found for upload")
         return False
 
     async def _fill_range(self, page, element, value: str) -> bool:
@@ -1118,6 +1194,49 @@ class FormSubmitter:
                     if ftype in {'text', 'email', 'tel', 'password', 'number', 'url', 'search', 'textarea'}:
                         element.fill(str(value))
                         filled.append(name)
+                    elif ftype == 'file':
+                        # Handle file upload for Windows (Sync)
+                        resolved_files = []
+                        import shutil
+                        import os
+                        
+                        raw_files = value if isinstance(value, list) else [value]
+                        for f in raw_files:
+                            path_to_upload = None
+                            if isinstance(f, dict) and 'file_id' in f:
+                                # Handle file object: {file_id, name}
+                                file_id = f['file_id']
+                                original_name = f.get('name') or f.get('file_name') or 'attachment'
+                                storage_path = os.path.abspath(os.path.join("storage", "attachments", file_id))
+                                
+                                if os.path.exists(storage_path):
+                                    # Create temp copy with correct extension
+                                    try:
+                                        temp_dir = os.path.abspath(os.path.join("storage", "temp_uploads"))
+                                        os.makedirs(temp_dir, exist_ok=True)
+                                        temp_path = os.path.join(temp_dir, original_name)
+                                        shutil.copy2(storage_path, temp_path)
+                                        path_to_upload = temp_path
+                                        print(f"✅ Created temp file (sync): {temp_path}")
+                                    except Exception as e:
+                                        print(f"⚠️ Sync temp file creation failed: {e}")
+                                        path_to_upload = storage_path
+                            elif isinstance(f, str) and os.path.exists(f):
+                                path_to_upload = f
+                            
+                            if path_to_upload:
+                                resolved_files.append(path_to_upload)
+                        
+                        if resolved_files:
+                            try:
+                                element.set_input_files(resolved_files)
+                                filled.append(name)
+                                print(f"✅ Uploaded {len(resolved_files)} file(s) (sync)")
+                            except Exception as e:
+                                errors.append(f"Upload failed: {e}")
+                        else:
+                            errors.append(f"No valid files found for {name}")
+
                     elif ftype in {'select', 'dropdown'}:
                         try:
                             element.select_option(value=str(value))

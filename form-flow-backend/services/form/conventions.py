@@ -153,10 +153,14 @@ class FieldConvention:
     formatters: List[Callable] = field(default_factory=list)
     constraints: Dict[str, Any] = field(default_factory=dict)
     
-    def validate(self, value: str) -> Tuple[bool, str]:
+    def validate(self, value: Any) -> Tuple[bool, str]:
         """Validate value against field conventions"""
         if self.required and not value:
             return False, f"{self.name} is required"
+        
+        # Skip string validators for non-string values (e.g. file uploads)
+        if not isinstance(value, str):
+            return True, ""
         
         if self.validators:
             for validator in self.validators:
@@ -166,11 +170,19 @@ class FieldConvention:
         
         return True, ""
     
-    def format(self, value: str) -> str:
+    def format(self, value: Any) -> Any:
         """Apply formatting rules to value"""
+        # Skip string formatters for non-string values
+        if not isinstance(value, str):
+            return value
+            
         if self.formatters:
             for formatter in self.formatters:
-                value = formatter(value)
+                try:
+                    value = formatter(value)
+                except Exception:
+                    # Ignore formatting errors for unexpected types
+                    pass
         return value
 
 

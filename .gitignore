@@ -74,3 +74,6 @@ tmp/
 .pytest_cache/
 .coverage
 htmlcov/
+
+# Storage
+form-flow-backend/storage/

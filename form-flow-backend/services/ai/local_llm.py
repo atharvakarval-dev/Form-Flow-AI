@@ -13,9 +13,9 @@ Usage:
 
 import os
 import json
-import torch
+import json
 from typing import Dict, List, Any, Optional
-from transformers import AutoTokenizer, AutoModelForCausalLM, BitsAndBytesConfig
+
 
 from utils.logging import get_logger
 from utils.exceptions import AIServiceError
@@ -95,6 +95,10 @@ class LocalLLMService:
         try:
             logger.info(f"Loading local LLM: {self.model_id}")
             
+            
+            import torch
+            from transformers import AutoTokenizer, AutoModelForCausalLM, BitsAndBytesConfig
+
             # Log GPU status for debugging
             logger.info(f"CUDA Available: {torch.cuda.is_available()}")
             if torch.cuda.is_available():
@@ -283,6 +287,7 @@ INSTRUCTIONS:
 Output:"""
 
         # 3. Running Inference
+        import torch
         inputs = self.tokenizer(prompt, return_tensors="pt")
         if self.model.device.type == "cuda":
             inputs = inputs.to("cuda")

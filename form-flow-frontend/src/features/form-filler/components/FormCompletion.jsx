@@ -200,7 +200,12 @@ const FormCompletion = ({ formData, formSchema, originalUrl, pdfId, onReset }) =
                                         <span className="text-white/50 font-mono capitalize shrink-0 pr-4 mt-0.5 group-hover:text-white/70 transition-colors">
                                             {fieldLabels[key] || key}:
                                         </span>
-                                        <span className="font-medium text-white text-right break-words">{value}</span>
+                                        <span className="font-medium text-white text-right break-words">
+                                            {typeof value === 'object' && value !== null
+                                                ? (value.name || value.file_name || "File attached")
+                                                : value
+                                            }
+                                        </span>
                                     </div>
                                 ))
                             ) : (
