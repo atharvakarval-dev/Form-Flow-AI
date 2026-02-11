@@ -5,7 +5,16 @@
 import axios from 'axios';
 
 // Base API configuration - uses environment variable with fallback
-export const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8001';
+// Base API configuration - uses environment variable with fallback to current hostname
+const getBaseUrl = () => {
+    if (import.meta.env.VITE_API_URL) return import.meta.env.VITE_API_URL;
+    // Fallback to same hostname on port 8001 (dev assumption) or relative (prod)
+    if (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') {
+        return `http://${window.location.hostname}:8001`;
+    }
+    return '/api'; // Production proxy usually
+};
+export const API_BASE_URL = getBaseUrl();
 
 // Create axios instance with default config (no global timeout)
 const api = axios.create({

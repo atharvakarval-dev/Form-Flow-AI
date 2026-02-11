@@ -43,7 +43,7 @@ from utils.exceptions import FormFlowError
 from utils.rate_limit import limiter, rate_limit_exceeded_handler
 
 # Import Routers
-from routers import auth, forms, speech, conversation, advanced_voice, analytics, websocket, local_llm, pdf, suggestions, docx, profile, snippets, plugins, attachments
+from routers import auth, forms, speech, conversation, advanced_voice, analytics, websocket, local_llm, pdf, suggestions, docx, profile, snippets, plugins, attachments, vocabulary
 
 # Initialize logging
 setup_logging()
@@ -194,6 +194,7 @@ app.include_router(profile.router)
 app.include_router(snippets.router)
 app.include_router(plugins.router)
 app.include_router(attachments.router)
+app.include_router(vocabulary.router)
 
 
 # =============================================================================

@@ -268,6 +268,8 @@ class TestMemoryUsage:
         session = PluginSessionData(
             session_id="memory_test",
             plugin_id=1,
+            user_id=None,
+            api_key_prefix=None,
             state=SessionState.ACTIVE,
             pending_fields=["field_" + str(i) for i in range(50)],
             completed_fields=[],

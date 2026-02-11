@@ -7,8 +7,8 @@
 
 // Configuration
 const CONFIG = {
-    BACKEND_URL: 'http://localhost:8000',
-    WS_URL: 'ws://localhost:8000/ws',
+    BACKEND_URL: 'http://localhost:8001',
+    WS_URL: 'ws://localhost:8001/ws',
     RECONNECT_DELAY: 1000,
     MAX_RECONNECT_DELAY: 30000,
     MAX_RECONNECT_ATTEMPTS: 5,

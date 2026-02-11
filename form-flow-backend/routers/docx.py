@@ -92,37 +92,17 @@ async def fill_docx(docx_id: str, data: Dict[str, str]) -> Dict[str, Any]:
         )
     
     try:
-        from docx import Document
+        from services.docx.docx_filler import fill_docx_template
         
         # Load original document
         content = _docx_storage[docx_id]
-        doc = Document(io.BytesIO(content))
         
-        # Replace placeholders in paragraphs
-        for paragraph in doc.paragraphs:
-            for field_name, value in data.items():
-                # Replace bracket placeholders
-                import re
-                # Match both [Name] and [name] style
-                pattern = re.compile(rf'\[{re.escape(field_name)}\]', re.IGNORECASE)
-                if pattern.search(paragraph.text):
-                    for run in paragraph.runs:
-                        run.text = pattern.sub(value, run.text)
-                        
-                # Also try display name variations
-                display_pattern = re.compile(rf'\[{field_name.replace("_", " ")}\]', re.IGNORECASE)
-                if display_pattern.search(paragraph.text):
-                    for run in paragraph.runs:
-                        run.text = display_pattern.sub(value, run.text)
-        
-        # Save filled document
-        output = io.BytesIO()
-        doc.save(output)
-        output.seek(0)
+        # Fill document using service
+        filled_content, filled_count = fill_docx_template(content, data)
         
         # Generate download ID
         download_id = str(uuid.uuid4())
-        _docx_storage[f"filled_{download_id}"] = output.getvalue()
+        _docx_storage[f"filled_{download_id}"] = filled_content
         
         return {
             "success": True,

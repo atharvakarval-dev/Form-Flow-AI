@@ -74,7 +74,11 @@ export const validateField = async (value, fieldType, context = {}) => {
         return response.data;
     } catch (error) {
         console.warn('[validateField] Failed:', error.message);
-        return { is_valid: true, issues: [], suggestions: [] };
+        return {
+            is_valid: false,
+            issues: ['Validation service unavailable'],
+            suggestions: []
+        };
     }
 };
 

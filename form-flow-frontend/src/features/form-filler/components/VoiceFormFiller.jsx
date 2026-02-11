@@ -837,98 +837,6 @@ const VoiceFormFiller = ({ formSchema, formContext, formUrl, initialFilledData, 
                     )}
                 </AnimatePresence>
 
-                {/* 🧠 Smart Suggestions Modal (Profile-Based) */}
-                <AnimatePresence>
-                    {showSmartSuggestions && smartSuggestions.length > 0 && (
-                        <motion.div
-                            initial={{ opacity: 0, y: 20, scale: 0.95 }}
-                            animate={{ opacity: 1, y: 0, scale: 1 }}
-                            exit={{ opacity: 0, y: 20, scale: 0.95 }}
-                            transition={{ type: "spring", damping: 25, stiffness: 300 }}
-                            className="absolute bottom-24 left-1/2 transform -translate-x-1/2 z-50 w-[500px] max-w-[90%]"
-                        >
-                            <div className="bg-gradient-to-br from-purple-900/80 to-indigo-900/80 backdrop-blur-xl rounded-2xl border border-purple-500/30 shadow-2xl overflow-hidden">
-                                {/* Header */}
-                                <div className="flex items-center justify-between px-5 py-3 border-b border-purple-500/20 bg-purple-500/10">
-                                    <div className="flex items-center gap-3">
-                                        <div className="p-2 rounded-lg bg-purple-500/20">
-                                            <Brain size={18} className="text-purple-300" />
-                                        </div>
-                                        <div>
-                                            <div className="text-sm font-semibold text-white flex items-center gap-2">
-                                                Need help with this field?
-                                                {suggestionTier && (
-                                                    <span className={`text-[10px] px-1.5 py-0.5 rounded-full uppercase tracking-wider ${suggestionTier === 'profile_based'
-                                                        ? 'bg-purple-500/30 text-purple-200'
-                                                        : suggestionTier === 'profile_blended'
-                                                            ? 'bg-blue-500/30 text-blue-200'
-                                                            : 'bg-gray-500/30 text-gray-200'
-                                                        }`}>
-                                                        {suggestionTier === 'profile_based' ? '🧠 Personalized' :
-                                                            suggestionTier === 'profile_blended' ? '🎯 Smart' : '⚡ Quick'}
-                                                    </span>
-                                                )}
-                                            </div>
-                                            <p className="text-xs text-purple-200/70">Based on your behavioral profile</p>
-                                        </div>
-                                    </div>
-                                    <button
-                                        onClick={() => setShowSmartSuggestions(false)}
-                                        className="p-1.5 rounded-lg hover:bg-white/10 text-white/50 hover:text-white transition-colors"
-                                    >
-                                        <X size={14} />
-                                    </button>
-                                </div>
-
-                                {/* Suggestions List */}
-                                <div className="p-3 space-y-2 max-h-[250px] overflow-y-auto custom-scrollbar">
-                                    {smartSuggestions.map((suggestion, idx) => (
-                                        <motion.button
-                                            key={idx}
-                                            initial={{ opacity: 0, x: -10 }}
-                                            animate={{ opacity: 1, x: 0 }}
-                                            transition={{ delay: idx * 0.1 }}
-                                            onClick={() => handleSmartSuggestionSelect(suggestion)}
-                                            className="w-full text-left p-3 rounded-xl bg-white/5 hover:bg-white/10 border border-white/5 hover:border-purple-500/30 transition-all group"
-                                        >
-                                            <div className="flex items-start justify-between gap-3">
-                                                <div className="flex-1">
-                                                    <div className="font-medium text-white group-hover:text-purple-200 transition-colors">
-                                                        {suggestion.value}
-                                                    </div>
-                                                    {suggestion.reasoning && (
-                                                        <p className="text-xs text-white/50 mt-1 line-clamp-2">
-                                                            {suggestion.reasoning}
-                                                        </p>
-                                                    )}
-                                                    {suggestion.behavioral_match && (
-                                                        <div className="flex items-center gap-1 mt-2">
-                                                            <Lightbulb size={10} className="text-amber-400/70" />
-                                                            <span className="text-[10px] text-amber-400/70 italic">
-                                                                {suggestion.behavioral_match}
-                                                            </span>
-                                                        </div>
-                                                    )}
-                                                </div>
-                                                <div className="text-[10px] text-purple-300/60 bg-purple-500/10 px-2 py-1 rounded-full whitespace-nowrap">
-                                                    {Math.round(suggestion.confidence * 100)}%
-                                                </div>
-                                            </div>
-                                        </motion.button>
-                                    ))}
-                                </div>
-
-                                {/* Footer */}
-                                <div className="px-4 py-2 border-t border-purple-500/20 bg-purple-500/5">
-                                    <p className="text-[10px] text-purple-300/50 text-center">
-                                        Suggestions improve as you complete more forms • Press any key to dismiss
-                                    </p>
-                                </div>
-                            </div>
-                        </motion.div>
-                    )}
-                </AnimatePresence>
-
                 {/* 2. Main Content Area */}
                 <div className="flex-1 flex overflow-hidden">
 
@@ -1233,27 +1141,85 @@ const VoiceFormFiller = ({ formSchema, formContext, formUrl, initialFilledData, 
                                                     </AnimatePresence>
                                                 </div>
 
-                                                {/* Suggestion chips for Voice Mode */}
-                                                {!showTextInput && suggestions.length > 0 && (
-                                                    <div className="w-full mt-4 px-4">
-                                                        <div className="text-xs font-mono text-white/30 uppercase tracking-widest mb-2 text-center">Suggestions from history</div>
-                                                        <div className="flex flex-wrap gap-2 justify-center">
-                                                            {suggestions.map((suggestion, idx) => (
-                                                                <button
-                                                                    key={idx}
-                                                                    onClick={() => {
-                                                                        setTranscript(suggestion);
-                                                                        processVoiceInput(suggestion, currentFieldIndex, false);
-                                                                    }}
-                                                                    className="px-4 py-2 bg-white/5 hover:bg-emerald-500/20 border border-white/10 hover:border-emerald-500/30 rounded-xl text-sm text-white/70 hover:text-white transition-all backdrop-blur-sm flex items-center gap-2"
-                                                                >
-                                                                    <Sparkles size={12} className="text-emerald-400" />
-                                                                    {suggestion}
-                                                                </button>
-                                                            ))}
-                                                        </div>
-                                                    </div>
-                                                )}
+                                                {/* INTEGRATED SMART SUGGESTIONS (Replaces basic chips when active) */}
+                                                <AnimatePresence mode='wait'>
+                                                    {showSmartSuggestions && smartSuggestions.length > 0 && !showTextInput ? (
+                                                        <motion.div
+                                                            initial={{ opacity: 0, y: 10, scale: 0.98 }}
+                                                            animate={{ opacity: 1, y: 0, scale: 1 }}
+                                                            exit={{ opacity: 0, scale: 0.98 }}
+                                                            className="w-full mt-6 bg-emerald-900/20 backdrop-blur-md border border-emerald-500/20 rounded-2xl overflow-hidden shadow-lg"
+                                                        >
+                                                            {/* Integrated Header */}
+                                                            <div className="px-4 py-2 bg-emerald-500/10 border-b border-emerald-500/10 flex items-center justify-between">
+                                                                <div className="flex items-center gap-2">
+                                                                    <Sparkles size={14} className="text-emerald-400 animate-pulse" />
+                                                                    <span className="text-xs font-bold text-emerald-100 tracking-wide uppercase">
+                                                                        AI Suggestion
+                                                                    </span>
+                                                                </div>
+                                                                {suggestionTier === 'profile_based' && (
+                                                                    <span className="text-[10px] bg-emerald-500/20 text-emerald-300 px-1.5 py-0.5 rounded border border-emerald-500/20">
+                                                                        PERSONALIZED
+                                                                    </span>
+                                                                )}
+                                                            </div>
+
+                                                            {/* Suggestions List */}
+                                                            <div className="p-2 space-y-1">
+                                                                {smartSuggestions.map((suggestion, idx) => (
+                                                                    <button
+                                                                        key={idx}
+                                                                        onClick={() => {
+                                                                            setTranscript(suggestion.value);
+                                                                            handleSmartSuggestionSelect(suggestion);
+                                                                        }}
+                                                                        className="w-full text-left p-3 rounded-xl hover:bg-emerald-500/10 border border-transparent hover:border-emerald-500/20 transition-all group flex items-start gap-3"
+                                                                    >
+                                                                        <div className="mt-0.5 w-4 h-4 rounded-full border border-emerald-500/30 flex items-center justify-center bg-emerald-500/5 group-hover:bg-emerald-500/20">
+                                                                            <div className="w-1.5 h-1.5 rounded-full bg-emerald-400 opacity-50 group-hover:opacity-100" />
+                                                                        </div>
+                                                                        <div className="flex-1">
+                                                                            <div className="text-sm font-medium text-emerald-50 group-hover:text-white">
+                                                                                {suggestion.value}
+                                                                            </div>
+                                                                            {suggestion.reasoning && (
+                                                                                <div className="text-[10px] text-emerald-200/50 mt-0.5 leading-tight">
+                                                                                    {suggestion.reasoning}
+                                                                                </div>
+                                                                            )}
+                                                                        </div>
+                                                                        <div className="text-[10px] font-mono text-emerald-500/50">
+                                                                            {Math.round(suggestion.confidence * 100)}%
+                                                                        </div>
+                                                                    </button>
+                                                                ))}
+                                                            </div>
+                                                        </motion.div>
+                                                    ) : (
+                                                        /* Fallback: Standard Suggestion chips */
+                                                        !showTextInput && suggestions.length > 0 && (
+                                                            <div className="w-full mt-4 px-4">
+                                                                <div className="text-xs font-mono text-white/30 uppercase tracking-widest mb-2 text-center">Suggestions from history</div>
+                                                                <div className="flex flex-wrap gap-2 justify-center">
+                                                                    {suggestions.map((suggestion, idx) => (
+                                                                        <button
+                                                                            key={idx}
+                                                                            onClick={() => {
+                                                                                setTranscript(suggestion);
+                                                                                processVoiceInput(suggestion, currentFieldIndex, false);
+                                                                            }}
+                                                                            className="px-4 py-2 bg-white/5 hover:bg-emerald-500/20 border border-white/10 hover:border-emerald-500/30 rounded-xl text-sm text-white/70 hover:text-white transition-all backdrop-blur-sm flex items-center gap-2"
+                                                                        >
+                                                                            <Sparkles size={12} className="text-emerald-400" />
+                                                                            {suggestion}
+                                                                        </button>
+                                                                    ))}
+                                                                </div>
+                                                            </div>
+                                                        )
+                                                    )}
+                                                </AnimatePresence>
                                             </div>
                                         )}
 

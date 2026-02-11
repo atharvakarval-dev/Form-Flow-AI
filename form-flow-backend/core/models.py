@@ -16,6 +16,7 @@ from sqlalchemy.sql import func
 from typing import Optional, List
 
 from .database import Base
+from .vocabulary_model import VocabularyCorrection
 
 
 class User(Base):
