@@ -195,12 +195,33 @@ class FormSubmitter:
         selectors = []
         fid, fname, placeholder = field_info.get('id', ''), field_info.get('name', ''), field_info.get('placeholder', '')
         
+        # Escape quotes in attributes to prevent selector errors
+        fid_esc = fid.replace('"', '\\"').replace("'", "\\'")
+        fname_esc = fname.replace('"', '\\"').replace("'", "\\'")
+        
         if fid:
+            # ID selectors usually don't need quoting unless they have special chars
+            # But attribute selectors do: [id="foo"]
             selectors.extend([f"#{fid}", f"input#{fid}", f"textarea#{fid}", f"select#{fid}"])
+            # Fallback for IDs with special characters
+            selectors.append(f'[id="{fid_esc}"]')
+            
         if fname:
-            selectors.extend([f"[name='{fname}']", f"input[name='{fname}']", f"select[name='{fname}']", f"textarea[name='{fname}']", f'[name="{fname}"]'])
+            selectors.extend([
+                f"[name='{fname_esc}']", 
+                f"input[name='{fname_esc}']", 
+                f"select[name='{fname_esc}']", 
+                f"textarea[name='{fname_esc}']", 
+                f'[name="{fname_esc}"]'
+            ])
+            
         if placeholder:
-            selectors.extend([f"input[placeholder*='{placeholder[:20]}']", f"textarea[placeholder*='{placeholder[:20]}']"])
+            # Escape quotes in placeholder
+            placeholder_esc = placeholder[:20].replace('"', '\\"').replace("'", "\\'")
+            selectors.extend([
+                f"input[placeholder*='{placeholder_esc}']", 
+                f"textarea[placeholder*='{placeholder_esc}']"
+            ])
         return selectors
 
     async def _find_element(self, page, selectors: List[str], visible_only: bool = True):
@@ -483,9 +504,6 @@ class FormSubmitter:
         print(f"⚠️ No valid files found to upload.")
         return False
                 
-        print(f"⚠️ No valid files found for upload")
-        return False
-
     async def _fill_range(self, page, element, value: str) -> bool:
         """Handle range/slider input."""
         try:
@@ -997,7 +1015,7 @@ class FormSubmitter:
         
         # Submit
         submit_ok = False
-        for _ in range(3):
+        for attempt in range(3):
             try:
                 submit_ok = await (self._submit_google_form if is_google_form else self._submit_form)(page, form_schema)
                 if submit_ok:
@@ -1412,64 +1430,71 @@ class FormSubmitter:
             
             initial_url = page.url
             
-            # ================================================================
-            # STEP 1: FILL FORM FIELDS
-            # ================================================================
-            fill_result = await self._fill_form_only(page, form_data, form_schema, is_google)
-            
-            # ================================================================
-            # STEP 2: CHECK FOR CAPTCHA AND ATTEMPT AUTO-SOLVE
-            # ================================================================
-            captcha_info = await detect_captcha(page)
-            
-            if captcha_info.get('hasCaptcha'):
-                print(f"🔐 CAPTCHA detected: {captcha_info.get('type')}")
+            try:
+                # ================================================================
+                # STEP 1: FILL FORM FIELDS
+                # ================================================================
+                fill_result = await self._fill_form_only(page, form_data, form_schema, is_google)
                 
-                # Attempt to solve using CaptchaSolverService
-                solver = get_captcha_solver()
-                solve_result = await solver.solve(page, captcha_info, initial_url)
+                # ================================================================
+                # STEP 2: CHECK FOR CAPTCHA AND ATTEMPT AUTO-SOLVE
+                # ================================================================
+                captcha_info = await detect_captcha(page)
                 
-                if solve_result.success:
-                    print(f"✅ CAPTCHA solved via {solve_result.strategy_used.value}")
-                    # Continue to submission
-                elif solve_result.requires_user_action:
-                    # Manual fallback - leave browser open
-                    print("🛑 CAPTCHA requires manual solving. Browser left open.")
-                    return {
-                        "success": False,
-                        "captcha_detected": True,
-                        "captcha_type": captcha_info.get('type', 'unknown'),
-                        "captcha_strategy": solve_result.strategy_used.value,
-                        "message": solve_result.error or "Please solve the CAPTCHA in the browser window, then click Submit.",
-                        "browser_left_open": True,
-                        "fields_filled": fill_result.get("filled_fields", []),
-                        "fill_rate": fill_result.get("fill_rate", 0)
-                    }
-                else:
-                    # Solver failed unexpectedly
-                    print(f"⚠️ CAPTCHA solve failed: {solve_result.error}")
-                    return {
-                        "success": False,
-                        "captcha_detected": True,
-                        "captcha_type": captcha_info.get('type', 'unknown'),
-                        "message": f"CAPTCHA solve failed: {solve_result.error}. Please solve manually.",
-                        "browser_left_open": True,
-                        "fields_filled": fill_result.get("filled_fields", []),
-                        "fill_rate": fill_result.get("fill_rate", 0)
-                    }
-            
-            # ================================================================
-            # STEP 3: NO CAPTCHA - SUBMIT NORMALLY
-            # ================================================================
-            submit_ok = await (self._submit_google_form if is_google else self._submit_form)(page, form_schema)
-            await asyncio.sleep(2)
-            
-            validation = await self.validate_form_submission(page, initial_url)
-            
-            # Clean up browser after successful submission
-            await context.close()
-            await browser.close()
-            await playwright.stop()
+                if captcha_info.get('hasCaptcha'):
+                    print(f"🔐 CAPTCHA detected: {captcha_info.get('type')}")
+                    
+                    # Attempt to solve using CaptchaSolverService
+                    solver = get_captcha_solver()
+                    solve_result = await solver.solve(page, captcha_info, initial_url)
+                    
+                    if solve_result.success:
+                        print(f"✅ CAPTCHA solved via {solve_result.strategy_used.value}")
+                        # Continue to submission
+                    elif solve_result.requires_user_action:
+                        # Manual fallback - leave browser open
+                        print("🛑 CAPTCHA requires manual solving. Browser left open.")
+                        # We do NOT close the browser here to allow user interaction
+                        # But we must return to avoid executing the 'finally' which would close it
+                        return {
+                            "success": False,
+                            "captcha_detected": True,
+                            "captcha_type": captcha_info.get('type', 'unknown'),
+                            "captcha_strategy": solve_result.strategy_used.value,
+                            "message": solve_result.error or "Please solve the CAPTCHA in the browser window, then click Submit.",
+                            "browser_left_open": True,
+                            "fields_filled": fill_result.get("filled_fields", []),
+                            "fill_rate": fill_result.get("fill_rate", 0)
+                        }
+                    else:
+                        # Solver failed unexpectedly
+                        print(f"⚠️ CAPTCHA solve failed: {solve_result.error}")
+                        return {
+                            "success": False,
+                            "captcha_detected": True,
+                            "captcha_type": captcha_info.get('type', 'unknown'),
+                            "message": f"CAPTCHA solve failed: {solve_result.error}. Please solve manually.",
+                            "browser_left_open": True,
+                            "fields_filled": fill_result.get("filled_fields", []),
+                            "fill_rate": fill_result.get("fill_rate", 0)
+                        }
+                
+                # ================================================================
+                # STEP 3: NO CAPTCHA - SUBMIT NORMALLY
+                # ================================================================
+                submit_ok = await (self._submit_google_form if is_google else self._submit_form)(page, form_schema)
+                await asyncio.sleep(2)
+                
+                validation = await self.validate_form_submission(page, initial_url)
+                
+            finally:
+                # Clean up browser after submission (unless we returned early for manual CAPTCHA)
+                try:
+                    await context.close()
+                    await browser.close()
+                    await playwright.stop()
+                except:
+                    pass
             
             success = submit_ok and not fill_result.get("errors") and validation.get("likely_success", False)
             

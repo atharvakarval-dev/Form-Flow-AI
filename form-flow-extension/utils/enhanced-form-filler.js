@@ -126,6 +126,12 @@ class EnhancedFormFiller {
 
         // Check if value actually set
         await this.wait(100);
+
+        if (element.type === 'checkbox' || element.type === 'radio') {
+            const shouldCheck = ['yes', 'true', '1', 'check', 'checked'].includes(String(value).toLowerCase());
+            return element.checked === shouldCheck;
+        }
+
         return element.value === value;
     }
 
@@ -334,8 +340,8 @@ class EnhancedFormFiller {
      * Generate unique selector for element
      */
     generateSelector(element) {
-        if (element.id) return `#${element.id}`;
-        if (element.name) return `[name="${element.name}"]`;
+        if (element.id) return `#${CSS.escape(element.id)}`;
+        if (element.name) return `[name="${CSS.escape(element.name)}"]`;
 
         // Generate path-based selector
         const path = [];

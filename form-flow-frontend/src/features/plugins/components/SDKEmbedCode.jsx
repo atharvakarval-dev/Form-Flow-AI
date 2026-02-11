@@ -44,7 +44,7 @@ export function SDKEmbedCode({ plugin, apiKey }) {
   // Securely escape inputs before injecting into snippets
   const safeApiKey = escapeHtml(apiKey || 'YOUR_API_KEY');
   const safePluginId = escapeHtml(plugin ? plugin.id : '');
-  const safeOrigin = window.location.origin;
+  const safeOrigin = escapeHtml(window.location.origin);
 
   // Generate code examples
   const codeExamples = useMemo(() => ({

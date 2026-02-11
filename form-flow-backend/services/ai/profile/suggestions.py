@@ -131,9 +131,9 @@ class ProfileSuggestionEngine:
         previous_answers: Optional[Dict[str, str]] = None
     ) -> Optional[List[IntelligentSuggestion]]:
         
+        """Generate suggestions using LLM and user profile."""
         if previous_answers is None:
             previous_answers = {}
-        """Generate suggestions using LLM and user profile."""
         from services.ai.gemini import get_gemini_service
         gemini = get_gemini_service()
         

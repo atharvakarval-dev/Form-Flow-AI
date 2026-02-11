@@ -37,6 +37,10 @@ async def migrate():
         last_used TIMESTAMP
     );
     
+    -- Remove duplicate rows before creating unique index
+    DELETE FROM vocabulary_corrections a USING vocabulary_corrections b 
+    WHERE a.id < b.id AND a.heard = b.heard;
+    
     CREATE UNIQUE INDEX IF NOT EXISTS idx_heard_unique ON vocabulary_corrections(heard);
     CREATE INDEX IF NOT EXISTS idx_usage_count ON vocabulary_corrections(usage_count DESC);
     """
