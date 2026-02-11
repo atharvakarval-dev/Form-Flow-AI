@@ -8,6 +8,21 @@ import { Copy, Check, Code, ExternalLink } from 'lucide-react';
 import { useTheme } from '@/context/ThemeProvider';
 import toast from 'react-hot-toast';
 
+// Simple HTML escape to prevent XSS in generated snippets
+const escapeHtml = (str) => {
+  if (!str) return '';
+  return str.replace(/[&<>"']/g, function (m) {
+    switch (m) {
+      case '&': return '&amp;';
+      case '<': return '&lt;';
+      case '>': return '&gt;';
+      case '"': return '&quot;';
+      case "'": return '&#039;';
+      default: return m;
+    }
+  });
+};
+
 // Simple syntax highlighting for code blocks
 const highlightCode = (code, language) => {
   // Add basic syntax highlighting classes
@@ -26,6 +41,11 @@ export function SDKEmbedCode({ plugin, apiKey }) {
   const [activeTab, setActiveTab] = useState('html');
   const [copied, setCopied] = useState(false);
 
+  // Securely escape inputs before injecting into snippets
+  const safeApiKey = escapeHtml(apiKey || 'YOUR_API_KEY');
+  const safePluginId = escapeHtml(plugin ? plugin.id : '');
+  const safeOrigin = window.location.origin;
+
   // Generate code examples
   const codeExamples = useMemo(() => ({
     html: `<!-- Add FormFlow Voice Widget -->
@@ -34,9 +54,9 @@ export function SDKEmbedCode({ plugin, apiKey }) {
 
 <script>
   FormFlow.init({
-    apiKey: '${apiKey || 'YOUR_API_KEY'}',
-    pluginId: '${plugin.id}',
-    apiBase: 'http://localhost:8001', // Local backend URL
+    apiKey: '${safeApiKey}',
+    pluginId: '${safePluginId}',
+    apiBase: '${safeOrigin}', // Backend URL
     theme: 'auto', // 'light', 'dark', or 'auto'
     onComplete: (data) => {
       console.log('Data collected:', data);
@@ -52,9 +72,9 @@ export function SDKEmbedCode({ plugin, apiKey }) {
 
 function MyForm() {
   const { isReady, startSession, data, error } = useFormFlowPlugin({
-    apiKey: '${apiKey || 'YOUR_API_KEY'}',
-    pluginId: '${plugin.id}',
-    apiBase: 'http://localhost:8001', // Local backend URL
+    apiKey: '${safeApiKey}',
+    pluginId: '${safePluginId}',
+    apiBase: '${safeOrigin}', // Backend URL
     onComplete: (collectedData) => {
       console.log('Data collected:', collectedData);
       // Save to your backend
@@ -74,9 +94,9 @@ export default MyForm;`,
 
     vanilla: `// Vanilla JavaScript integration
 const formflow = new FormFlow({
-  apiKey: '${apiKey || 'YOUR_API_KEY'}',
-  pluginId: '${plugin.id}',
-  apiBase: 'http://localhost:8001', // Local backend URL
+  apiKey: '${safeApiKey}',
+  pluginId: '${safePluginId}',
+  apiBase: '${safeOrigin}', // Backend URL
   container: document.getElementById('formflow-widget'),
 });
 
@@ -99,12 +119,12 @@ formflow.on('error', (error) => {
 });`,
 
     curl: `# Test your plugin API
-curl -X POST http://localhost:8001/plugins/sessions \\
+curl -X POST ${safeOrigin}/plugins/sessions \\
   -H "Content-Type: application/json" \\
-  -H "X-API-Key: ${apiKey || 'YOUR_API_KEY'}" \\
-  -H "X-Plugin-ID: ${plugin.id}" \\
+  -H "X-API-Key: ${safeApiKey}" \\
+  -H "X-Plugin-ID: ${safePluginId}" \\
   -d '{
-    "source_url": "http://localhost"
+    "source_url": "${safeOrigin}"
   }'
 
 # Response:
@@ -112,7 +132,7 @@ curl -X POST http://localhost:8001/plugins/sessions \\
 #   "session_id": "sess_xxx",
 #   "questions": [...]
 # }`,
-  }), [plugin.id, apiKey]);
+  }), [safePluginId, safeApiKey, safeOrigin]);
 
   // Copy to clipboard
   const handleCopy = useCallback(async () => {

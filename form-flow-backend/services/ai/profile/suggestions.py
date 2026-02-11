@@ -128,8 +128,11 @@ class ProfileSuggestionEngine:
         field_context: Dict[str, Any],
         form_context: Dict[str, Any],
         form_intent: Optional[FormIntent],
-        previous_answers: Dict[str, str] = {}
+        previous_answers: Optional[Dict[str, str]] = None
     ) -> Optional[List[IntelligentSuggestion]]:
+        
+        if previous_answers is None:
+            previous_answers = {}
         """Generate suggestions using LLM and user profile."""
         from services.ai.gemini import get_gemini_service
         gemini = get_gemini_service()

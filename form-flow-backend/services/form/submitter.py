@@ -945,7 +945,8 @@ class FormSubmitter:
                 except Exception as e:
                     if attempt == 2:
                         errors.append(f"Error filling {name}: {e}")
-                await asyncio.sleep(0.5)
+                # Exponential backoff
+                await asyncio.sleep(0.5 * (2 ** attempt))
             
             if not success:
                 errors.append(f"Failed to fill: {name}")
@@ -1004,7 +1005,8 @@ class FormSubmitter:
                     break
             except Exception as e:
                 errors.append(f"Submit error: {e}")
-            await asyncio.sleep(0.5)
+            # Exponential backoff: 0.5s, 1s, 2s
+            await asyncio.sleep(0.5 * (2 ** attempt))
         
         return {
             "status": "complete" if submit_ok else "submit_failed",

@@ -37,7 +37,7 @@ async def migrate():
         last_used TIMESTAMP
     );
     
-    CREATE INDEX IF NOT EXISTS idx_heard ON vocabulary_corrections(heard);
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_heard_unique ON vocabulary_corrections(heard);
     CREATE INDEX IF NOT EXISTS idx_usage_count ON vocabulary_corrections(usage_count DESC);
     """
     
