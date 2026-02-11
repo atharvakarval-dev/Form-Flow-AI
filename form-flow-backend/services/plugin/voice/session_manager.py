@@ -249,8 +249,22 @@ class PluginSessionManager:
         
         # Check local cache
         cached = self._local_cache.get(session_id)
-        if cached and cached.get("expires_at", datetime.min) > datetime.now():
-            return PluginSessionData.from_dict(cached["data"])
+        if cached:
+            # Check cache entry expiry (TTL)
+            if cached.get("expires_at", datetime.min) <= datetime.now():
+                del self._local_cache[session_id]
+                return None
+                
+            session = PluginSessionData.from_dict(cached["data"])
+            
+            # Check session logic expiry
+            if session.is_expired():
+                # We don't save state change here for local cache to keep it simple,
+                # just return None as if it doesn't exist/expired.
+                # Ideally we would update status to EXPIRED and keep it, but for now:
+                return None
+            
+            return session
         
         return None
     
