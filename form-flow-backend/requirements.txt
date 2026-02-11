@@ -38,6 +38,7 @@ pytest-asyncio>=0.21.0
 pytest-cov>=4.1.0
 httpx>=0.25.0
 aiosqlite>=0.19.0
+aiofiles>=23.2.0
 
 # Redis (for caching and rate limiting)
 redis>=5.0.0
