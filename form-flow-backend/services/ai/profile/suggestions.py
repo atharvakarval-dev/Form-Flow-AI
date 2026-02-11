@@ -111,7 +111,7 @@ class ProfileSuggestionEngine:
         
         # Try to generate suggestions via LLM
         try:
-            llm_suggestions = await self._generate_llm_suggestions(profile, field_context, form_context, form_intent)
+            llm_suggestions = await self._generate_llm_suggestions(profile, field_context, form_context, form_intent, previous_answers)
             if llm_suggestions:
                 logger.info(f"✅ [Lifecycle] Tier 1: LLM Success. Returned {len(llm_suggestions)} suggestions.")
                 return llm_suggestions
@@ -127,7 +127,8 @@ class ProfileSuggestionEngine:
         profile: Any,
         field_context: Dict[str, Any],
         form_context: Dict[str, Any],
-        form_intent: Optional[FormIntent]
+        form_intent: Optional[FormIntent],
+        previous_answers: Dict[str, str] = {}
     ) -> Optional[List[IntelligentSuggestion]]:
         """Generate suggestions using LLM and user profile."""
         from services.ai.gemini import get_gemini_service
@@ -147,7 +148,12 @@ class ProfileSuggestionEngine:
         persona = form_intent.persona if form_intent else "Customer"
         form_type = form_intent.form_type if form_intent else "public_facing"
 
-        logger.debug(f"🤖 [Lifecycle] LLM Prompting for '{field_label}'...")
+        # Format previous answers for context
+        previous_answers_str = "None"
+        if previous_answers:
+            previous_answers_str = "\\n".join([f"- {k}: {v}" for k, v in previous_answers.items() if v])
+
+        logger.debug(f"🤖 [Lifecycle] LLM Prompting for '{field_label}' with context: {len(previous_answers)} previous answers...")
 
         # ---------------------------------------------------------
         # 🧠 INTELLIGENT PROMPT ENGINEERING
@@ -161,6 +167,8 @@ CONTEXT:
 - **Field Label:** "{field_label}" (Internal Name: {field_name})
 - **Persona to Adopt:** {persona}
 - **User Profile:** {profile}
+- **Previous Answers (Context):**
+{previous_answers_context}
 
 INSTRUCTIONS:
 1.  **Adopt the Persona:** Generate suggestions from the perspective of the persona.
@@ -172,6 +180,8 @@ INSTRUCTIONS:
     *   If Intent is "Support Ticket" and field is "Description", generate a suggestion like: "I'm having an issue with..."
 
 3.  **Analyze Profile:** Use the user's profile to fill in specific details. For example, if the profile mentions "software developer", and the form is a job application, suggest relevant skills.
+
+4.  **Leverage Context:** Use 'Previous Answers' to infer logical next steps (e.g., if City is 'Paris', suggest 'France' for Country). Do NOT contradict previous answers.
 
 4.  **Guardrail:** NEVER describe the user in the third person (e.g., "User exhibits...") unless the form_type is explicitly 'diagnostic_report'.
 
@@ -198,6 +208,7 @@ FORMAT:
                 "field_label": field_label,
                 "field_name": field_name,
                 "persona": persona,
+                "previous_answers_context": previous_answers_str,
             })
             
             duration = (datetime.now() - start_time).total_seconds()
