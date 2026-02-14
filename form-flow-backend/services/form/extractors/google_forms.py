@@ -11,25 +11,17 @@ async def wait_for_google_form(page):
     """Wait for Google Form content to load."""
     print("⏳ Waiting for Google Form...")
     try:
-        await page.wait_for_selector('.Qr7Oae, [role="listitem"], .freebirdFormviewerViewItemsItemItem', timeout=30000)
-        await asyncio.sleep(3)
+        await page.wait_for_selector('.Qr7Oae, [role="listitem"], .freebirdFormviewerViewItemsItemItem', timeout=15000)
         
-        # Scroll to load lazy content
+        # Fast scroll to trigger lazy content loading (no fixed sleeps)
         await page.evaluate("""
-            async () => {
-                let total = 0;
-                const timer = setInterval(() => {
-                    window.scrollBy(0, 200);
-                    total += 200;
-                    if (total >= document.body.scrollHeight) {
-                        clearInterval(timer);
-                        window.scrollTo(0, 0);
-                    }
-                }, 100);
-                await new Promise(r => setTimeout(r, 2000));
+            () => {
+                window.scrollTo(0, document.body.scrollHeight);
+                window.scrollTo(0, 0);
             }
         """)
-        await asyncio.sleep(1)
+        # Brief settle for lazy renders
+        await page.wait_for_timeout(800)
     except:
         print("⚠️ Timeout waiting for form elements - attempting extraction anyway")
 

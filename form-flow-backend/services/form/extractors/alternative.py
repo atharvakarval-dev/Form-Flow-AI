@@ -378,7 +378,7 @@ async def extract_all_frames(page, url: str, extract_fn) -> List[Dict]:
 
 def extract_with_beautifulsoup(html: str) -> List[Dict]:
     """BeautifulSoup fallback extraction with radio/checkbox grouping."""
-    soup = BeautifulSoup(html, 'html.parser')
+    soup = BeautifulSoup(html, 'lxml')
     forms_data = []
     
     for idx, form in enumerate(soup.find_all('form')):

@@ -18,6 +18,7 @@ import os
 import hashlib
 import asyncio
 from typing import Optional, Dict, Any, Generator
+from collections import OrderedDict
 from functools import lru_cache
 import time
 
@@ -42,11 +43,11 @@ class AudioCache:
     """
     Simple in-memory cache for generated audio.
     Caches by text hash to avoid regenerating identical prompts.
+    Uses OrderedDict for O(1) LRU eviction.
     """
     
     def __init__(self, max_size: int = 100):
-        self._cache: Dict[str, bytes] = {}
-        self._access_order: list = []
+        self._cache: OrderedDict[str, bytes] = OrderedDict()
         self._max_size = max_size
         self._hits = 0
         self._misses = 0
@@ -61,10 +62,7 @@ class AudioCache:
         key = self._get_key(text, voice_id)
         if key in self._cache:
             self._hits += 1
-            # Move to end (LRU)
-            if key in self._access_order:
-                self._access_order.remove(key)
-            self._access_order.append(key)
+            self._cache.move_to_end(key)  # O(1) LRU update
             logger.debug(f"Cache HIT for: '{text[:30]}...' (hits: {self._hits})")
             return self._cache[key]
         self._misses += 1
@@ -75,12 +73,10 @@ class AudioCache:
         key = self._get_key(text, voice_id)
         
         # Evict oldest if at capacity
-        while len(self._cache) >= self._max_size and self._access_order:
-            oldest = self._access_order.pop(0)
-            self._cache.pop(oldest, None)
+        while len(self._cache) >= self._max_size:
+            self._cache.popitem(last=False)  # O(1) eviction
         
         self._cache[key] = audio
-        self._access_order.append(key)
         logger.debug(f"Cached audio for: '{text[:30]}...' (size: {len(audio)} bytes)")
     
     def get_stats(self) -> Dict[str, Any]:
@@ -142,6 +138,9 @@ class SpeechService:
         # Initialize cache
         self._cache = AudioCache(max_size=cache_size) if enable_cache else None
         
+        # Reusable HTTP session for connection pooling (saves TCP+TLS handshake per request)
+        self._session = requests.Session()
+        
         # Track ElevenLabs quota status
         self._elevenlabs_available = bool(self.api_key)
         self._last_quota_check = 0
@@ -196,7 +195,7 @@ class SpeechService:
         self,
         text: str,
         voice_id: str,
-        max_retries: int = 3
+        max_retries: int = 2
     ) -> Optional[bytes]:
         """
         Generate speech using ElevenLabs API with retry logic.
@@ -225,11 +224,11 @@ class SpeechService:
             try:
                 logger.debug(f"ElevenLabs TTS attempt {attempt + 1}: '{text[:50]}...'")
                 
-                response = requests.post(
+                response = self._session.post(
                     url,
                     json=data,
                     headers=headers,
-                    timeout=30
+                    timeout=10
                 )
                 
                 if response.status_code == 200:
@@ -283,11 +282,11 @@ class SpeechService:
             # Edge TTS is async, so we need to run it in an event loop
             async def generate():
                 communicate = edge_tts.Communicate(text, self.EDGE_TTS_VOICE)
-                audio_data = b""
+                audio_parts = bytearray()
                 async for chunk in communicate.stream():
                     if chunk["type"] == "audio":
-                        audio_data += chunk["data"]
-                return audio_data
+                        audio_parts.extend(chunk["data"])
+                return bytes(audio_parts)
             
             # Run async function
             try:
@@ -438,7 +437,6 @@ class SpeechService:
         """Clear the audio cache."""
         if self._cache:
             self._cache._cache.clear()
-            self._cache._access_order.clear()
             logger.info("Audio cache cleared")
 
 

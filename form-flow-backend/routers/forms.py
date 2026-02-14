@@ -1,9 +1,11 @@
 from fastapi import APIRouter, HTTPException, Depends, Request, BackgroundTasks
 from sqlalchemy.ext.asyncio import AsyncSession
-from typing import Dict, List, Any
+from typing import Dict, List, Any, Optional
 from pydantic import BaseModel
+from concurrent.futures import ThreadPoolExecutor
 import asyncio
 import json
+import time as _time
 
 from services.form.parser import get_form_schema, create_template
 from core.dependencies import (
@@ -21,6 +23,7 @@ import auth
 from config.settings import settings
 from sqlalchemy.future import select
 from services.ai.profile.service import generate_profile_background
+from utils.api_cache import get_cached_form_schema, cache_form_schema
 
 # --- Pydantic Models ---
 class ScrapeRequest(BaseModel):
@@ -55,49 +58,195 @@ class MagicFillRequest(BaseModel):
 
 router = APIRouter(tags=["Forms & Automation"])
 
-# --- Helper Logic ---
+# Thread pool for running sync code in parallel within async context
+_executor = ThreadPoolExecutor(max_workers=3)
+
+# In-memory store for background Magic Fill results
+_magic_fill_store: Dict[str, Any] = {}
+
+
+# =============================================================================
+# SYNC HELPER FUNCTIONS (run inside ThreadPoolExecutor)
+# =============================================================================
+
+def _sync_build_smart_prompts(
+    form_schema: List[Dict],
+    voice_processor: VoiceProcessor
+) -> tuple:
+    """Build smart prompts and form context. Runs in thread pool."""
+    form_context = voice_processor.analyze_form_context(form_schema)
+    enhanced_schema = []
+    for form in form_schema:
+        enhanced_form = form.copy()
+        enhanced_form['fields'] = [
+            {**field, 'smart_prompt': voice_processor.generate_smart_prompt(form_context, field)}
+            for field in form['fields']
+        ]
+        enhanced_schema.append(enhanced_form)
+    return enhanced_schema, form_context
+
+
+def _sync_generate_eager_tts(
+    form_schema: List[Dict],
+    speech_service: SpeechService,
+    max_eager: int = 2
+) -> Dict:
+    """
+    Hybrid TTS: generate ElevenLabs audio for the first `max_eager` fields eagerly.
+    Remaining fields are marked as lazy (generated on-demand or via browser synthesis).
+    """
+    speech_data = {}
+    generated_count = 0
+    
+    for form in form_schema:
+        for field in form.get('fields', []):
+            fname = field.get('name')
+            if not fname:
+                continue
+            
+            if generated_count < max_eager:
+                # EAGER: Generate high-quality audio now for instant playback
+                try:
+                    prompt = speech_service._create_field_prompt(field)
+                    audio = speech_service.text_to_speech(prompt)
+                    if audio:
+                        speech_data[fname] = {'audio': audio, 'eager': True}
+                        generated_count += 1
+                        continue
+                except Exception as e:
+                    print(f"⚠️ Eager TTS failed for {fname}: {e}")
+            
+            # LAZY: Mark for on-demand generation when field is focused
+            speech_data[fname] = {'lazy': True, 'use_browser_synthesis': True}
+    
+    return speech_data
+
+
+# =============================================================================
+# BACKGROUND MAGIC FILL
+# =============================================================================
+
+async def _run_magic_fill_background(
+    url: str,
+    auth_header: str,
+    form_schema: List[Dict],
+    db: AsyncSession,
+    gemini_service
+):
+    """Run Magic Fill in background so /scrape returns instantly."""
+    import hashlib
+    cache_key = hashlib.md5(url.encode()).hexdigest()
+    
+    try:
+        token = auth_header.split(' ')[1]
+        payload = auth.decode_access_token(token)
+        if not payload:
+            return
+        
+        email = payload.get("sub")
+        if not email:
+            return
+        
+        # Need a fresh DB session for background task
+        async for session in database.get_db():
+            try:
+                result = await session.execute(select(models.User).filter(models.User.email == email))
+                user = result.scalars().first()
+                if not user:
+                    return
+                
+                user_profile = {
+                    "first_name": user.first_name,
+                    "last_name": user.last_name,
+                    "email": user.email,
+                    "mobile": user.mobile,
+                    "city": user.city,
+                    "state": user.state,
+                    "country": user.country,
+                    "fullname": f"{user.first_name} {user.last_name}".strip()
+                }
+                
+                # Merge learned history
+                try:
+                    history_profile = await get_smart_autofill().get_profile_from_history(str(user.id))
+                    if history_profile:
+                        user_profile = {**history_profile, **user_profile}
+                except Exception as e:
+                    print(f"⚠️ History merge failed: {e}")
+                
+                if gemini_service:
+                    t_mf = _time.time()
+                    print("✨ [Background] Magic Fill starting...")
+                    filler = SmartFormFillerChain(gemini_service.llm)
+                    magic_result = await filler.fill(
+                        user_profile=user_profile,
+                        form_schema=form_schema,
+                        min_confidence=0.5
+                    )
+                    print(f"✨ [Background] Magic Fill: {len(magic_result.get('filled', {}))} fields in {_time.time() - t_mf:.2f}s")
+                    
+                    # Store result for polling
+                    _magic_fill_store[cache_key] = {
+                        "status": "completed",
+                        "data": magic_result,
+                        "url": url
+                    }
+            finally:
+                await session.close()
+            break
+    except Exception as e:
+        print(f"⚠️ [Background] Magic Fill failed: {e}")
+        _magic_fill_store[cache_key] = {"status": "error", "error": str(e), "url": url}
+
+
+# =============================================================================
+# MAIN HELPERS
+# =============================================================================
+
 async def _process_scraped_form(
     url: str, 
     voice_processor: VoiceProcessor,
     speech_service: SpeechService,
     generate_speech: bool = True
 ):
-    """Shared helper to scrape and prepare form data"""
+    """Shared helper to scrape and prepare form data (optimized with parallel processing)."""
     
-    # Get form schema
+    # ━━━ STEP 1: Scrape form schema ━━━
     result = await get_form_schema(url, generate_speech=False)
     form_schema = result['forms']
     
-    # Generate speech
-    speech_data = {}
+    # ━━━ STEP 2: Parallel post-processing ━━━
+    loop = asyncio.get_event_loop()
+    
+    # Task A: Build smart prompts (sync → run in executor)
+    prompts_future = loop.run_in_executor(
+        _executor,
+        _sync_build_smart_prompts,
+        form_schema, voice_processor
+    )
+    
+    # Task B: Hybrid TTS — eager first 2, lazy rest (sync → run in executor)
+    tts_future = None
     if generate_speech:
-        print("Generating speech for fields...")
-        for form in form_schema:
-            for field in form.get('fields', []):
-                fname = field.get('name')
-                if fname:
-                    prompt = speech_service._create_field_prompt(field)
-                    audio = speech_service.text_to_speech(prompt)
-                    if audio:
-                        speech_data[fname] = {'audio': audio}
-        
-        # Update global state
-        if speech_data:
-            update_speech_data(speech_data)
+        tts_future = loop.run_in_executor(
+            _executor,
+            _sync_generate_eager_tts,
+            form_schema, speech_service, 2
+        )
     
-    # Generate form context for LLM
-    form_context = voice_processor.analyze_form_context(form_schema)
+    # Await all in parallel
+    if tts_future:
+        (enhanced_schema, form_context), speech_data = await asyncio.gather(
+            prompts_future, tts_future
+        )
+    else:
+        enhanced_schema, form_context = await prompts_future
+        speech_data = {}
     
-    # Generate initial prompts for each field
-    enhanced_schema = []
-    for form in form_schema:
-        enhanced_form = form.copy()
-        enhanced_form['fields'] = []
-        for field in form['fields']:
-            enhanced_field = field.copy()
-            enhanced_field['smart_prompt'] = voice_processor.generate_smart_prompt(form_context, field)
-            enhanced_form['fields'].append(enhanced_field)
-        enhanced_schema.append(enhanced_form)
+    # Update global speech state with eager audio
+    eager_speech = {k: v for k, v in speech_data.items() if v.get('eager')}
+    if eager_speech:
+        update_speech_data(eager_speech)
 
     # Statistics
     total_fields = sum(len(form.get('fields', [])) for form in form_schema)
@@ -111,7 +260,7 @@ async def _process_scraped_form(
         "form_schema": enhanced_schema,
         "form_template": create_template(form_schema),
         "form_context": form_context,
-        "speech_available": len(speech_data) > 0,
+        "speech_available": len(eager_speech) > 0,
         "speech_fields": list(speech_data.keys()),
         "statistics": {
             "total_fields": total_fields,
@@ -125,12 +274,14 @@ async def _process_scraped_form(
 async def scrape_form(
     data: ScrapeRequest,
     request: Request,
+    background_tasks: BackgroundTasks,
     db: AsyncSession = Depends(database.get_db),
     voice_processor: VoiceProcessor = Depends(get_voice_processor),
     speech_service: SpeechService = Depends(get_speech_service),
     gemini_service: GeminiService = Depends(get_gemini_service)
 ):
     """Scrape form schema and prepare for voice interaction."""
+    t0 = _time.time()
     print(f"Received URL for scraping: {data.url}")
     try:
         # Validate and normalize URL
@@ -146,80 +297,57 @@ async def scrape_form(
         
         print(f"Normalized URL: {url}")
         
-        # Use shared helper
+        # ━━━ CACHE CHECK ━━━
+        try:
+            cached = await get_cached_form_schema(url)
+            if cached:
+                print(f"✅ Cache HIT for {url} — returning instantly")
+                return {
+                    "message": "Form loaded from cache",
+                    **cached,
+                    "cached": True,
+                    "gemini_ready": gemini_service is not None,
+                    "timing": {"total": round(_time.time() - t0, 2)}
+                }
+        except Exception as e:
+            print(f"⚠️ Cache lookup failed (proceeding without cache): {e}")
+        
+        # ━━━ SCRAPE + PROCESS (parallel smart prompts + hybrid TTS) ━━━
+        t1 = _time.time()
         processed_data = await _process_scraped_form(url, voice_processor, speech_service)
+        t2 = _time.time()
+        print(f"⏱️  Scrape + process: {t2 - t1:.2f}s")
         
-        # --- OPTIMIZATION: Attempt Magic Fill during loading ---
-        magic_fill_result = None
-        user_profile = None
-        
+        # ━━━ MAGIC FILL (non-blocking — runs in background) ━━━
         auth_header = request.headers.get('Authorization')
-        print(f"🔍 Auth header present: {bool(auth_header)}")
         if auth_header and auth_header.startswith('Bearer '):
-            try:
-                token = auth_header.split(' ')[1]
-                payload = auth.decode_access_token(token)
-                print(f"🔍 Token decoded, payload: {bool(payload)}")
-                if payload:
-                    email = payload.get("sub")
-                    print(f"🔍 Email from token: {email}")
-                    if email:
-                        result = await db.execute(select(models.User).filter(models.User.email == email))
-                        user = result.scalars().first()
-                        print(f"🔍 User found in DB: {bool(user)}")
-                        if user:
-                            # Build profile
-                            user_profile = {
-                                "first_name": user.first_name,
-                                "last_name": user.last_name,
-                                "email": user.email,
-                                "mobile": user.mobile,
-                                "city": user.city,
-                                "state": user.state,
-                                "country": user.country,
-                                "fullname": f"{user.first_name} {user.last_name}".strip()
-                            }
-                            
-                            # Merge learned history
-                            try:
-                                history_profile = await get_smart_autofill().get_profile_from_history(str(user.id))
-                                if history_profile:
-                                    user_profile = {**history_profile, **user_profile}
-                            except Exception as e:
-                                print(f"⚠️ History merge failed during scrape: {e}")
-                                
-                            # Execute Magic Fill
-                            if user_profile and gemini_service:
-                                print("✨ Triggering Magic Fill during scrape...")
-                                filler = SmartFormFillerChain(gemini_service.llm)
-                                magic_fill_result = await filler.fill(
-                                    user_profile=user_profile,
-                                    form_schema=processed_data['form_schema'],
-                                    min_confidence=0.5
-                                )
-                                print(f"✨ Magic Fill pre-calculated: {len(magic_fill_result.get('filled', {}))} fields")
-                            else:
-                                print(f"⚠️ Cannot run magic fill: user_profile={bool(user_profile)}, gemini_service={bool(gemini_service)}")
-                        else:
-                            print(f"⚠️ User not found in database for email: {email}")
-                    else:
-                        print("⚠️ No email in token payload")
-                else:
-                    print("⚠️ Token decode returned no payload")
-            except Exception as e:
-                print(f"⚠️ Pre-fill failed: {e}")
-                import traceback
-                traceback.print_exc()
-        else:
-            print("⚠️ No Bearer token in request - user not logged in")
-
-
-        return {
+            # Fire-and-forget: run Magic Fill in background so /scrape returns instantly
+            background_tasks.add_task(
+                _run_magic_fill_background,
+                url, auth_header, processed_data['form_schema'], db, gemini_service
+            )
+        
+        # ━━━ BUILD RESPONSE ━━━
+        response_data = {
             "message": "Form scraped and analyzed successfully",
             **processed_data,
             "gemini_ready": gemini_service is not None,
-            "magic_fill_data": magic_fill_result
+            "magic_fill_data": None,  # Will be available via /magic-fill-result endpoint
+            "magic_fill_status": "processing" if auth_header and auth_header.startswith('Bearer ') else "skipped"
         }
+        
+        # ━━━ CACHE RESULT (30 min TTL) ━━━
+        try:
+            # Cache processed data (excluding magic fill — that's user-specific)
+            await cache_form_schema(url, processed_data, ttl=1800)
+        except Exception as e:
+            print(f"⚠️ Failed to cache result: {e}")
+        
+        t_total = _time.time() - t0
+        print(f"⏱️  TOTAL /scrape pipeline: {t_total:.2f}s")
+        response_data["timing"] = {"total": round(t_total, 2)}
+        
+        return response_data
 
     except HTTPException as he:
         raise he
@@ -227,6 +355,25 @@ async def scrape_form(
         import traceback
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=f"Scraping failed: {str(e)}")
+
+
+@router.get("/magic-fill-result")
+async def get_magic_fill_result(url: str):
+    """Poll for background Magic Fill results."""
+    import hashlib
+    cache_key = hashlib.md5(url.encode()).hexdigest()
+    
+    result = _magic_fill_store.get(cache_key)
+    if result:
+        # Return and clean up
+        if result.get("status") == "completed":
+            data = _magic_fill_store.pop(cache_key, None)
+            return {"status": "completed", "magic_fill_data": data.get("data") if data else None}
+        elif result.get("status") == "error":
+            _magic_fill_store.pop(cache_key, None)
+            return {"status": "error", "error": result.get("error")}
+    
+    return {"status": "processing"}
 
 
 @router.post("/comprehensive-form-setup")

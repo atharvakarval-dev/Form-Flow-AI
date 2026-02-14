@@ -10,12 +10,13 @@ from typing import List, Dict, Any
 from ..utils.constants import FIELD_PATTERNS
 
 
+# Module-level constant (avoids re-creation per call)
+_EXCLUDE_KEYWORDS = frozenset(['search', 'login', 'signin', 'sign-in', 'newsletter', 'subscribe'])
+
+
 def process_forms(forms_data: List[Dict]) -> List[Dict]:
     """Process and enrich extracted forms with additional metadata."""
     result = []
-    
-    # Keywords indicating a form should be excluded (search/nav forms)
-    EXCLUDE_KEYWORDS = ['search', 'login', 'signin', 'sign-in', 'newsletter', 'subscribe']
     
     for form in forms_data:
         # Skip forms that look like search/navigation forms
@@ -25,7 +26,7 @@ def process_forms(forms_data: List[Dict]) -> List[Dict]:
         
         # Check if form ID/name/action contains exclude keywords
         combined = f"{form_id} {form_name} {form_action}"
-        if any(kw in combined for kw in EXCLUDE_KEYWORDS):
+        if any(kw in combined for kw in _EXCLUDE_KEYWORDS):
             print(f"⏭️ Skipping excluded form: {form_id or form_name or form_action}")
             continue
         

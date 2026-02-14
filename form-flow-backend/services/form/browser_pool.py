@@ -265,4 +265,142 @@ def get_pool_status() -> dict:
         "browser_running": _browser is not None and _browser.is_connected() if _browser else False,
         "active_contexts": _active_contexts,
         "max_contexts": MAX_CONTEXTS,
+        "sync_browser_running": _sync_browser is not None,
     }
+
+
+# =============================================================================
+# SYNC Browser Pool (for Windows sync_playwright path)
+# =============================================================================
+
+import threading
+from contextlib import contextmanager
+
+_sync_browser = None
+_sync_playwright_instance = None
+_sync_lock = threading.Lock()
+
+
+def _get_sync_browser(headless: bool = True):
+    """Get or create the shared SYNC browser instance (thread-safe)."""
+    global _sync_browser, _sync_playwright_instance
+    
+    with _sync_lock:
+        if _sync_browser is not None:
+            try:
+                if _sync_browser.is_connected():
+                    return _sync_browser
+            except Exception:
+                pass
+            # Browser died, clean up
+            _sync_browser = None
+        
+        logger.info("🚀 Launching shared SYNC browser instance...")
+        
+        from playwright.sync_api import sync_playwright
+        
+        if _sync_playwright_instance is None:
+            _sync_playwright_instance = sync_playwright().start()
+        
+        _sync_browser = _sync_playwright_instance.chromium.launch(
+            headless=headless,
+            args=BROWSER_ARGS
+        )
+        logger.info("✅ Sync browser launched and ready")
+        return _sync_browser
+
+
+def _force_sync_cleanup():
+    """Force cleanup of stale sync browser (e.g. after greenlet error)."""
+    global _sync_browser, _sync_playwright_instance
+    with _sync_lock:
+        try:
+            if _sync_browser:
+                _sync_browser.close()
+        except Exception:
+            pass
+        _sync_browser = None
+        try:
+            if _sync_playwright_instance:
+                _sync_playwright_instance.stop()
+        except Exception:
+            pass
+        _sync_playwright_instance = None
+
+
+@contextmanager
+def get_sync_browser_context(
+    viewport=None,
+    user_agent=None,
+    stealth_script=None,
+    block_resources=None,
+    locale="en-US",
+    headless=True,
+):
+    """
+    Get a sync browser context from the pool.
+    
+    Auto-recovers from greenlet errors (stale browser from dead thread)
+    by tearing down and re-launching.
+    """
+    default_viewport = {'width': 1920, 'height': 1080}
+    default_user_agent = (
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+        "(KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36"
+    )
+    
+    context = None
+    for attempt in range(2):
+        browser = _get_sync_browser(headless=headless)
+        try:
+            context = browser.new_context(
+                viewport=viewport or default_viewport,
+                user_agent=user_agent or default_user_agent,
+                locale=locale,
+            )
+            break  # Success
+        except Exception as e:
+            if "greenlet" in str(e).lower() or "different thread" in str(e).lower() or "exited" in str(e).lower():
+                logger.info(f"🔄 Browser context stale (attempt {attempt+1}/2), re-launching...")
+                _force_sync_cleanup()
+                if attempt == 1:
+                    raise
+            else:
+                raise
+    
+    if stealth_script:
+        context.add_init_script(stealth_script)
+    
+    if block_resources:
+        blocked = set(block_resources)
+        context.route("**/*", lambda r: r.abort() if r.request.resource_type in blocked else r.continue_())
+    
+    try:
+        yield context
+    finally:
+        try:
+            context.close()
+        except Exception:
+            pass
+
+
+def close_sync_browser_pool():
+    """Close the sync browser pool."""
+    global _sync_browser, _sync_playwright_instance
+    
+    with _sync_lock:
+        if _sync_browser:
+            try:
+                _sync_browser.close()
+            except Exception:
+                pass
+            _sync_browser = None
+        
+        if _sync_playwright_instance:
+            try:
+                _sync_playwright_instance.stop()
+            except Exception:
+                pass
+            _sync_playwright_instance = None
+    
+    logger.info("🛑 Sync browser pool closed")

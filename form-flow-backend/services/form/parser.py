@@ -34,8 +34,15 @@ window.chrome = { runtime: {}, loadTimes: () => {}, csi: () => {}, app: {} };
 BROWSER_ARGS = [
     "--disable-blink-features=AutomationControlled", "--disable-dev-shm-usage",
     "--no-sandbox", "--disable-setuid-sandbox", "--disable-web-security",
-    "--disable-features=IsolateOrigins,site-per-process", "--window-size=1920,1080"
+    "--disable-features=IsolateOrigins,site-per-process", "--disable-gpu",
+    "--window-size=1920,1080"
 ]
+
+# Headless mode: default True for performance, set PLAYWRIGHT_HEADLESS=false for debugging
+PLAYWRIGHT_HEADLESS = os.environ.get("PLAYWRIGHT_HEADLESS", "true").lower() != "false"
+
+# Resource types to block (saves ~2s per page load)
+BLOCKED_RESOURCE_TYPES = {"media", "font", "image", "stylesheet"}
 
 # Field type detection keywords
 FIELD_PATTERNS = {
@@ -97,51 +104,72 @@ def _sync_get_form_schema(
     """Sync Playwright implementation for Windows."""
     is_google_form = 'docs.google.com/forms' in url
     
+    import time as _time
+    t_start = _time.time()
+    
     try:
-        with sync_playwright() as p:
-            browser = p.chromium.launch(headless=False, args=BROWSER_ARGS)
-            context = browser.new_context(
-                user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/121.0.0.0 Safari/537.36",
-                viewport={"width": 1920, "height": 1080},
-                locale="en-US"
-            )
-            context.add_init_script(STEALTH_SCRIPT)
-            
+        from services.form.browser_pool import get_sync_browser_context, BROWSER_ARGS as POOL_ARGS
+        
+        # Google Forms need stylesheets to render — only block media/fonts
+        resources_to_block = ["media", "font"] if is_google_form else list(BLOCKED_RESOURCE_TYPES)
+        
+        with get_sync_browser_context(
+            stealth_script=STEALTH_SCRIPT,
+            block_resources=resources_to_block,
+            headless=PLAYWRIGHT_HEADLESS,
+        ) as context:
             page = context.new_page()
-            page.route("**/*", lambda r: r.abort() if r.request.resource_type in {"media", "font"} else r.continue_())
             
             print(f"🔗 Navigating to {'Google Form' if is_google_form else 'page'}...")
-            page.goto(url, wait_until="domcontentloaded", timeout=120000)
             
-            # Wait for content
+            if is_google_form:
+                # Google Forms need full JS execution — use 'load' to wait for scripts
+                try:
+                    page.goto(url, wait_until="load", timeout=20000)
+                except Exception:
+                    print("⚠️ Fast load timed out, retrying with extended timeout...")
+                    page.goto(url, wait_until="load", timeout=60000)
+            else:
+                # Standard forms load fast with domcontentloaded
+                try:
+                    page.goto(url, wait_until="domcontentloaded", timeout=20000)
+                except Exception:
+                    print("⚠️ Fast load timed out, retrying with extended timeout...")
+                    page.goto(url, wait_until="domcontentloaded", timeout=60000)
+            
+            # Wait for content — smart waits, no fixed sleep
             if is_google_form:
                 _sync_wait_for_google_form(page)
             else:
                 try:
-                    page.wait_for_load_state("networkidle", timeout=10000)
-                except:
-                    pass
-                import time
-                time.sleep(2)
+                    page.wait_for_selector(
+                        'form, input, textarea, select, [role="form"]',
+                        timeout=3000,
+                        state='attached'
+                    )
+                except Exception:
+                    # Form elements not in DOM within 3s — proceed anyway
+                    page.wait_for_timeout(500)
             
             print("✓ Page loaded, extracting forms...")
             
-            # Extract forms using sync JS evaluation
-            html_content = page.content()
-            forms_data = _extract_with_beautifulsoup(html_content)
-            
-            # Also try the JS extraction
-            if not forms_data:
-                forms_data = page.evaluate(_get_standard_extraction_js())
+            # Extract forms — use specialized Google Forms JS extractor or BS4+JS for standard
+            if is_google_form:
+                from services.form.extractors.google_forms import GOOGLE_FORMS_JS
+                forms_data = page.evaluate(GOOGLE_FORMS_JS)
+                print(f"✓ Google Forms JS extractor found {len(forms_data)} form(s)")
+            else:
+                html_content = page.content()
+                forms_data = _extract_with_beautifulsoup(html_content)
+                if not forms_data:
+                    forms_data = page.evaluate(_get_standard_extraction_js())
             
             print(f"✓ Found {len(forms_data)} form(s)")
             
-            # Click custom dropdowns to extract options (BEFORE closing browser)
+            # Click custom dropdowns to extract options (BEFORE closing context)
             if not is_google_form and forms_data:
                 print("🔽 Extracting custom dropdown options...")
                 forms_data = _sync_extract_custom_dropdown_options(page, forms_data)
-            
-            browser.close()
             
             # Apply manual field overrides
             if manual_fields:
@@ -162,6 +190,9 @@ def _sync_get_form_schema(
             if generate_speech and fields:
                 result['speech'] = _generate_speech(fields)
             
+            t_end = _time.time()
+            print(f"⏱️  Playwright scrape completed in {t_end - t_start:.2f}s")
+            
             return result
             
     except Exception as e:
@@ -173,15 +204,24 @@ def _sync_get_form_schema(
 
 def _sync_wait_for_google_form(page):
     """Sync version of waiting for Google Form content."""
-    import time
     selectors = ['.Qr7Oae', '[role="listitem"]', '.freebirdFormviewerViewNumberedItemContainer']
     for selector in selectors:
         try:
             page.wait_for_selector(selector, timeout=10000)
+            print(f"✓ Google Form content detected via {selector}")
+            # Quick scroll to trigger lazy content loading
+            page.evaluate("""
+                () => {
+                    window.scrollTo(0, document.body.scrollHeight);
+                    window.scrollTo(0, 0);
+                }
+            """)
+            page.wait_for_timeout(500)  # Brief pause for lazy renders
             return
         except:
             continue
-    time.sleep(3)
+    # Final fallback — just wait 1s
+    page.wait_for_timeout(1000)
 
 
 def _sync_extract_custom_dropdown_options(page, forms_data: List[Dict]) -> List[Dict]:
@@ -222,7 +262,11 @@ def _sync_extract_custom_dropdown_options(page, forms_data: List[Dict]) -> List[
                 
                 if dropdown:
                     dropdown.click()
-                    time.sleep(0.5)  # Wait for options to render
+                    # Smart wait: return as soon as options render (vs fixed 500ms sleep)
+                    try:
+                        page.wait_for_selector('[role="option"], .ant-select-item-option, [role="listbox"]', timeout=2000)
+                    except Exception:
+                        pass  # Proceed with whatever is available
                     
                     # Extract options from any visible dropdown panel
                     options = page.evaluate("""
@@ -250,7 +294,6 @@ def _sync_extract_custom_dropdown_options(page, forms_data: List[Dict]) -> List[
                     
                     # Close dropdown
                     page.keyboard.press('Escape')
-                    time.sleep(0.2)
                     
             except Exception as e:
                 print(f"   ⚠️ Could not extract options for dropdown: {e}")
@@ -371,9 +414,12 @@ async def _async_get_form_schema(
     """Original async Playwright implementation for non-Windows platforms."""
     is_google_form = 'docs.google.com/forms' in url
     
+    import time as _time
+    t_start = _time.time()
+    
     try:
         async with async_playwright() as p:
-            browser = await p.chromium.launch(headless=False, args=BROWSER_ARGS)
+            browser = await p.chromium.launch(headless=PLAYWRIGHT_HEADLESS, args=BROWSER_ARGS)
             context = await browser.new_context(
                 user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/121.0.0.0 Safari/537.36",
                 viewport={"width": 1920, "height": 1080},
@@ -382,20 +428,32 @@ async def _async_get_form_schema(
             await context.add_init_script(STEALTH_SCRIPT)
             
             page = await context.new_page()
-            await page.route("**/*", lambda r: r.abort() if r.request.resource_type in {"media", "font"} else r.continue_())
+            await page.route("**/*", lambda r: r.abort() if r.request.resource_type in BLOCKED_RESOURCE_TYPES else r.continue_())
             
             print(f"🔗 Navigating to {'Google Form' if is_google_form else 'page'}...")
-            await page.goto(url, wait_until="domcontentloaded", timeout=120000)
+            # Try fast timeout first, fallback for slow forms
+            try:
+                await page.goto(url, wait_until="domcontentloaded", timeout=20000)
+            except Exception:
+                print("⚠️ Fast load timed out, retrying with extended timeout...")
+                await page.goto(url, wait_until="domcontentloaded", timeout=60000)
             
-            # Wait for content
+            # Wait for content — smart waits, no fixed sleep
             if is_google_form:
                 await _wait_for_google_form(page)
             else:
                 try:
-                    await page.wait_for_load_state("networkidle", timeout=10000)
-                except:
-                    pass
-                await asyncio.sleep(2)
+                    await page.wait_for_selector(
+                        'form, input, textarea, select, [role="form"]',
+                        timeout=8000,
+                        state='visible'
+                    )
+                except TimeoutError:
+                    print("⚠️ Form selector not found in 8s, using 1s fallback")
+                    await asyncio.sleep(1)
+                except Exception as e:
+                    print(f"⚠️ Smart wait failed: {e}")
+                    pass  # Proceed with what's loaded
             
             print("✓ Page loaded, extracting forms...")
             
@@ -439,6 +497,9 @@ async def _async_get_form_schema(
             # Generate speech if requested
             if generate_speech and fields:
                 result['speech'] = _generate_speech(fields)
+            
+            t_end = _time.time()
+            print(f"⏱️  Playwright scrape completed in {t_end - t_start:.2f}s")
             
             return result
             
@@ -868,7 +929,7 @@ _STANDARD_EXTRACTION_MOVED = r"""
 
 def _extract_with_beautifulsoup(html: str) -> List[Dict]:
     """BeautifulSoup fallback extraction with radio/checkbox grouping."""
-    soup = BeautifulSoup(html, "html.parser")
+    soup = BeautifulSoup(html, "lxml")
     forms = []
     
     for idx, form in enumerate(soup.find_all("form")):

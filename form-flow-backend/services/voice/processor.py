@@ -34,19 +34,19 @@ class VoiceProcessor:
 
     def analyze_form_context(self, form_schema: List[Dict]) -> str:
         """Analyze form structure and create context for intelligent prompts"""
-        context = "Form Analysis:\n"
+        parts = ["Form Analysis:"]
         for form in form_schema:
-            context += f"Form Action: {form.get('action', 'N/A')}\n"
-            context += "Fields:\n"
+            parts.append(f"Form Action: {form.get('action', 'N/A')}")
+            parts.append("Fields:")
             for field in form.get('fields', []):
                 field_type = field.get('type', 'text')
                 label = field.get('label', field.get('name', 'Unnamed'))
                 required = " (Required)" if field.get('required') else ""
-                context += f"- {label}: {field_type}{required}\n"
+                parts.append(f"- {label}: {field_type}{required}")
                 if field.get('options'):
                     options = [opt.get('label', opt.get('value', '')) for opt in field['options']]
-                    context += f"  Options: {', '.join(options)}\n"
-        return context
+                    parts.append(f"  Options: {', '.join(options)}")
+        return "\n".join(parts)
 
     def generate_smart_prompt(self, form_context: str, field_info: Dict) -> str:
         """Generate context-aware prompts for form fields"""
