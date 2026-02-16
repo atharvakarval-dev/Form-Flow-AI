@@ -530,9 +530,28 @@ export function Dashboard() {
                                         <div className={`divide-y ${isDark ? 'divide-white/5' : 'divide-zinc-100'}`}>
                                             {paginatedHistory.map((item, idx) => {
                                                 const ratingEmojis = ["😔", "😕", "😐", "🙂", "😍"];
-                                                const localFeedback = JSON.parse(localStorage.getItem('form_feedback_history') || '{}');
-                                                const feedback = localFeedback[item.form_url];
-                                                const emoji = feedback ? ratingEmojis[feedback.rating - 1] : null;
+                                                let localFeedback = {};
+                                                let feedback = null;
+                                                let emoji = null;
+                                                
+                                                try {
+                                                    const stored = localStorage.getItem('form_feedback_history');
+                                                    if (stored) {
+                                                        localFeedback = JSON.parse(stored);
+                                                        // Validate it's an object
+                                                        if (typeof localFeedback !== 'object' || localFeedback === null) {
+                                                            localFeedback = {};
+                                                        } else {
+                                                            feedback = localFeedback[item.form_url];
+                                                            emoji = feedback ? ratingEmojis[feedback.rating - 1] : null;
+                                                        }
+                                                    }
+                                                } catch (e) {
+                                                    console.warn('Failed to parse form_feedback_history, resetting', e);
+                                                    try {
+                                                        localStorage.removeItem('form_feedback_history');
+                                                    } catch {}
+                                                }
 
                                                 return (
                                                     <motion.div

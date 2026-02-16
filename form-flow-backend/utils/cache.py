@@ -72,10 +72,14 @@ async def get_redis_client():
 
 
 # =============================================================================
-# In-Memory Fallback Cache
+# In-Memory Fallback Cache with TTL Support
 # =============================================================================
 
+import time
+from typing import Tuple
+
 _memory_cache: dict = {}
+_memory_cache_ttl: dict = {}  # Track expiration times
 
 
 # =============================================================================
@@ -84,13 +88,13 @@ _memory_cache: dict = {}
 
 async def get_cached(key: str) -> Optional[Any]:
     """
-    Get value from cache.
+    Get value from cache with robust error handling.
     
     Args:
         key: Cache key
         
     Returns:
-        Cached value or None if not found
+        Cached value or None if not found/corrupted
     """
     redis = await get_redis_client()
     
@@ -98,12 +102,30 @@ async def get_cached(key: str) -> Optional[Any]:
         try:
             value = await redis.get(key)
             if value:
-                return json.loads(value)
+                try:
+                    return json.loads(value)
+                except json.JSONDecodeError as e:
+                    logger.warning(f"Corrupted cache data for key '{key}': {e}")
+                    # Delete corrupted key to prevent repeated errors
+                    try:
+                        await redis.delete(key)
+                    except Exception:
+                        pass
+                    return None
         except Exception as e:
             logger.debug(f"Redis get failed: {e}")
     
-    # Fallback to memory
-    return _memory_cache.get(key)
+    # Check memory cache with TTL validation
+    if key in _memory_cache:
+        if key in _memory_cache_ttl:
+            if time.time() > _memory_cache_ttl[key]:
+                # Expired - remove from cache
+                del _memory_cache[key]
+                del _memory_cache_ttl[key]
+                return None
+        return _memory_cache[key]
+    
+    return None
 
 
 async def set_cached(
@@ -112,7 +134,7 @@ async def set_cached(
     ttl: int = 300  # 5 minutes default
 ) -> bool:
     """
-    Set value in cache.
+    Set value in cache with TTL support.
     
     Args:
         key: Cache key
@@ -131,8 +153,9 @@ async def set_cached(
         except Exception as e:
             logger.debug(f"Redis set failed: {e}")
     
-    # Fallback to memory (no TTL support)
+    # Fallback to memory with TTL tracking
     _memory_cache[key] = value
+    _memory_cache_ttl[key] = time.time() + ttl
     return True
 
 
@@ -146,7 +169,9 @@ async def delete_cached(key: str) -> bool:
         except Exception:
             pass
     
+    # Remove from memory cache and TTL tracking
     _memory_cache.pop(key, None)
+    _memory_cache_ttl.pop(key, None)
     return True
 
 
@@ -172,9 +197,11 @@ async def clear_cache_pattern(pattern: str) -> int:
             logger.debug(f"Redis pattern clear failed: {e}")
     
     # Clear from memory cache too
-    keys_to_delete = [k for k in _memory_cache if k.startswith(pattern.replace("*", ""))]
+    pattern_prefix = pattern.replace("*", "")
+    keys_to_delete = [k for k in _memory_cache if k.startswith(pattern_prefix)]
     for key in keys_to_delete:
         del _memory_cache[key]
+        _memory_cache_ttl.pop(key, None)  # Also remove TTL entry
         count += 1
     
     return count

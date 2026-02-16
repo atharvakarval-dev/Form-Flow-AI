@@ -14,6 +14,15 @@ from .detectors.captcha import detect_captcha
 from .utils.constants import CAPTCHA_SELECTORS
 from services.captcha.solver import CaptchaSolverService, get_captcha_solver
 from utils.logging import get_logger
+from utils.human_form_submitter import HumanFormSubmitter, SyncHumanFormSubmitter
+from utils.stealth_browser import (
+    setup_production_stealth_browser,
+    setup_production_stealth_browser_sync, 
+    get_random_viewport, 
+    get_random_user_agent, 
+    get_random_timezone
+)
+from .browser_pool import get_browser_context as get_browser_pool_context, get_sync_browser_context as get_browser_pool_context_sync
 
 logger = get_logger(__name__)
 
@@ -1115,19 +1124,27 @@ class FormSubmitter:
     # PUBLIC API
     # ─────────────────────────────────────────────────────────────────────────
     
-    async def submit_form_data(self, url: str, form_data: Dict[str, str], form_schema: List[Dict], use_cdp: bool = False) -> Dict[str, Any]:
-        """Submit form data to target website with CAPTCHA detection.
+    async def submit_form_data(self, url: str, form_data: Dict[str, str], form_schema: List[Dict], use_cdp: bool = False, human_like: bool = False) -> Dict[str, Any]:
+        """Submit form data to target website with CAPTCHA detection and optional human-like behavior.
         
-        On Windows, uses sync Playwright via asyncio.to_thread() to bypass
-        asyncio subprocess limitations in Python 3.14.
+        Args:
+            url: Target URL
+            form_data: Data to fill
+            form_schema: Form field definitions
+            use_cdp: Connect to existing browser (dev only)
+            human_like: Enable anti-detection human behavior (slower but safer)
         
         Flow:
-            1. Open form in visible browser
-            2. Fill all fields
-            3. Detect CAPTCHA
-            4. If CAPTCHA found: DON'T submit, leave browser open for user
-            5. If no CAPTCHA: Submit form normally
+            1. If human_like=True: Use async path with human emulation (Force Async)
+            2. Else (Windows): Use sync Playwright via thread
+            3. Else (Linux/Mac): Use async Playwright
         """
+        if human_like:
+            if sys.platform == 'win32':
+                return await asyncio.to_thread(self._sync_submit_with_human_behavior, url, form_data, form_schema)
+            else:
+                return await self._async_submit_with_human_behavior(url, form_data, form_schema)
+
         if sys.platform == 'win32':
             return await asyncio.to_thread(self._sync_submit_form_data, url, form_data, form_schema, use_cdp)
         else:
@@ -1511,6 +1528,199 @@ class FormSubmitter:
             traceback.print_exc()
             return {"success": False, "error": str(e), "message": "Form submission failed"}
     
+    async def _async_submit_with_human_behavior(
+        self,
+        url: str,
+        form_data: Dict[str, str],
+        form_schema: List[Dict]
+    ) -> Dict[str, Any]:
+        """
+        Submit form with human-like behavior (Async Only).
+        
+        Features:
+        - 8-tier anti-detection (Stealth)
+        - Browser pool integration
+        - Realistic typing and mouse movement
+        - Robust error handling
+        """
+        import time
+        start_time = time.time()
+        
+        logger.info(f"🤖 Starting Human-Like Submission to {url}")
+        
+        page = None
+        context = None
+        browser_manager = None  # handle for manual browser
+        
+        try:
+            # 1. Try to get page from browser pool
+            try:
+                # We need to manually manage the context manager to keep it open
+                ctx_manager = get_browser_pool_context()
+                context = await ctx_manager.__aenter__()
+                page = await context.new_page()
+                logger.info("✅ Acquired browser from pool")
+            except Exception as e:
+                logger.warning(f"⚠️ Browser pool unavailable, launching manual browser: {e}")
+                from playwright.async_api import async_playwright
+                p = await async_playwright().start()
+                browser = await p.chromium.launch(
+                    headless=True,
+                    args=['--disable-blink-features=AutomationControlled', '--no-sandbox']
+                )
+                context = await browser.new_context(
+                    viewport=get_random_viewport(),
+                    user_agent=get_random_user_agent(),
+                    timezone_id=get_random_timezone(),
+                    locale='en-US'
+                )
+                page = await context.new_page()
+                browser_manager = (p, browser)
+
+            # 2. Enable Stealth Mode
+            await setup_production_stealth_browser(page)
+            
+            # 3. Navigate with human-like pause
+            logger.info(f"🌐 Navigating to {url}")
+            await page.goto(url, wait_until='domcontentloaded', timeout=60000)
+            await asyncio.sleep(random.uniform(1.5, 3.0))  # Initial "reading" pause
+            
+            # 4. Execute Human Submitter
+            submitter = HumanFormSubmitter(page)
+            success, message = await submitter.submit_form(form_schema, form_data)
+            
+            elapsed = time.time() - start_time
+            logger.info(f"🏁 Human submission finished in {elapsed:.2f}s: {success}")
+            
+            return {
+                "success": success,
+                "message": message,
+                "human_like": True,
+                "timing_seconds": elapsed
+            }
+            
+        except Exception as e:
+            logger.error(f"❌ Human-like submission error: {e}", exc_info=True)
+            return {
+                "success": False,
+                "message": f"Error: {str(e)}",
+                "human_like": True
+            }
+            
+        finally:
+            # Cleanup
+            try:
+                if page: await page.close()
+                if context: 
+                    if browser_manager: 
+                        await context.close()
+                    else:
+                        # For pool, we exit the context manager
+                        await ctx_manager.__aexit__(None, None, None)
+                
+                if browser_manager:
+                    p, b = browser_manager
+                    await b.close()
+                    await p.stop()
+            except:
+                pass
+
+
+
+    def _sync_submit_with_human_behavior(
+        self,
+        url: str,
+        form_data: Dict[str, str],
+        form_schema: List[Dict]
+    ) -> Dict[str, Any]:
+        """
+        Submit form with human-like behavior (Synchronous for Windows).
+        """
+        import time
+        start_time = time.time()
+        
+        logger.info(f"🤖 Starting SYNC Human-Like Submission to {url}")
+        
+        page = None
+        context = None
+        browser_manager = None
+        
+        try:
+            # 1. Try to get page from browser pool (Sync)
+            try:
+                # Use context manager manual handling to match structure if needed,
+                # but 'with' statement is fine here since we don't need to yield
+                ctx_manager = get_browser_pool_context_sync()
+                # We'll use the context manager directly in a with block if possible,
+                # but need to handle fallback. 
+                # Let's try to acquire it.
+                context = ctx_manager.__enter__()
+                page = context.new_page()
+                logger.info("✅ Acquired sync browser from pool")
+            except Exception as e:
+                logger.warning(f"⚠️ Sync Browser pool unavailable, launching manual: {e}")
+                from playwright.sync_api import sync_playwright
+                p = sync_playwright().start()
+                browser = p.chromium.launch(
+                    headless=True,
+                    args=['--disable-blink-features=AutomationControlled', '--no-sandbox']
+                )
+                context = browser.new_context(
+                    viewport=get_random_viewport(),
+                    user_agent=get_random_user_agent(),
+                    timezone_id=get_random_timezone(),
+                    locale='en-US'
+                )
+                page = context.new_page()
+                browser_manager = (p, browser)
+
+            # 2. Enable Stealth Mode (Sync)
+            setup_production_stealth_browser_sync(page, context)
+            
+            # 3. Navigate
+            logger.info(f"🌐 Navigating to {url}")
+            page.goto(url, wait_until='domcontentloaded', timeout=60000)
+            time.sleep(random.uniform(1.5, 3.0))
+            
+            # 4. Execute Human Submitter (Sync)
+            submitter = SyncHumanFormSubmitter(page)
+            success, message = submitter.submit_form(form_schema, form_data)
+            
+            elapsed = time.time() - start_time
+            logger.info(f"🏁 Human submission finished in {elapsed:.2f}s: {success}")
+            
+            return {
+                "success": success,
+                "message": message,
+                "human_like": True,
+                "timing_seconds": elapsed
+            }
+            
+        except Exception as e:
+            logger.error(f"❌ Human-like submission error: {e}", exc_info=True)
+            return {
+                "success": False,
+                "message": f"Error: {str(e)}",
+                "human_like": True
+            }
+            
+        finally:
+            try:
+                if page: page.close()
+                if context:
+                    if browser_manager:
+                        context.close()
+                    else:
+                        # Release pool context
+                        ctx_manager.__exit__(None, None, None)
+                
+                if browser_manager:
+                    p, b = browser_manager
+                    b.close()
+                    p.stop()
+            except:
+                pass
+
     async def _fill_form_only(self, page, form_data: Dict[str, str], form_schema: List[Dict], is_google_form: bool = False) -> Dict[str, Any]:
         """Fill form fields WITHOUT submitting."""
         filled, errors = [], []

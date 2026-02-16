@@ -87,11 +87,10 @@ async def get_form_schema(
     Returns:
         Dict with 'forms', 'url', 'is_google_form', 'total_forms', 'total_fields'
     """
-    # On Windows, use sync Playwright to avoid asyncio subprocess issues
+    # On Windows, use sync Playwright in a thread to avoid SelectorEventLoop issues
     if sys.platform == 'win32':
         return await asyncio.to_thread(_sync_get_form_schema, url, generate_speech, wait_for_dynamic, manual_fields)
     
-    # Non-Windows: use async Playwright as before
     return await _async_get_form_schema(url, generate_speech, wait_for_dynamic, manual_fields)
 
 
@@ -411,24 +410,25 @@ async def _async_get_form_schema(
     wait_for_dynamic: bool = True,
     manual_fields: List[Dict] = None
 ) -> Dict[str, Any]:
-    """Original async Playwright implementation for non-Windows platforms."""
+    """Async Playwright implementation using browser pool."""
     is_google_form = 'docs.google.com/forms' in url
     
     import time as _time
     t_start = _time.time()
     
     try:
-        async with async_playwright() as p:
-            browser = await p.chromium.launch(headless=PLAYWRIGHT_HEADLESS, args=BROWSER_ARGS)
-            context = await browser.new_context(
-                user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/121.0.0.0 Safari/537.36",
-                viewport={"width": 1920, "height": 1080},
-                locale="en-US"
-            )
-            await context.add_init_script(STEALTH_SCRIPT)
+        from services.form.browser_pool import get_browser_context
+        
+        # Google Forms need stylesheets to render — only block media/fonts
+        resources_to_block = ["media", "font"] if is_google_form else list(BLOCKED_RESOURCE_TYPES)
+        
+        async with get_browser_context(
+            stealth_script=STEALTH_SCRIPT,
+            block_resources=resources_to_block,
+            headless=PLAYWRIGHT_HEADLESS
+        ) as context:
             
             page = await context.new_page()
-            await page.route("**/*", lambda r: r.abort() if r.request.resource_type in BLOCKED_RESOURCE_TYPES else r.continue_())
             
             print(f"🔗 Navigating to {'Google Form' if is_google_form else 'page'}...")
             # Try fast timeout first, fallback for slow forms
@@ -458,6 +458,7 @@ async def _async_get_form_schema(
             print("✓ Page loaded, extracting forms...")
             
             # Extract forms
+            # Extract forms
             forms_data = await _extract_google_forms(page) if is_google_form else await _extract_all_frames(page, url)
             
             # Click custom dropdowns to extract options
@@ -471,12 +472,12 @@ async def _async_get_form_schema(
                 await page.unroute_all(behavior='ignoreErrors')
             except:
                 pass
-            await browser.close()
             
             # Apply manual field overrides
             if manual_fields:
                 forms_data = _merge_manual_fields(forms_data, manual_fields)
             
+            # Process and enrich fields
             # Process and enrich fields
             fields = _process_forms(forms_data)
             

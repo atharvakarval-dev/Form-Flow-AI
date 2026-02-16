@@ -43,6 +43,7 @@ class FormSubmitRequest(BaseModel):
     form_data: Dict[str, Any]
     form_schema: List[Dict[str, Any]]
     use_cdp: bool = False  # If True, connect to user's browser via Chrome DevTools Protocol
+    human_like: bool = False  # If True, use anti-detection human behavior
 
 class ConversationalFlowRequest(BaseModel):
     extracted_fields: Dict[str, str]
@@ -319,21 +320,25 @@ async def scrape_form(
         print(f"⏱️  Scrape + process: {t2 - t1:.2f}s")
         
         # ━━━ MAGIC FILL (non-blocking — runs in background) ━━━
-        auth_header = request.headers.get('Authorization')
-        if auth_header and auth_header.startswith('Bearer '):
-            # Fire-and-forget: run Magic Fill in background so /scrape returns instantly
-            background_tasks.add_task(
-                _run_magic_fill_background,
-                url, auth_header, processed_data['form_schema'], db, gemini_service
-            )
+        # ━━━ MAGIC FILL (non-blocking — runs in background) ━━━
+        if settings.ENABLE_AI:
+            auth_header = request.headers.get('Authorization')
+            if auth_header and auth_header.startswith('Bearer '):
+                # Fire-and-forget: run Magic Fill in background so /scrape returns instantly
+                background_tasks.add_task(
+                    _run_magic_fill_background,
+                    url, auth_header, processed_data['form_schema'], db, gemini_service
+                )
+        else:
+             print("ℹ️ Magic Fill skipped (ENABLE_AI=False)")
         
         # ━━━ BUILD RESPONSE ━━━
         response_data = {
             "message": "Form scraped and analyzed successfully",
             **processed_data,
-            "gemini_ready": gemini_service is not None,
+            "gemini_ready": gemini_service is not None and settings.ENABLE_AI,
             "magic_fill_data": None,  # Will be available via /magic-fill-result endpoint
-            "magic_fill_status": "processing" if auth_header and auth_header.startswith('Bearer ') else "skipped"
+            "magic_fill_status": "processing" if settings.ENABLE_AI and auth_header and auth_header.startswith('Bearer ') else "skipped"
         }
         
         # ━━━ CACHE RESULT (30 min TTL) ━━━
@@ -393,17 +398,21 @@ async def comprehensive_form_setup(
             
         # Step 3: Generate initial conversational flow if requested
         conversational_flow = None
-        if data.auto_generate_flow and gemini_service:
+        if data.auto_generate_flow and gemini_service and settings.ENABLE_AI:
             flow_result = gemini_service.generate_conversational_flow({}, processed_data["form_schema"])
             if flow_result["success"]:
                 conversational_flow = flow_result["conversational_flow"]
+        elif not settings.ENABLE_AI:
+            print("ℹ️ Conversational flow generation skipped (ENABLE_AI=False)")
         
         return {
             "message": "Form setup completed successfully",
             **processed_data,
             "conversational_flow": conversational_flow,
             "ready_for_interaction": True,
-            "gemini_ready": gemini_service is not None
+            "conversational_flow": conversational_flow,
+            "ready_for_interaction": True,
+            "gemini_ready": gemini_service is not None and settings.ENABLE_AI
         }
         
     except Exception as e:
@@ -452,6 +461,9 @@ async def generate_conversational_flow(
 ):
     """Generate conversational flow based on extracted fields using Gemini API."""
     try:
+        if not settings.ENABLE_AI:
+            raise HTTPException(status_code=400, detail="AI features are disabled")
+            
         if not gemini_service:
             raise HTTPException(status_code=500, detail="Gemini API not configured")
         
@@ -607,6 +619,16 @@ async def magic_fill(
                 "summary": "Please sign in to use Magic Fill"
             }
         
+        # Check if AI is enabled
+        if not settings.ENABLE_AI:
+            return {
+                "success": False,
+                "error": "AI features are disabled",
+                "filled": {},
+                "unfilled": [],
+                "summary": "AI features are currently disabled"
+            }
+        
         # 2. Call Smart Form Filler Chain
         if not gemini_service:
             raise HTTPException(status_code=500, detail="Gemini service not available")
@@ -659,14 +681,16 @@ async def submit_form(
                 url=data.url,
                 form_data=formatted_data,
                 form_schema=data.form_schema,
-                use_cdp=data.use_cdp
+                use_cdp=data.use_cdp,
+                human_like=data.human_like
             )
         else:
             result = await form_submitter.submit_form_data(
                 url=data.url,
                 form_data=data.form_data,
                 form_schema=data.form_schema,
-                use_cdp=data.use_cdp
+                use_cdp=data.use_cdp,
+                human_like=data.human_like
             )
         
         # --- History Tracking ---

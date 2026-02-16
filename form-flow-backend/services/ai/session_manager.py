@@ -186,17 +186,29 @@ class SessionManager:
         
         return len(expired)
     
-    def _serialize_session(self, session: Dict[str, Any]) -> Dict[str, Any]:
-        """Serialize session data for storage."""
+    def _serialize_session(self, session: Dict[str, Any], _depth: int = 0) -> Dict[str, Any]:
+        """Serialize session data for storage with depth limit to prevent infinite recursion."""
+        MAX_DEPTH = 10
+        
+        if _depth > MAX_DEPTH:
+            logger.warning(f"Max serialization depth {MAX_DEPTH} reached, truncating")
+            return {}
+        
         serialized = {}
         for key, value in session.items():
-            if isinstance(value, datetime):
-                serialized[key] = {'__datetime__': value.isoformat()}
-            elif hasattr(value, '__dict__'):
-                # Handle dataclass objects
-                serialized[key] = self._serialize_session(value.__dict__)
-            else:
-                serialized[key] = value
+            try:
+                if isinstance(value, datetime):
+                    serialized[key] = {'__datetime__': value.isoformat()}
+                elif hasattr(value, '__dict__') and not isinstance(value, (str, int, float, bool, type(None))):
+                    # Recursively serialize with depth tracking
+                    serialized[key] = self._serialize_session(value.__dict__, _depth + 1)
+                else:
+                    serialized[key] = value
+            except Exception as e:
+                logger.warning(f"Failed to serialize field '{key}': {e}")
+                # Fallback to string representation
+                serialized[key] = str(value)
+        
         return serialized
     
     def _deserialize_session(self, data: Dict[str, Any]) -> Dict[str, Any]:

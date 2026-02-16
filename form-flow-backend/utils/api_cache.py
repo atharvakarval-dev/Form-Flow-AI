@@ -26,7 +26,7 @@ logger = get_logger(__name__)
 
 def generate_cache_key(prefix: str, *args, **kwargs) -> str:
     """
-    Generate a cache key from function arguments.
+    Generate a cache key from function arguments using SHA256.
     
     Args:
         prefix: Cache key prefix (e.g., "form_schema")
@@ -34,7 +34,7 @@ def generate_cache_key(prefix: str, *args, **kwargs) -> str:
         **kwargs: Keyword arguments
         
     Returns:
-        str: MD5 hash-based cache key
+        str: SHA256 hash-based cache key
     """
     # Create a string from all arguments
     key_parts = [prefix]
@@ -43,8 +43,8 @@ def generate_cache_key(prefix: str, *args, **kwargs) -> str:
     
     key_string = "|".join(key_parts)
     
-    # Hash for consistent length
-    hash_value = hashlib.md5(key_string.encode()).hexdigest()[:16]
+    # Use SHA256 for better collision resistance (32 chars)
+    hash_value = hashlib.sha256(key_string.encode()).hexdigest()[:32]
     
     return f"{prefix}:{hash_value}"
 

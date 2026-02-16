@@ -32,6 +32,11 @@ export const queryClient = new QueryClient({
     },
 });
 
+// Make queryClient globally accessible for cache clearing on logout
+if (typeof window !== 'undefined') {
+    window.queryClient = queryClient;
+}
+
 /**
  * Query keys factory for type-safe cache invalidation
  */

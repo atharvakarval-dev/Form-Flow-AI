@@ -43,8 +43,19 @@ api.interceptors.response.use(
     (error) => {
         // Handle common errors
         if (error.response?.status === 401) {
-            // Token expired - clear and redirect
+            // Token expired - clear all auth data and cache
             localStorage.removeItem('token');
+            localStorage.removeItem('user_email');
+            
+            // Clear React Query cache to prevent stale data
+            if (typeof window !== 'undefined' && window.queryClient) {
+                try {
+                    window.queryClient.clear();
+                } catch (e) {
+                    console.warn('Failed to clear query cache:', e);
+                }
+            }
+            
             window.location.href = '/login';
         }
 

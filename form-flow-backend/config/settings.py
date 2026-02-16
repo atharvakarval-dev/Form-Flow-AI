@@ -141,6 +141,10 @@ class Settings(BaseSettings):
     # ==========================================================================
     # Smart Question Engine Configuration
     # ==========================================================================
+    ENABLE_AI: bool = Field(
+        default=True,
+        description="Enable AI features (disable for dev/testing to save quota)"
+    )
     SMART_GROUPING_ENABLED: bool = Field(
         default=True,
         description="Enable Smart Question Grouping (reduces 159 fields to ~30 groups)"

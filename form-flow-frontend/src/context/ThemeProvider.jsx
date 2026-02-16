@@ -132,10 +132,19 @@ export const ThemeProvider = ({ children }) => {
         try {
             const saved = localStorage.getItem('formflow-theme-prefs');
             if (saved) {
-                return JSON.parse(saved).theme || 'default';
+                const parsed = JSON.parse(saved);
+                // Validate parsed data structure and theme exists
+                if (parsed && typeof parsed.theme === 'string' && THEMES[parsed.theme]) {
+                    return parsed.theme;
+                }
+                // Invalid data structure, clear it
+                localStorage.removeItem('formflow-theme-prefs');
             }
         } catch (e) {
-            console.warn('Error reading theme from localStorage', e);
+            console.warn('Error reading theme from localStorage, clearing corrupted data', e);
+            try {
+                localStorage.removeItem('formflow-theme-prefs');
+            } catch {}
         }
         return 'default';
     });
@@ -144,13 +153,20 @@ export const ThemeProvider = ({ children }) => {
         try {
             const saved = localStorage.getItem('formflow-theme-prefs');
             if (saved) {
-                return {
-                    ...DEFAULT_CUSTOMIZATIONS,
-                    ...JSON.parse(saved).customizations
-                };
+                const parsed = JSON.parse(saved);
+                // Validate customizations is an object
+                if (parsed && typeof parsed.customizations === 'object' && parsed.customizations !== null) {
+                    return {
+                        ...DEFAULT_CUSTOMIZATIONS,
+                        ...parsed.customizations
+                    };
+                }
             }
         } catch (e) {
-            console.warn('Error reading customizations from localStorage', e);
+            console.warn('Error reading customizations from localStorage, using defaults', e);
+            try {
+                localStorage.removeItem('formflow-theme-prefs');
+            } catch {}
         }
 
         // Check for reduced motion if no preference saved
